@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cargo install:*)",
+      "Bash(rustup target add:*)",
+      "Bash(npm create:*)",
+      "Bash(npm run build:*)",
+      "Bash(xargs cat:*)",
+      "Bash(cargo build:*)",
+      "Bash(cargo test:*)",
+      "Bash(wc:*)",
+      "Bash(cargo check:*)",
+      "Bash(ls:*)",
+      "Bash(done)"
+    ]
+  }
+}

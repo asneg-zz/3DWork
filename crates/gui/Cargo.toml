@@ -1,0 +1,51 @@
+[package]
+name = "vcad-gui"
+version = "0.1.0"
+edition = "2021"
+description = "Native 3D CAD GUI built with egui + wgpu"
+
+[lib]
+name = "vcad_gui_lib"
+path = "src/lib.rs"
+
+[[bin]]
+name = "vcad-gui"
+path = "src/main.rs"
+
+[dependencies]
+# Shared types
+shared = { path = "../shared" }
+
+# CAD kernel
+vcad = { version = "0.1" }
+
+# UI framework
+eframe = { version = "0.31", default-features = false, features = [
+    "default_fonts",
+    "glow",
+    "persistence",
+    "x11",
+    "wayland",
+] }
+egui = "0.31"
+egui_glow = "0.31"
+egui_extras = { version = "0.31", features = ["image"] }
+
+# 3D rendering
+glow = "0.16"
+glam = "0.29"
+
+# Serialization (workspace)
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Async + networking (for AI chat)
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
+reqwest = { version = "0.12", features = ["json"] }
+
+# Utilities
+uuid = { version = "1", features = ["v4"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+rfd = "0.15"
+directories = "5"
