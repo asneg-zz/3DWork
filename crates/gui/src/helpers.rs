@@ -191,7 +191,7 @@ mod tests {
                     plane: SketchPlane::Xy,
                     offset: 0.0,
                     elements: vec![shared::SketchElement::Circle {
-                        center: [0.0, 0.0],
+                        center: shared::Point2D { x: 0.0, y: 0.0 },
                         radius: 0.5,
                     }],
                 },

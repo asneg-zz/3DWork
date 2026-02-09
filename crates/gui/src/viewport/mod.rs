@@ -81,7 +81,7 @@ impl ViewportPanel {
 
         // ── Sketch interaction handling ─────────────────────────────
         let sketch_consumed = self.handle_sketch_interaction(ui, &response, rect, state);
-        let mod_tool_consumed = false; // Modification tools (trim/fillet) not yet implemented
+        let mod_tool_consumed = self.handle_modification_tools(&response, rect, state);
 
         // ── Gizmo and camera controls ─────────────────────────────
         self.handle_gizmo_and_camera(&response, ui, rect, state, sketch_consumed, mod_tool_consumed);
@@ -173,10 +173,15 @@ impl ViewportPanel {
                     }
                 }
 
-                // Handle left click - add point
-                if response.clicked()
-                    && state.sketch.tool != crate::state::sketch::SketchTool::None
-                {
+                // Handle left click - add point (only for drawing tools, not modification tools)
+                let is_drawing_tool = !matches!(
+                    state.sketch.tool,
+                    crate::state::sketch::SketchTool::None
+                    | crate::state::sketch::SketchTool::Trim
+                    | crate::state::sketch::SketchTool::Fillet
+                    | crate::state::sketch::SketchTool::Offset
+                );
+                if response.clicked() && is_drawing_tool {
                     if let Some(pos) = response.interact_pointer_pos() {
                         let ray = self.camera.screen_ray(pos, rect);
                         if let Some(mut point_2d) =
@@ -233,6 +238,175 @@ impl ViewportPanel {
         }
 
         sketch_consumed
+    }
+
+    /// Handle modification tools (Trim, Fillet, Offset)
+    fn handle_modification_tools(
+        &mut self,
+        response: &egui::Response,
+        rect: egui::Rect,
+        state: &mut AppState,
+    ) -> bool {
+        use crate::sketch::operations::{trim_arc, trim_circle, trim_line, TrimResult};
+        use crate::state::sketch::SketchTool;
+
+        // Only process if in sketch edit mode and using a modification tool
+        if !state.sketch.is_editing() {
+            return false;
+        }
+
+        let is_mod_tool = matches!(
+            state.sketch.tool,
+            SketchTool::Trim | SketchTool::Fillet | SketchTool::Offset
+        );
+        if !is_mod_tool {
+            return false;
+        }
+
+        // Only handle clicks
+        if !response.clicked() {
+            return false;
+        }
+
+        let pos = match response.interact_pointer_pos() {
+            Some(p) => p,
+            None => return false,
+        };
+
+        // Get sketch data
+        let body_id = state.sketch.editing_body_id().cloned();
+        let feature_id = state.sketch.active_feature_id().cloned();
+
+        let bid = match body_id {
+            Some(ref id) => id.clone(),
+            None => return false,
+        };
+
+        let sketch_data = sketch_utils::find_sketch_data_ex(
+            &state.scene.scene,
+            &bid,
+            feature_id.as_deref(),
+        );
+
+        let (sketch, sketch_transform) = match sketch_data {
+            Some((s, t)) => (s.clone(), t.clone()),
+            None => return false,
+        };
+
+        // Combine body transform with sketch transform
+        let body_transform = state
+            .scene
+            .scene
+            .bodies
+            .iter()
+            .find(|b| b.id == bid)
+            .map(|b| crate::helpers::get_body_base_transform(b))
+            .unwrap_or_else(shared::Transform::new);
+        let transform = crate::helpers::combine_transforms(&body_transform, &sketch_transform);
+
+        // Convert click to 2D sketch coordinates
+        let ray = self.camera.screen_ray(pos, rect);
+        let click_2d = match sketch_interact::ray_sketch_plane(&ray, &sketch, &transform) {
+            Some(pt) => pt,
+            None => return false,
+        };
+
+        // Hit test to find which element was clicked
+        let hit_tolerance = 0.5; // Tolerance in sketch units
+        let hit = match sketch_interact::hit_test_elements(click_2d, &sketch, hit_tolerance) {
+            Some(h) => h,
+            None => return false,
+        };
+
+        tracing::info!("Trim tool: hit element {} at {:?}, distance={}", hit.element_index, click_2d, hit.distance);
+
+        // Handle based on current tool
+        match state.sketch.tool {
+            SketchTool::Trim => {
+                // Get the element that was hit
+                if let Some(element) = sketch.elements.get(hit.element_index) {
+                    tracing::info!("Trim tool: element type = {:?}", std::mem::discriminant(element));
+                    let trim_result = match element {
+                        shared::SketchElement::Line { start, end } => {
+                            tracing::info!("Trim tool: trimming LINE from {:?} to {:?}", start, end);
+                            trim_line(
+                                hit.element_index,
+                                [start.x, start.y],
+                                [end.x, end.y],
+                                click_2d,
+                                &sketch,
+                            )
+                        }
+                        shared::SketchElement::Arc {
+                            center,
+                            radius,
+                            start_angle,
+                            end_angle,
+                        } => {
+                            tracing::info!("Trim tool: trimming ARC center={:?}, r={}, angles={}->{}", center, radius, start_angle, end_angle);
+                            trim_arc(
+                                hit.element_index,
+                                [center.x, center.y],
+                                *radius,
+                                *start_angle,
+                                *end_angle,
+                                click_2d,
+                                &sketch,
+                            )
+                        }
+                        shared::SketchElement::Circle { center, radius } => {
+                            tracing::info!("Trim tool: trimming CIRCLE center={:?}, r={}", center, radius);
+                            trim_circle(
+                                hit.element_index,
+                                [center.x, center.y],
+                                *radius,
+                                click_2d,
+                                &sketch,
+                            )
+                        }
+                        // Rectangles could be decomposed to lines for trimming (future)
+                        _ => {
+                            tracing::info!("Trim tool: element type not supported for trimming");
+                            TrimResult::NoChange
+                        }
+                    };
+
+                    tracing::info!("Trim result: {:?}", match &trim_result {
+                        TrimResult::Removed => "Removed".to_string(),
+                        TrimResult::Replaced(elems) => format!("Replaced with {} elements", elems.len()),
+                        TrimResult::NoChange => "NoChange".to_string(),
+                    });
+
+                    // Apply the trim result
+                    match trim_result {
+                        TrimResult::Removed => {
+                            state.scene.remove_sketch_element(
+                                &bid,
+                                feature_id.as_deref(),
+                                hit.element_index,
+                            );
+                        }
+                        TrimResult::Replaced(new_elements) => {
+                            state.scene.replace_sketch_element(
+                                &bid,
+                                feature_id.as_deref(),
+                                hit.element_index,
+                                new_elements,
+                            );
+                        }
+                        TrimResult::NoChange => {
+                            // No intersection found - do nothing
+                        }
+                    }
+                }
+                true
+            }
+            SketchTool::Fillet | SketchTool::Offset => {
+                // Fillet and Offset not implemented yet
+                false
+            }
+            _ => false,
+        }
     }
 
     fn handle_gizmo_and_camera(

@@ -234,9 +234,25 @@ fn process_extrude_feature(
                 symmetric,
                 draft_angle,
             ) {
+                // Debug: log bounding boxes
+                let (base_min, base_max) = base_part.bounding_box();
+                let (tool_min, tool_max) = tool_part.bounding_box();
+                tracing::info!("    Base bbox: ({:.2},{:.2},{:.2}) - ({:.2},{:.2},{:.2})",
+                    base_min[0], base_min[1], base_min[2], base_max[0], base_max[1], base_max[2]);
+                tracing::info!("    Tool bbox: ({:.2},{:.2},{:.2}) - ({:.2},{:.2},{:.2})",
+                    tool_min[0], tool_min[1], tool_min[2], tool_max[0], tool_max[1], tool_max[2]);
+
                 if cut {
                     tracing::info!("    Performing DIFFERENCE (cut)");
-                    *current_part = Some(base_part.difference(&tool_part));
+                    let base_tris = base_part.num_triangles();
+                    let tool_tris = tool_part.num_triangles();
+                    let result = base_part.difference(&tool_part);
+                    let result_tris = result.num_triangles();
+                    let (res_min, res_max) = result.bounding_box();
+                    tracing::info!("    Result bbox: ({:.2},{:.2},{:.2}) - ({:.2},{:.2},{:.2}), empty={}, tris: {} - {} = {}",
+                        res_min[0], res_min[1], res_min[2], res_max[0], res_max[1], res_max[2], result.is_empty(),
+                        base_tris, tool_tris, result_tris);
+                    *current_part = Some(result);
                 } else {
                     tracing::info!("    Performing UNION (boss)");
                     *current_part = Some(base_part.union(&tool_part));

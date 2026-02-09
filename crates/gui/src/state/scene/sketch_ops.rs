@@ -136,6 +136,80 @@ impl SceneState {
         }
     }
 
+    /// Remove a single sketch element by index
+    /// If feature_id is Some, removes from that specific feature
+    /// If feature_id is None, removes from the LAST Sketch feature
+    pub fn remove_sketch_element(
+        &mut self,
+        body_id: &str,
+        feature_id: Option<&str>,
+        element_index: usize,
+    ) {
+        self.save_undo();
+        self.redo_stack.clear();
+
+        if let Some(body) = self.scene.bodies.iter_mut().find(|b| b.id == body_id) {
+            let feature_idx = if let Some(fid) = feature_id {
+                body.features.iter().position(|f| {
+                    matches!(f, Feature::Sketch { id, .. } if id == fid)
+                })
+            } else {
+                body.features
+                    .iter()
+                    .rposition(|f| matches!(f, Feature::Sketch { .. }))
+            };
+
+            if let Some(idx) = feature_idx {
+                if let Feature::Sketch { sketch, .. } = &mut body.features[idx] {
+                    if element_index < sketch.elements.len() {
+                        sketch.elements.remove(element_index);
+                        self.version += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    /// Replace a sketch element with one or more new elements
+    /// If feature_id is Some, operates on that specific feature
+    /// If feature_id is None, operates on the LAST Sketch feature
+    pub fn replace_sketch_element(
+        &mut self,
+        body_id: &str,
+        feature_id: Option<&str>,
+        element_index: usize,
+        new_elements: Vec<SketchElement>,
+    ) {
+        self.save_undo();
+        self.redo_stack.clear();
+
+        if let Some(body) = self.scene.bodies.iter_mut().find(|b| b.id == body_id) {
+            let feature_idx = if let Some(fid) = feature_id {
+                body.features.iter().position(|f| {
+                    matches!(f, Feature::Sketch { id, .. } if id == fid)
+                })
+            } else {
+                body.features
+                    .iter()
+                    .rposition(|f| matches!(f, Feature::Sketch { .. }))
+            };
+
+            if let Some(idx) = feature_idx {
+                if let Feature::Sketch { sketch, .. } = &mut body.features[idx] {
+                    if element_index < sketch.elements.len() {
+                        // Remove the original element
+                        sketch.elements.remove(element_index);
+                        // Insert new elements at the same position
+                        for (i, elem) in new_elements.into_iter().enumerate() {
+                            sketch.elements.insert(element_index + i, elem);
+                        }
+                        self.version += 1;
+                    }
+                }
+            }
+        }
+    }
+
     /// Update a control point of a sketch element
     pub fn update_sketch_element_point(
         &mut self,

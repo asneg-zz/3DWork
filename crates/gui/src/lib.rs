@@ -8,6 +8,7 @@ pub mod extrude;
 pub mod fixtures;
 pub mod harness;
 pub mod helpers;
+pub mod sketch;
 pub mod state;
 pub mod validation;
 

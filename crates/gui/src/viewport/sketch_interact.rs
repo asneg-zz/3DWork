@@ -322,3 +322,177 @@ fn distance_2d(a: [f64; 2], b: [f64; 2]) -> f64 {
     (dx * dx + dy * dy).sqrt()
 }
 
+// ============================================================================
+// Hit testing for trim tool
+// ============================================================================
+
+/// Result of hit-testing a sketch element
+#[derive(Debug, Clone)]
+pub struct ElementHit {
+    pub element_index: usize,
+    pub distance: f64,
+}
+
+/// Hit-test all elements and return the closest one within tolerance
+pub fn hit_test_elements(
+    click_point: [f64; 2],
+    sketch: &Sketch,
+    tolerance: f64,
+) -> Option<ElementHit> {
+    let mut best: Option<ElementHit> = None;
+
+    for (i, elem) in sketch.elements.iter().enumerate() {
+        let dist = distance_to_element(click_point, elem);
+        if dist < tolerance {
+            if best.is_none() || dist < best.as_ref().unwrap().distance {
+                best = Some(ElementHit {
+                    element_index: i,
+                    distance: dist,
+                });
+            }
+        }
+    }
+
+    best
+}
+
+/// Calculate distance from a point to a sketch element
+fn distance_to_element(point: [f64; 2], element: &SketchElement) -> f64 {
+    match element {
+        SketchElement::Line { start, end } => {
+            distance_to_line_segment(point, [start.x, start.y], [end.x, end.y])
+        }
+        SketchElement::Circle { center, radius } => {
+            let dist_to_center = distance_2d(point, [center.x, center.y]);
+            (dist_to_center - radius).abs()
+        }
+        SketchElement::Arc {
+            center,
+            radius,
+            start_angle,
+            end_angle,
+        } => distance_to_arc(
+            point,
+            [center.x, center.y],
+            *radius,
+            *start_angle,
+            *end_angle,
+        ),
+        SketchElement::Rectangle {
+            corner,
+            width,
+            height,
+        } => {
+            // Check distance to all 4 sides
+            let corners = [
+                [corner.x, corner.y],
+                [corner.x + width, corner.y],
+                [corner.x + width, corner.y + height],
+                [corner.x, corner.y + height],
+            ];
+            let mut min_dist = f64::MAX;
+            for j in 0..4 {
+                let d = distance_to_line_segment(point, corners[j], corners[(j + 1) % 4]);
+                if d < min_dist {
+                    min_dist = d;
+                }
+            }
+            min_dist
+        }
+        SketchElement::Polyline { points } => {
+            if points.len() < 2 {
+                return f64::MAX;
+            }
+            let mut min_dist = f64::MAX;
+            for i in 0..points.len() - 1 {
+                let d = distance_to_line_segment(
+                    point,
+                    [points[i].x, points[i].y],
+                    [points[i + 1].x, points[i + 1].y],
+                );
+                if d < min_dist {
+                    min_dist = d;
+                }
+            }
+            min_dist
+        }
+        _ => f64::MAX, // Spline, Dimension - not trimmable
+    }
+}
+
+/// Distance from a point to a line segment
+fn distance_to_line_segment(point: [f64; 2], line_start: [f64; 2], line_end: [f64; 2]) -> f64 {
+    let line_vec = [line_end[0] - line_start[0], line_end[1] - line_start[1]];
+    let point_vec = [point[0] - line_start[0], point[1] - line_start[1]];
+
+    let line_len_sq = line_vec[0] * line_vec[0] + line_vec[1] * line_vec[1];
+    if line_len_sq < 1e-12 {
+        return distance_2d(point, line_start);
+    }
+
+    let t = (point_vec[0] * line_vec[0] + point_vec[1] * line_vec[1]) / line_len_sq;
+    let t_clamped = t.clamp(0.0, 1.0);
+
+    let closest = [
+        line_start[0] + t_clamped * line_vec[0],
+        line_start[1] + t_clamped * line_vec[1],
+    ];
+
+    distance_2d(point, closest)
+}
+
+/// Distance from a point to an arc
+fn distance_to_arc(
+    point: [f64; 2],
+    center: [f64; 2],
+    radius: f64,
+    start_angle: f64,
+    end_angle: f64,
+) -> f64 {
+    let dx = point[0] - center[0];
+    let dy = point[1] - center[1];
+    let angle = dy.atan2(dx);
+    let dist_to_center = (dx * dx + dy * dy).sqrt();
+
+    // Check if point's angle is within arc range
+    if angle_in_arc_range(angle, start_angle, end_angle) {
+        // Point projects onto the arc - return distance to arc curve
+        (dist_to_center - radius).abs()
+    } else {
+        // Point doesn't project onto arc - return distance to closest endpoint
+        let start_pt = [
+            center[0] + radius * start_angle.cos(),
+            center[1] + radius * start_angle.sin(),
+        ];
+        let end_pt = [
+            center[0] + radius * end_angle.cos(),
+            center[1] + radius * end_angle.sin(),
+        ];
+        distance_2d(point, start_pt).min(distance_2d(point, end_pt))
+    }
+}
+
+/// Normalize angle to [0, 2π) range
+fn normalize_angle(angle: f64) -> f64 {
+    let tau = std::f64::consts::TAU;
+    let mut a = angle % tau;
+    if a < 0.0 {
+        a += tau;
+    }
+    a
+}
+
+/// Check if an angle is within an arc's range (handles wraparound)
+fn angle_in_arc_range(angle: f64, start_angle: f64, end_angle: f64) -> bool {
+    let a = normalize_angle(angle);
+    let s = normalize_angle(start_angle);
+    let e = normalize_angle(end_angle);
+
+    if s <= e {
+        a >= s && a <= e
+    } else {
+        // Arc crosses 0
+        a >= s || a <= e
+    }
+}
+
