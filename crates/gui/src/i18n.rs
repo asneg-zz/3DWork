@@ -130,10 +130,8 @@ pub fn t(key: &str) -> &'static str {
         // ── Operation Dialog ─────────────────────────────────
         "dialog.extrude_title" => if ru { "Выдавливание" } else { "Extrude" },
         "dialog.cut_title" => if ru { "Вырез" } else { "Cut" },
-        "dialog.height" => if ru { "Высота:" } else { "Height:" },
-        "dialog.direction" => if ru { "Направление:" } else { "Direction:" },
-        "dialog.one_side" => if ru { "В одну сторону" } else { "One side" },
-        "dialog.both_sides" => if ru { "В обе стороны" } else { "Both sides" },
+        "dialog.height_forward" => if ru { "Высота вперёд:" } else { "Height forward:" },
+        "dialog.height_backward" => if ru { "Высота назад:" } else { "Height backward:" },
         "dialog.draft_angle" => if ru { "Угол уклона:" } else { "Draft angle:" },
         "dialog.draft_hint" => if ru { "+ расширение, - сужение" } else { "+ widens, - narrows" },
         "dialog.ok" => if ru { "ОК" } else { "OK" },

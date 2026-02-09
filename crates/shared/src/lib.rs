@@ -199,6 +199,10 @@ fn default_version() -> u32 {
     2
 }
 
+fn default_height() -> f64 {
+    1.0
+}
+
 /// Тело (Body) — независимый контейнер твёрдой геометрии
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Body {
@@ -257,13 +261,15 @@ pub enum Feature {
         id: ObjectId,
         /// ID эскиза внутри этого тела
         sketch_id: ObjectId,
+        /// Высота в прямом направлении (по умолчанию 1.0)
+        #[serde(default = "default_height")]
         height: f64,
+        /// Высота в обратном направлении (по умолчанию 0.0)
+        #[serde(default)]
+        height_backward: f64,
         /// true = вырезать (Cut), false = добавить (Boss)
         #[serde(default)]
         cut: bool,
-        /// true = симметричное выдавливание в обе стороны
-        #[serde(default)]
-        symmetric: bool,
         /// Угол уклона в градусах (+ расширение, - сужение)
         #[serde(default)]
         draft_angle: f64,
@@ -468,8 +474,8 @@ impl SceneDescriptionV2 {
                                     id: id.clone(),
                                     sketch_id: sketch_feature_id,
                                     height: *depth,
+                                    height_backward: 0.0,
                                     cut: true,
-                                    symmetric: false,
                                     draft_angle: 0.0,
                                 });
                             }
@@ -985,8 +991,8 @@ mod tests {
             id: "ext1".to_string(),
             sketch_id: "s1".to_string(),
             height: 2.0,
+            height_backward: 0.0,
             cut: true,
-            symmetric: false,
             draft_angle: 0.0,
         };
         roundtrip(&f);

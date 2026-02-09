@@ -173,7 +173,7 @@ impl CadApp {
                             &body_id,
                             &feature_id,
                             params.height,
-                            params.symmetric,
+                            params.height_backward,
                             params.draft_angle,
                         );
                         tracing::info!("Updated extrude feature {}", feature_id);

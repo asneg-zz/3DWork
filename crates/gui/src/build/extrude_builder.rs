@@ -62,7 +62,7 @@ pub fn create_extrude_part_from_sketch_ex(
     height: f64,
     is_cut: bool,
 ) -> Option<Part> {
-    create_extrude_part_full(id, sketch, transform, height, is_cut, false, 0.0)
+    create_extrude_part_full(id, sketch, transform, height, 0.0, is_cut, 0.0)
 }
 
 /// Validate sketch for extrusion and return validation result
@@ -77,8 +77,8 @@ pub fn create_extrude_part_full(
     sketch: &Sketch,
     transform: &Transform,
     height: f64,
+    height_backward: f64,
     is_cut: bool,
-    symmetric: bool,
     _draft_angle: f64, // Not yet implemented
 ) -> Option<Part> {
     if sketch.elements.is_empty() {
@@ -88,34 +88,37 @@ pub fn create_extrude_part_full(
     let _pos = &transform.position;
     // For cuts, we extrude in the opposite direction (into the body)
     let dir = if is_cut { -1.0 } else { 1.0 };
-    // Center offset for centered_cube (used by bounding box fallback)
-    // For cuts: tool center at offset - h/2, so tool spans [offset-h, offset]
-    // For boss symmetric: tool center at offset, spans [offset-h/2, offset+h/2]
-    // For boss non-symmetric: tool center at offset + h/2, spans [offset, offset+h]
+
+    // Total extrusion height
+    let total_height = height + height_backward;
+    // Offset from sketch plane: positive = forward, negative = backward
+    // If height=1, height_backward=0: center at +0.5 (forward only)
+    // If height=1, height_backward=1: center at 0 (symmetric)
+    // If height=0, height_backward=1: center at -0.5 (backward only)
     let center_offset = if is_cut {
-        -height.abs() / 2.0
-    } else if symmetric {
-        0.0
+        // For cuts: shift into body
+        -(height - height_backward) / 2.0
     } else {
-        height.abs() / 2.0
+        // For boss: shift based on direction balance
+        (height - height_backward) / 2.0
     };
 
     // Check if the sketch is a single circle - use cylinder for better CSG
     if let Some(circle_part) =
-        try_create_cylinder_from_sketch_full(id, sketch, transform, height, dir, symmetric)
+        try_create_cylinder_from_sketch_full(id, sketch, transform, total_height, height_backward, dir)
     {
         return Some(circle_part);
     }
 
     // Try profile extrusion for all planes
     if let Some(part) = try_create_profile_extrusion(
-        id, sketch, transform, height, is_cut, symmetric, center_offset,
+        id, sketch, transform, total_height, height_backward, is_cut, center_offset,
     ) {
         return Some(part);
     }
 
     // Fallback to bounding box if profile extraction fails
-    create_bounding_box_fallback(id, sketch, transform, height, is_cut, symmetric, center_offset)
+    create_bounding_box_fallback(id, sketch, transform, total_height, is_cut, center_offset)
 }
 
 /// Try to create an extruded Part from actual sketch profiles using Manifold::extrude
@@ -124,8 +127,8 @@ fn try_create_profile_extrusion(
     sketch: &Sketch,
     transform: &Transform,
     height: f64,
+    height_backward: f64,
     is_cut: bool,
-    symmetric: bool,
     _center_offset: f64,
 ) -> Option<Part> {
     // Extract 2D profiles from sketch
@@ -255,20 +258,17 @@ fn try_create_profile_extrusion(
         0.0
     };
 
+    // Shift to account for backward extrusion
+    // Manifold extrudes from 0 to height, we need to shift by -height_backward
+    let backward_shift = -height_backward;
+
     let final_manifold = match sketch.plane {
         SketchPlane::Xy => {
             // XY plane: extrusion along Z
-            // After extrude: Z from 0 to height
-            // Boss: keep at [0, h], then add offset → [offset, offset+h] (goes up from plane)
-            // Cut: shift to [-h, 0], then add offset → [offset-h, offset] (goes down into body)
-            // Reversed cut: keep at [0, h], tool goes up from sketch plane
-            // Symmetric boss: [-h/2, h/2] + offset → [offset-h/2, offset+h/2]
             let z_shift = if is_cut {
-                if reverse_cut { 0.0 } else { -height.abs() }
-            } else if symmetric {
-                -height.abs() / 2.0
+                if reverse_cut { backward_shift } else { -height.abs() + backward_shift }
             } else {
-                0.0
+                backward_shift
             };
             manifold
                 .translate(0.0, 0.0, z_shift)
@@ -277,14 +277,10 @@ fn try_create_profile_extrusion(
         SketchPlane::Xz => {
             // XZ plane: extrusion along Y (after rotation)
             let rotated = manifold.rotate(-90.0, 0.0, 0.0);
-            // Cut: shift to [-h, 0] (into -Y)
-            // Reversed cut: keep at [0, h] (into +Y)
             let y_shift = if is_cut {
-                if reverse_cut { 0.0 } else { -height.abs() }
-            } else if symmetric {
-                -height.abs() / 2.0
+                if reverse_cut { backward_shift } else { -height.abs() + backward_shift }
             } else {
-                0.0
+                backward_shift
             };
             rotated
                 .translate(0.0, y_shift, 0.0)
@@ -293,16 +289,11 @@ fn try_create_profile_extrusion(
         SketchPlane::Yz => {
             // YZ plane: extrusion along X (after rotation)
             // rotate(0, -90, 0) makes Manifold Z become world -X
-            // Extrusion from Z=0 to Z=height becomes world X from 0 to -height
             let rotated = manifold.rotate(0.0, -90.0, 0.0);
-            // Cut: x_shift=0 means tool goes from 0 to -height (into -X)
-            // Reversed cut: x_shift=height means tool goes from height to 0 (into +X)
             let x_shift = if is_cut {
-                if reverse_cut { height.abs() } else { 0.0 }
-            } else if symmetric {
-                -height.abs() / 2.0
+                if reverse_cut { height.abs() - backward_shift } else { -backward_shift }
             } else {
-                height.abs()  // For boss, shift so it extends outward (positive X)
+                height.abs() - backward_shift
             };
             rotated
                 .translate(x_shift, 0.0, 0.0)
@@ -320,7 +311,6 @@ fn create_bounding_box_fallback(
     transform: &Transform,
     height: f64,
     _is_cut: bool,
-    _symmetric: bool,
     center_offset: f64,
 ) -> Option<Part> {
     use super::sketch_geometry::sketch_bounds;
@@ -360,14 +350,14 @@ fn create_bounding_box_fallback(
     Some(part.translate(translate.0, translate.1, translate.2))
 }
 
-/// Try to create a cylinder Part if the sketch contains a single circle (with symmetric support)
+/// Try to create a cylinder Part if the sketch contains a single circle
 fn try_create_cylinder_from_sketch_full(
     id: &str,
     sketch: &Sketch,
     transform: &Transform,
     height: f64,
+    height_backward: f64,
     dir: f64,
-    symmetric: bool,
 ) -> Option<Part> {
     // Check if it's a single circle
     if sketch.elements.len() != 1 {
@@ -386,22 +376,17 @@ fn try_create_cylinder_from_sketch_full(
     // Check if we need to reverse cut direction based on face normal
     let reverse_cut = is_cut && should_reverse_cut_direction(&sketch.plane, sketch.face_normal);
 
-
-    // For cuts: tool center should be at (offset - height/2) so tool spans [offset-height, offset]
-    // For reversed cuts: tool center at (offset + height/2) so tool spans [offset, offset+height]
-    // For boss: tool center should be at (offset + height/2) so tool spans [offset, offset+height]
-    // Symmetric boss: tool center at offset so tool spans [offset-height/2, offset+height/2]
-    // For cuts: extend slightly past the surface to ensure clean cut
+    // Center offset accounts for backward extrusion
+    // Cylinder is centered, so offset = (height_forward - height_backward) / 2
+    let forward_height = height - height_backward; // This is the "forward only" portion
     let center_offset = if is_cut {
         if reverse_cut {
-            height.abs() / 2.0   // Reversed: shift outward
+            forward_height / 2.0
         } else {
-            -height.abs() / 2.0  // Normal: shift into body
+            -forward_height / 2.0
         }
-    } else if symmetric {
-        0.0  // Centered on sketch plane
     } else {
-        height.abs() / 2.0  // Starts at sketch plane, goes outward
+        forward_height / 2.0
     };
     let cut_overshoot = if is_cut {
         if reverse_cut { -0.01 } else { 0.01 }

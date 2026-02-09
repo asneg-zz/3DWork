@@ -77,8 +77,8 @@ pub fn apply_extrude(state: &mut AppState) {
             &body_id,
             &sketch_id,
             params.height,
+            params.height_backward,
             false, // not a cut
-            params.symmetric,
             params.draft_angle,
         );
         tracing::info!("Added extrude feature to body {}", body_id);
@@ -162,8 +162,8 @@ pub fn apply_cut(state: &mut AppState) {
             &body_id,
             &sketch_id,
             params.height,
+            params.height_backward,
             true, // this is a cut
-            params.symmetric,
             params.draft_angle,
         );
         tracing::info!("Added cut feature to body {}", body_id);
@@ -193,8 +193,8 @@ pub fn apply_cut(state: &mut AppState) {
                         &target_id,
                         &new_sketch_id,
                         params.height,
+                        params.height_backward,
                         true, // this is a cut
-                        params.symmetric,
                         params.draft_angle,
                     );
                     state.scene.set_body_visible(&body_id, false);

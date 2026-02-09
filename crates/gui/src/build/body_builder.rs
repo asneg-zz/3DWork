@@ -125,8 +125,8 @@ pub fn build_body_mesh_data(body: &Body, selected: bool) -> Result<Option<MeshDa
                 id: extrude_id,
                 sketch_id,
                 height,
+                height_backward,
                 cut,
-                symmetric,
                 draft_angle,
             } => {
                 process_extrude_feature(
@@ -135,8 +135,8 @@ pub fn build_body_mesh_data(body: &Body, selected: bool) -> Result<Option<MeshDa
                     extrude_id,
                     sketch_id,
                     *height,
+                    *height_backward,
                     *cut,
-                    *symmetric,
                     *draft_angle,
                 );
             }
@@ -167,8 +167,8 @@ fn process_extrude_feature(
     _extrude_id: &str,
     sketch_id: &str,
     height: f64,
+    height_backward: f64,
     cut: bool,
-    symmetric: bool,
     draft_angle: f64,
 ) {
     // Find the sketch in this body (can be Sketch or inside BaseExtrude/BaseRevolve)
@@ -191,8 +191,8 @@ fn process_extrude_feature(
                 sketch,
                 &combined_transform,
                 height,
+                height_backward,
                 cut,
-                symmetric,
                 draft_angle,
             ) {
                 let result = if cut {

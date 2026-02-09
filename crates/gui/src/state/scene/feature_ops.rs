@@ -65,7 +65,7 @@ impl SceneState {
         height: f64,
         cut: bool,
     ) -> bool {
-        self.add_extrude_to_body_ex(body_id, sketch_id, height, cut, false, 0.0)
+        self.add_extrude_to_body_ex(body_id, sketch_id, height, 0.0, cut, 0.0)
     }
 
     /// Add an extrude feature to a body with full parameters
@@ -74,8 +74,8 @@ impl SceneState {
         body_id: &BodyId,
         sketch_id: &str,
         height: f64,
+        height_backward: f64,
         cut: bool,
-        symmetric: bool,
         draft_angle: f64,
     ) -> bool {
         if !self.scene.bodies.iter().any(|b| &b.id == body_id) {
@@ -91,8 +91,8 @@ impl SceneState {
                 id: feature_id,
                 sketch_id: sketch_id.to_string(),
                 height,
+                height_backward,
                 cut,
-                symmetric,
                 draft_angle,
             });
             self.version += 1;
@@ -342,7 +342,7 @@ impl SceneState {
         body_id: &BodyId,
         feature_id: &ObjectId,
         height: f64,
-        symmetric: bool,
+        height_backward: f64,
         draft_angle: f64,
     ) -> bool {
         let is_extrude = self
@@ -360,13 +360,13 @@ impl SceneState {
         if let Some(feature) = self.get_feature_mut(body_id, feature_id) {
             if let Feature::Extrude {
                 height: h,
-                symmetric: s,
+                height_backward: hb,
                 draft_angle: d,
                 ..
             } = feature
             {
                 *h = height;
-                *s = symmetric;
+                *hb = height_backward;
                 *d = draft_angle;
                 self.version += 1;
                 return true;

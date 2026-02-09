@@ -44,7 +44,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState) {
         .show(ui, |ui| {
             // Collect body info to avoid borrow conflicts
             // Feature info: (id, name, icon, is_sketch, has_base_sketch, extrude_info)
-            // extrude_info: Option<(sketch_id, is_cut, height, symmetric, draft_angle)>
+            // extrude_info: Option<(sketch_id, is_cut, height, height_backward, draft_angle)>
             let bodies: Vec<_> = state
                 .scene
                 .scene
@@ -66,9 +66,9 @@ pub fn show(ui: &mut Ui, state: &mut AppState) {
                             );
                             // Collect extrude info for edit operation
                             let extrude_info = if let shared::Feature::Extrude {
-                                sketch_id, cut, height, symmetric, draft_angle, ..
+                                sketch_id, cut, height, height_backward, draft_angle, ..
                             } = f {
-                                Some((sketch_id.clone(), *cut, *height, *symmetric, *draft_angle))
+                                Some((sketch_id.clone(), *cut, *height, *height_backward, *draft_angle))
                             } else {
                                 None
                             };
@@ -130,11 +130,8 @@ pub fn show(ui: &mut Ui, state: &mut AppState) {
                         .default_open(true)
                         .show(ui, |ui| {
                             // Show features as tree items
-                            let feature_count = features.len();
-                            for (i, (fid, fname, ficon, is_sketch, has_base_sketch, extrude_info)) in features.iter().enumerate() {
-                                let is_last = i == feature_count - 1;
-                                let tree_prefix = if is_last { "└─" } else { "├─" };
-                                let feature_label = format!(" {} {} {}", tree_prefix, ficon, fname);
+                            for (fid, fname, ficon, is_sketch, has_base_sketch, extrude_info) in features.iter() {
+                                let feature_label = format!("   {} {}", ficon, fname);
 
                                 let feature_resp = ui.horizontal(|ui| {
                                     ui.add(egui::Label::new(
@@ -164,11 +161,11 @@ pub fn show(ui: &mut Ui, state: &mut AppState) {
                                         ui.separator();
                                     }
                                     // Edit option for Extrude/Cut features
-                                    if let Some((sketch_id, is_cut, height, symmetric, draft_angle)) = extrude_info {
+                                    if let Some((sketch_id, is_cut, height, height_backward, draft_angle)) = extrude_info {
                                         if ui.button(t("ctx.edit_operation")).clicked() {
                                             let params = ExtrudeParams {
                                                 height: *height,
-                                                symmetric: *symmetric,
+                                                height_backward: *height_backward,
                                                 draft_angle: *draft_angle,
                                             };
                                             state.operation_dialog.open_edit(
@@ -197,8 +194,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState) {
 
                                 // Show base sketch as child item for BaseExtrude/BaseRevolve
                                 if *has_base_sketch {
-                                    let child_prefix = if is_last { "   └─" } else { "│  └─" };
-                                    let sketch_label = format!(" {} 📐 {}", child_prefix, t("tree.base_sketch"));
+                                    let sketch_label = format!("      📐 {}", t("tree.base_sketch"));
                                     let sketch_resp = ui.horizontal(|ui| {
                                         ui.add(egui::Label::new(
                                             egui::RichText::new(sketch_label)
@@ -218,7 +214,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState) {
                             }
                             if features.is_empty() {
                                 ui.label(
-                                    egui::RichText::new(format!(" └─ {}", t("tree.empty_body")))
+                                    egui::RichText::new(format!("   {}", t("tree.empty_body")))
                                         .color(egui::Color32::from_rgb(120, 120, 120))
                                 );
                             }

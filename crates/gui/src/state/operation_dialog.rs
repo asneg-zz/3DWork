@@ -6,8 +6,10 @@
 /// Extrude operation parameters
 #[derive(Clone, Debug)]
 pub struct ExtrudeParams {
+    /// Высота в прямом направлении
     pub height: f64,
-    pub symmetric: bool,
+    /// Высота в обратном направлении
+    pub height_backward: f64,
     pub draft_angle: f64,
 }
 
@@ -15,7 +17,7 @@ impl Default for ExtrudeParams {
     fn default() -> Self {
         Self {
             height: 1.0,
-            symmetric: false,
+            height_backward: 0.0,
             draft_angle: 0.0,
         }
     }

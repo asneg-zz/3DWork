@@ -35,22 +35,24 @@ impl OperationDialogUi for OperationDialog {
                     .num_columns(2)
                     .spacing([10.0, 8.0])
                     .show(ui, |ui| {
-                        // Height
-                        ui.label(t("dialog.height"));
+                        // Height forward
+                        ui.label(t("dialog.height_forward"));
                         let mut height = self.params.height as f32;
                         ui.add(egui::DragValue::new(&mut height)
                             .speed(0.1)
-                            .range(0.01..=1000.0)
+                            .range(0.0..=1000.0)
                             .suffix(" mm"));
                         self.params.height = height as f64;
                         ui.end_row();
 
-                        // Direction (symmetric)
-                        ui.label(t("dialog.direction"));
-                        ui.horizontal(|ui| {
-                            ui.selectable_value(&mut self.params.symmetric, false, t("dialog.one_side"));
-                            ui.selectable_value(&mut self.params.symmetric, true, t("dialog.both_sides"));
-                        });
+                        // Height backward
+                        ui.label(t("dialog.height_backward"));
+                        let mut height_back = self.params.height_backward as f32;
+                        ui.add(egui::DragValue::new(&mut height_back)
+                            .speed(0.1)
+                            .range(0.0..=1000.0)
+                            .suffix(" mm"));
+                        self.params.height_backward = height_back as f64;
                         ui.end_row();
 
                         // Draft angle
