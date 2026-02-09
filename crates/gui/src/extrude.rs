@@ -106,10 +106,11 @@ pub fn extrude_mesh(
 
             let edge1 = Vec3::new(b1[0] - b0[0], b1[1] - b0[1], b1[2] - b0[2]);
             let edge2 = Vec3::new(t0[0] - b0[0], t0[1] - b0[1], t0[2] - b0[2]);
+            // Swap cross product order to get outward-facing normals
             let face_normal = if height >= 0.0 {
-                edge1.cross(edge2).normalize_or_zero()
-            } else {
                 edge2.cross(edge1).normalize_or_zero()
+            } else {
+                edge1.cross(edge2).normalize_or_zero()
             };
             let n_arr = [face_normal.x, face_normal.y, face_normal.z];
 
@@ -281,8 +282,6 @@ pub fn extract_2d_profiles(elements: &[SketchElement]) -> Result<Vec<Vec<[f64; 2
         return Err("Empty sketch".to_string());
     }
 
-    tracing::info!("extract_2d_profiles: {} elements", elements.len());
-
     // Single-element fast path
     if elements.len() == 1 {
         let profile = extract_single_element(&elements[0])?;
@@ -292,15 +291,13 @@ pub fn extract_2d_profiles(elements: &[SketchElement]) -> Result<Vec<Vec<[f64; 2
     let mut profiles: Vec<Vec<[f64; 2]>> = Vec::new();
     let mut chainable_segments: Vec<ChainableSegment> = Vec::new();
 
-    for (i, elem) in elements.iter().enumerate() {
+    for elem in elements.iter() {
         match elem {
             // Self-contained closed shapes → add directly as profile
             SketchElement::Circle { center, radius } => {
-                tracing::info!("  [{}] Circle at ({:.3},{:.3}) r={:.3}", i, center.x, center.y, radius);
                 profiles.push(tessellate_circle(center.x, center.y, *radius));
             }
             SketchElement::Rectangle { corner, width, height } => {
-                tracing::info!("  [{}] Rectangle at ({:.3},{:.3}) {}x{}", i, corner.x, corner.y, width, height);
                 profiles.push(vec![
                     [corner.x, corner.y],
                     [corner.x + width, corner.y],
@@ -310,36 +307,30 @@ pub fn extract_2d_profiles(elements: &[SketchElement]) -> Result<Vec<Vec<[f64; 2
             }
             // Chainable elements - collect for ordered chaining
             SketchElement::Line { start, end } => {
-                tracing::info!("  [{}] Line ({:.4},{:.4})->({:.4},{:.4})",
-                    i, start.x, start.y, end.x, end.y);
                 chainable_segments.push(ChainableSegment {
                     points: vec![[start.x, start.y], [end.x, end.y]],
                 });
             }
             SketchElement::Arc { center, radius, start_angle, end_angle } => {
                 let arc = tessellate_arc(center.x, center.y, *radius, *start_angle, *end_angle);
-                tracing::info!("  [{}] Arc center=({:.4},{:.4}) r={:.4} angles={:.4}..{:.4} pts={}",
-                    i, center.x, center.y, radius, start_angle, end_angle, arc.len());
                 if !arc.is_empty() {
                     chainable_segments.push(ChainableSegment { points: arc });
                 }
             }
             SketchElement::Polyline { points } => {
-                tracing::info!("  [{}] Polyline {} points", i, points.len());
                 let pts: Vec<[f64; 2]> = points.iter().map(|p| [p.x, p.y]).collect();
                 if pts.len() >= 2 {
                     chainable_segments.push(ChainableSegment { points: pts });
                 }
             }
             SketchElement::Spline { points } => {
-                tracing::info!("  [{}] Spline {} points", i, points.len());
                 let pts: Vec<[f64; 2]> = points.iter().map(|p| [p.x, p.y]).collect();
                 if pts.len() >= 2 {
                     chainable_segments.push(ChainableSegment { points: pts });
                 }
             }
             SketchElement::Dimension { .. } => {
-                tracing::info!("  [{}] Dimension (ignored)", i);
+                // Dimensions are for display only, not geometry
             }
         }
     }
@@ -350,21 +341,10 @@ pub fn extract_2d_profiles(elements: &[SketchElement]) -> Result<Vec<Vec<[f64; 2
         profiles.extend(chained_profiles);
     }
 
-    // Log profile status
-    for (pi, profile) in profiles.iter().enumerate() {
-        if profile.len() >= 3 {
-            let gap = dist_sq(&profile[0], profile.last().unwrap()).sqrt();
-            let closed = gap < CHAIN_TOLERANCE_SQ.sqrt();
-            tracing::info!("  Profile {} has {} points, gap to close={:.6}, closed={}",
-                pi, profile.len(), gap, closed);
-        }
-    }
-
     if profiles.is_empty() {
         return Err("No valid profiles found in sketch elements".to_string());
     }
 
-    tracing::info!("extract_2d_profiles: extracted {} profiles", profiles.len());
     Ok(profiles)
 }
 
@@ -432,7 +412,6 @@ fn chain_segments_by_proximity(mut segments: Vec<ChainableSegment>) -> Vec<Vec<[
                 // Skip first point if it matches chain end (avoid duplicate)
                 let skip = if dist_sq(&chain_end, &seg.start()) < CHAIN_TOLERANCE_SQ { 1 } else { 0 };
                 chain.extend(seg.points.into_iter().skip(skip));
-                tracing::info!("    Extended chain forward, now {} points", chain.len());
             } else if let Some((idx, reversed, _dist)) = best_prepend {
                 let mut seg = segments.remove(idx);
                 if reversed {
@@ -445,7 +424,6 @@ fn chain_segments_by_proximity(mut segments: Vec<ChainableSegment>) -> Vec<Vec<[
                 }
                 new_chain.extend(chain);
                 chain = new_chain;
-                tracing::info!("    Extended chain backward, now {} points", chain.len());
             } else {
                 // No more connections found
                 break;
@@ -649,7 +627,7 @@ mod tests {
     use shared::*;
 
     fn xy_sketch(elements: Vec<SketchElement>) -> Sketch {
-        Sketch { plane: SketchPlane::Xy, offset: 0.0, elements }
+        Sketch { plane: SketchPlane::Xy, offset: 0.0, elements, face_normal: None }
     }
 
     fn identity() -> Transform {
@@ -808,28 +786,28 @@ mod tests {
 
     #[test]
     fn test_sketch_to_3d_xy() {
-        let s = Sketch { plane: SketchPlane::Xy, offset: 5.0, elements: vec![] };
+        let s = Sketch { plane: SketchPlane::Xy, offset: 5.0, elements: vec![], face_normal: None };
         let p = sketch_to_3d(1.0, 2.0, &s, &identity());
         assert_eq!(p, [1.0, 2.0, 5.0]);
     }
 
     #[test]
     fn test_sketch_to_3d_xz() {
-        let s = Sketch { plane: SketchPlane::Xz, offset: 3.0, elements: vec![] };
+        let s = Sketch { plane: SketchPlane::Xz, offset: 3.0, elements: vec![], face_normal: None };
         let p = sketch_to_3d(1.0, 2.0, &s, &identity());
         assert_eq!(p, [1.0, 3.0, 2.0]);
     }
 
     #[test]
     fn test_sketch_to_3d_yz() {
-        let s = Sketch { plane: SketchPlane::Yz, offset: 7.0, elements: vec![] };
+        let s = Sketch { plane: SketchPlane::Yz, offset: 7.0, elements: vec![], face_normal: None };
         let p = sketch_to_3d(1.0, 2.0, &s, &identity());
         assert_eq!(p, [7.0, 1.0, 2.0]);
     }
 
     #[test]
     fn test_sketch_to_3d_with_transform() {
-        let s = Sketch { plane: SketchPlane::Xy, offset: 0.0, elements: vec![] };
+        let s = Sketch { plane: SketchPlane::Xy, offset: 0.0, elements: vec![], face_normal: None };
         let t = Transform { position: [10.0, 20.0, 30.0], rotation: [0.0; 3], scale: [1.0; 3] };
         let p = sketch_to_3d(1.0, 2.0, &s, &t);
         assert_eq!(p, [11.0, 22.0, 30.0]);
@@ -986,6 +964,7 @@ mod tests {
             plane: SketchPlane::Xz,
             offset: 0.0,
             elements: vec![rect_element(-0.5, -0.5, 1.0, 1.0)],
+            face_normal: None,
         };
         let mesh = extrude_mesh(&sketch, &identity(), 2.0).unwrap();
         assert_mesh_valid(&mesh);
@@ -1000,6 +979,7 @@ mod tests {
             plane: SketchPlane::Yz,
             offset: 0.0,
             elements: vec![rect_element(-0.5, -0.5, 1.0, 1.0)],
+            face_normal: None,
         };
         let mesh = extrude_mesh(&sketch, &identity(), 3.0).unwrap();
         assert_mesh_valid(&mesh);

@@ -10,6 +10,39 @@ use super::primitives::DEFAULT_SEGMENTS;
 use crate::extrude::extract_2d_profiles;
 use crate::sketch::operations::{validate_sketch_for_extrusion, SketchValidation};
 
+/// Determine if cut direction should be reversed based on face normal.
+///
+/// The default cut direction for each plane:
+/// - XY: -Z (into the body from above)
+/// - XZ: -Y (into the body from front)
+/// - YZ: -X (into the body from right)
+///
+/// If the face normal points in the opposite direction (e.g., the sketch is on
+/// a face facing negative Z), we need to reverse the cut direction to go into the body.
+fn should_reverse_cut_direction(plane: &SketchPlane, face_normal: Option<[f64; 3]>) -> bool {
+    let Some(normal) = face_normal else {
+        return false;
+    };
+
+    match plane {
+        SketchPlane::Xy => {
+            // Default cut goes in -Z. If face normal points in -Z (normal.z < 0),
+            // the body is above the sketch, so cut should go in +Z (reverse).
+            normal[2] < 0.0
+        }
+        SketchPlane::Xz => {
+            // Default cut goes in -Y. If face normal points in -Y (normal.y < 0),
+            // the body is in front of the sketch, so cut should go in +Y (reverse).
+            normal[1] < 0.0
+        }
+        SketchPlane::Yz => {
+            // Default cut goes in -X. If face normal points in -X (normal.x < 0),
+            // the body is to the right of the sketch, so cut should go in +X (reverse).
+            normal[0] < 0.0
+        }
+    }
+}
+
 /// Create an extruded Part from sketch profile, respecting sketch plane orientation
 /// For cuts (negative height or cut flag), the extrusion goes in the opposite direction
 pub fn create_extrude_part_from_sketch(
@@ -33,6 +66,7 @@ pub fn create_extrude_part_from_sketch_ex(
 }
 
 /// Validate sketch for extrusion and return validation result
+#[allow(dead_code)]
 pub fn validate_sketch(sketch: &Sketch) -> SketchValidation {
     validate_sketch_for_extrusion(sketch)
 }
@@ -108,60 +142,99 @@ fn try_create_profile_extrusion(
         return None;
     }
 
-    tracing::info!("Extracted {} profiles, first has {} points", profiles.len(), profiles.first().map(|p| p.len()).unwrap_or(0));
-
-    // Convert profiles to format for Manifold::extrude
-    // Manifold::extrude creates profile in XY plane and extrudes along Z
-    // For non-XY planes, we need to transform coordinates and reverse winding
-    let polygon_data: Vec<Vec<f64>> = profiles
-        .iter()
-        .map(|profile| {
-            match sketch.plane {
-                SketchPlane::Xy => {
-                    // XY plane: use coordinates as-is
-                    profile.iter().flat_map(|p| vec![p[0], p[1]]).collect()
-                }
-                SketchPlane::Xz => {
-                    // XZ plane: sketch (x,y) -> world (x, extrude, y)
-                    // Use (x, -y) to get correct Z after rotation, reverse for winding
-                    let mut pts: Vec<[f64; 2]> = profile.iter().map(|p| [p[0], -p[1]]).collect();
-                    pts.reverse(); // Fix winding order after coordinate flip
-                    pts.iter().flat_map(|p| vec![p[0], p[1]]).collect()
-                }
-                SketchPlane::Yz => {
-                    // YZ plane: sketch (x,y) -> world (extrude, x, y)
-                    // Use (-y, x) to get correct Y,Z after rotation, reverse for winding
-                    let mut pts: Vec<[f64; 2]> = profile.iter().map(|p| [-p[1], p[0]]).collect();
-                    pts.reverse(); // Fix winding order after coordinate flip
-                    pts.iter().flat_map(|p| vec![p[0], p[1]]).collect()
-                }
+    // Filter profiles - need at least 3 points for a valid polygon
+    // Manifold auto-closes polygons, so we don't need to check for closure
+    // Invalid/open profiles will produce empty manifolds (filtered later)
+    let profiles: Vec<Vec<[f64; 2]>> = profiles
+        .into_iter()
+        .filter(|profile| {
+            if profile.len() < 3 {
+                tracing::warn!("Profile has less than 3 points, skipping");
+                return false;
             }
+
+            // Calculate signed area to filter degenerate profiles (shoelace formula)
+            let n = profile.len();
+            let area: f64 = (0..n)
+                .map(|i| {
+                    let j = (i + 1) % n;
+                    (profile[j][0] - profile[i][0]) * (profile[j][1] + profile[i][1])
+                })
+                .sum();
+            let area = area.abs() / 2.0;
+
+            if area < 1e-6 {
+                tracing::warn!("Profile has negligible area ({:.6}), skipping", area);
+                return false;
+            }
+
+            true
         })
         .collect();
 
-    // Create slice references for Manifold::extrude
-    let polygon_slices: Vec<&[f64]> = polygon_data.iter().map(|v| v.as_slice()).collect();
-
-    tracing::info!("Calling Manifold::extrude with {} polygons, height={}, plane={:?}",
-        polygon_slices.len(), height.abs(), sketch.plane);
-
-    // Create the manifold extrusion
-    // Extrusion is always along Z axis, we'll rotate it to match the sketch plane
-    let manifold = Manifold::extrude(
-        &polygon_slices,
-        height.abs(),
-        1,    // n_divisions
-        0.0,  // twist_degrees
-        1.0,  // scale_top_x
-        1.0,  // scale_top_y
-    );
-
-    if manifold.is_empty() {
-        tracing::warn!("Manifold::extrude returned empty geometry for {} polygons", polygon_slices.len());
+    if profiles.is_empty() {
+        tracing::warn!("No valid profiles available for extrusion");
         return None;
     }
 
-    tracing::info!("Manifold::extrude succeeded!");
+    // Extrude each profile separately and union them together
+    // (Manifold interprets multiple polygons as outer+holes, not separate shapes)
+    let mut result_manifold: Option<Manifold> = None;
+
+    for (pi, profile) in profiles.iter().enumerate() {
+        // Convert profile to format for Manifold::extrude
+        let polygon_data: Vec<f64> = match sketch.plane {
+            SketchPlane::Xy => {
+                // XY plane: use coordinates as-is
+                profile.iter().flat_map(|p| vec![p[0], p[1]]).collect()
+            }
+            SketchPlane::Xz => {
+                // XZ plane: sketch (x,y) -> world (x, extrude, y)
+                // Use (x, -y) to get correct Z after rotation, reverse for winding
+                let mut pts: Vec<[f64; 2]> = profile.iter().map(|p| [p[0], -p[1]]).collect();
+                pts.reverse(); // Fix winding order after coordinate flip
+                pts.iter().flat_map(|p| vec![p[0], p[1]]).collect()
+            }
+            SketchPlane::Yz => {
+                // YZ plane: sketch (x,y) -> world (extrude, y, z)
+                // Using rotate(0, -90, 0): Manifold X -> world Z, Manifold Y -> world Y, Manifold Z -> world -X
+                // So: Manifold X = world Z = sketch_y, Manifold Y = world Y = sketch_x
+                // Extrusion goes along world -X (into body from positive X)
+                profile.iter().flat_map(|p| vec![p[1], p[0]]).collect()
+            }
+        };
+
+        let polygon_slice: &[f64] = &polygon_data;
+
+        // Create the manifold extrusion for this profile
+        let manifold = Manifold::extrude(
+            &[polygon_slice],
+            height.abs(),
+            1,    // n_divisions
+            0.0,  // twist_degrees
+            1.0,  // scale_top_x
+            1.0,  // scale_top_y
+        );
+
+        if manifold.is_empty() {
+            tracing::warn!("Manifold::extrude returned empty geometry for profile {}", pi);
+            continue;
+        }
+
+        // Union with result
+        result_manifold = match result_manifold {
+            Some(existing) => Some(existing.union(&manifold)),
+            None => Some(manifold),
+        };
+    }
+
+    let manifold = match result_manifold {
+        Some(m) => m,
+        None => {
+            tracing::warn!("No valid extrusions created from {} profiles", profiles.len());
+            return None;
+        }
+    };
 
     let pos = &transform.position;
 
@@ -170,30 +243,44 @@ fn try_create_profile_extrusion(
     // After rotation, extrusion spans [0, height] along the extrusion axis
     // For cuts: shift so tool is INSIDE the body (ends at sketch plane)
     // For boss: shift so tool is OUTSIDE the body (starts at sketch plane)
+    // For cuts: extend slightly past the surface to ensure clean cut (avoid floating-point issues)
+
+    // Check if we need to reverse cut direction based on face normal
+    let reverse_cut = is_cut && should_reverse_cut_direction(&sketch.plane, sketch.face_normal);
+
+    // Overshoot direction depends on cut direction
+    let cut_overshoot = if is_cut {
+        if reverse_cut { -0.01 } else { 0.01 }
+    } else {
+        0.0
+    };
+
     let final_manifold = match sketch.plane {
         SketchPlane::Xy => {
             // XY plane: extrusion along Z
             // After extrude: Z from 0 to height
             // Boss: keep at [0, h], then add offset → [offset, offset+h] (goes up from plane)
             // Cut: shift to [-h, 0], then add offset → [offset-h, offset] (goes down into body)
+            // Reversed cut: keep at [0, h], tool goes up from sketch plane
             // Symmetric boss: [-h/2, h/2] + offset → [offset-h/2, offset+h/2]
-            // Symmetric cut: same as cut, tool fully inside body
             let z_shift = if is_cut {
-                -height.abs()  // Tool ends at sketch plane, extends into body
+                if reverse_cut { 0.0 } else { -height.abs() }
             } else if symmetric {
-                -height.abs() / 2.0  // Centered on sketch plane
+                -height.abs() / 2.0
             } else {
-                0.0  // Starts at sketch plane
+                0.0
             };
             manifold
                 .translate(0.0, 0.0, z_shift)
-                .translate(pos[0], pos[1], sketch.offset + pos[2])
+                .translate(pos[0], pos[1], sketch.offset + pos[2] + cut_overshoot)
         }
         SketchPlane::Xz => {
             // XZ plane: extrusion along Y (after rotation)
             let rotated = manifold.rotate(-90.0, 0.0, 0.0);
+            // Cut: shift to [-h, 0] (into -Y)
+            // Reversed cut: keep at [0, h] (into +Y)
             let y_shift = if is_cut {
-                -height.abs()
+                if reverse_cut { 0.0 } else { -height.abs() }
             } else if symmetric {
                 -height.abs() / 2.0
             } else {
@@ -201,32 +288,27 @@ fn try_create_profile_extrusion(
             };
             rotated
                 .translate(0.0, y_shift, 0.0)
-                .translate(pos[0], sketch.offset + pos[1], pos[2])
+                .translate(pos[0], sketch.offset + pos[1] + cut_overshoot, pos[2])
         }
         SketchPlane::Yz => {
             // YZ plane: extrusion along X (after rotation)
-            let rotated = manifold.rotate(0.0, 90.0, 0.0);
+            // rotate(0, -90, 0) makes Manifold Z become world -X
+            // Extrusion from Z=0 to Z=height becomes world X from 0 to -height
+            let rotated = manifold.rotate(0.0, -90.0, 0.0);
+            // Cut: x_shift=0 means tool goes from 0 to -height (into -X)
+            // Reversed cut: x_shift=height means tool goes from height to 0 (into +X)
             let x_shift = if is_cut {
-                -height.abs()
+                if reverse_cut { height.abs() } else { 0.0 }
             } else if symmetric {
                 -height.abs() / 2.0
             } else {
-                0.0
+                height.abs()  // For boss, shift so it extends outward (positive X)
             };
             rotated
                 .translate(x_shift, 0.0, 0.0)
-                .translate(sketch.offset + pos[0], pos[1], pos[2])
+                .translate(sketch.offset + pos[0] + cut_overshoot, pos[1], pos[2])
         }
     };
-
-    tracing::info!(
-        "Created profile extrusion: plane={:?}, height={:.2}, profiles={}, symmetric={}, cut={}",
-        sketch.plane,
-        height,
-        profiles.len(),
-        symmetric,
-        is_cut
-    );
 
     Some(Part::new(id, final_manifold))
 }
@@ -237,8 +319,8 @@ fn create_bounding_box_fallback(
     sketch: &Sketch,
     transform: &Transform,
     height: f64,
-    is_cut: bool,
-    symmetric: bool,
+    _is_cut: bool,
+    _symmetric: bool,
     center_offset: f64,
 ) -> Option<Part> {
     use super::sketch_geometry::sketch_bounds;
@@ -275,11 +357,6 @@ fn create_bounding_box_fallback(
         }
     };
 
-    tracing::info!(
-        "Created extrude Part (fallback box): plane={:?}, size=({:.2}x{:.2}x{:.2}), cut={}, symmetric={}",
-        sketch.plane, width, depth, height, is_cut, symmetric
-    );
-
     Some(part.translate(translate.0, translate.1, translate.2))
 }
 
@@ -306,21 +383,31 @@ fn try_create_cylinder_from_sketch_full(
     let pos = &transform.position;
     let is_cut = dir < 0.0;
 
+    // Check if we need to reverse cut direction based on face normal
+    let reverse_cut = is_cut && should_reverse_cut_direction(&sketch.plane, sketch.face_normal);
+
+
     // For cuts: tool center should be at (offset - height/2) so tool spans [offset-height, offset]
+    // For reversed cuts: tool center at (offset + height/2) so tool spans [offset, offset+height]
     // For boss: tool center should be at (offset + height/2) so tool spans [offset, offset+height]
     // Symmetric boss: tool center at offset so tool spans [offset-height/2, offset+height/2]
+    // For cuts: extend slightly past the surface to ensure clean cut
     let center_offset = if is_cut {
-        -height.abs() / 2.0  // Always shift into body for cuts
+        if reverse_cut {
+            height.abs() / 2.0   // Reversed: shift outward
+        } else {
+            -height.abs() / 2.0  // Normal: shift into body
+        }
     } else if symmetric {
         0.0  // Centered on sketch plane
     } else {
         height.abs() / 2.0  // Starts at sketch plane, goes outward
     };
-
-    tracing::info!(
-        "Circle in sketch: center=({:.2}, {:.2}), radius={:.2}, sketch_offset={}, dir={}, symmetric={}",
-        center.x, center.y, radius, sketch.offset, dir, symmetric
-    );
+    let cut_overshoot = if is_cut {
+        if reverse_cut { -0.01 } else { 0.01 }
+    } else {
+        0.0
+    };
 
     let cyl = vcad::centered_cylinder(id, radius, height.abs(), DEFAULT_SEGMENTS);
 
@@ -328,34 +415,32 @@ fn try_create_cylinder_from_sketch_full(
         SketchPlane::Xy => {
             let tx = center.x + pos[0];
             let ty = center.y + pos[1];
-            let tz = sketch.offset + pos[2] + center_offset;
+            let tz = sketch.offset + pos[2] + center_offset + cut_overshoot;
             cyl.translate(tx, ty, tz)
         }
         SketchPlane::Xz => {
             let rotated = cyl.rotate(90.0, 0.0, 0.0);
             let tx = center.x + pos[0];
-            let ty = sketch.offset + pos[1] + center_offset;
+            let ty = sketch.offset + pos[1] + center_offset + cut_overshoot;
             let tz = center.y + pos[2];
             rotated.translate(tx, ty, tz)
         }
         SketchPlane::Yz => {
-            let rotated = cyl.rotate(0.0, 90.0, 0.0);
-            let tx = sketch.offset + pos[0] + center_offset;
+            let rotated = cyl.rotate(0.0, -90.0, 0.0);
+            // For cut: center_offset is negative (-height/2), cylinder extends into body (-X)
+            // For reversed cut: center_offset is positive (+height/2), cylinder extends outward (+X)
+            let tx = sketch.offset + pos[0] + center_offset + cut_overshoot;
             let ty = center.x + pos[1];
             let tz = center.y + pos[2];
             rotated.translate(tx, ty, tz)
         }
     };
 
-    tracing::info!(
-        "Created cylinder: plane={:?}, radius={:.2}, height={:.2}, cut={}",
-        sketch.plane, radius, height, dir < 0.0
-    );
-
     Some(part)
 }
 
 /// Create a revolved Part from sketch profile
+#[allow(dead_code)]
 pub fn create_revolve_part_from_sketch(
     id: &str,
     sketch: &Sketch,
@@ -428,11 +513,6 @@ pub fn create_revolve_part_from_sketch(
 
     let final_manifold = final_manifold.translate(translate.0, translate.1, translate.2);
 
-    tracing::info!(
-        "Created revolve: plane={:?}, angle={:.2}, segments={}, profiles={}",
-        sketch.plane, angle_deg, segments, profiles.len()
-    );
-
     Some(Part::new(id, final_manifold))
 }
 
@@ -451,6 +531,7 @@ mod tests {
             plane: SketchPlane::Xy,
             offset: 0.0,
             elements: vec![],
+            face_normal: None,
         };
         let validation = validate_sketch(&sketch);
         assert!(!validation.is_valid);
@@ -466,6 +547,7 @@ mod tests {
                 center: Point2D { x: 0.0, y: 0.0 },
                 radius: 1.0,
             }],
+            face_normal: None,
         };
         let validation = validate_sketch(&sketch);
         assert!(validation.is_valid);
@@ -483,6 +565,7 @@ mod tests {
                 width: 2.0,
                 height: 1.0,
             }],
+            face_normal: None,
         };
         let validation = validate_sketch(&sketch);
         assert!(validation.is_valid);
@@ -498,6 +581,7 @@ mod tests {
                 center: Point2D { x: 0.0, y: 0.0 },
                 radius: 1.0,
             }],
+            face_normal: None,
         };
         let part = create_extrude_part_from_sketch("test", &sketch, &identity(), 2.0);
         assert!(part.is_some());
@@ -513,6 +597,7 @@ mod tests {
                 width: 2.0,
                 height: 2.0,
             }],
+            face_normal: None,
         };
         let part = create_extrude_part_from_sketch("test", &sketch, &identity(), 1.0);
         assert!(part.is_some());
@@ -538,6 +623,7 @@ mod tests {
                     end: Point2D { x: 0.0, y: 0.0 },
                 },
             ],
+            face_normal: None,
         };
         let part = create_extrude_part_from_sketch("test", &sketch, &identity(), 1.0);
         assert!(part.is_some());

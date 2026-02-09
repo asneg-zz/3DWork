@@ -12,7 +12,15 @@ pub fn extract_mesh_data(part: &Part, selected: bool) -> Option<MeshData> {
     let positions = mesh.vertices();
     let indices = mesh.indices();
 
+    tracing::info!(
+        "extract_mesh_data: {} vertices, {} indices ({} tris)",
+        positions.len() / 3,
+        indices.len(),
+        indices.len() / 3
+    );
+
     if positions.is_empty() || indices.is_empty() {
+        tracing::warn!("extract_mesh_data: empty mesh!");
         return None;
     }
 

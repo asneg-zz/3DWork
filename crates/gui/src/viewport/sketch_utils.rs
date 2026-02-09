@@ -89,12 +89,19 @@ pub fn add_sketch_to_existing_body(
     body_id: &str,
     plane: SketchPlane,
     offset: f64,
+    face_normal: Option<[f64; 3]>,
 ) {
+    tracing::info!(
+        "Creating sketch on face: body={}, plane={:?}, offset={}, face_normal={:?}",
+        body_id, plane, offset, face_normal
+    );
+
     // Create a sketch
     let sketch = Sketch {
         plane,
         offset,
         elements: vec![],
+        face_normal,
     };
 
     // Add sketch to the existing body

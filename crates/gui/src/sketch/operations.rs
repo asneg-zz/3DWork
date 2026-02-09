@@ -6,6 +6,7 @@ use shared::{Point2D, Sketch, SketchElement};
 use std::f64::consts::{PI, TAU};
 
 /// Result of a trim operation
+#[allow(dead_code)]
 pub enum TrimResult {
     /// The element was completely removed
     Removed,
@@ -16,6 +17,7 @@ pub enum TrimResult {
 }
 
 /// Result of a fillet operation
+#[allow(dead_code)]
 pub struct FilletResult {
     /// The arc that forms the fillet
     pub fillet_arc: SketchElement,
@@ -31,10 +33,6 @@ pub struct FilletResult {
 
 fn to_point(p: [f64; 2]) -> Point {
     Point::new(p[0], p[1])
-}
-
-fn from_point(p: Point) -> [f64; 2] {
-    [p.x, p.y]
 }
 
 fn normalize_angle(angle: f64) -> f64 {
@@ -688,6 +686,7 @@ pub fn trim_circle(
 // ============================================================================
 
 /// Create a fillet (arc) at the intersection of two lines
+#[allow(dead_code)]
 pub fn fillet_lines(
     line1_idx: usize,
     line2_idx: usize,
@@ -786,6 +785,7 @@ pub fn fillet_lines(
 // ============================================================================
 
 /// Create an offset copy of a line
+#[allow(dead_code)]
 pub fn offset_line(line: &SketchElement, distance: f64, click_side: [f64; 2]) -> Option<SketchElement> {
     let (start, end) = match line {
         SketchElement::Line { start, end } => (Point::new(start.x, start.y), Point::new(end.x, end.y)),
@@ -812,6 +812,7 @@ pub fn offset_line(line: &SketchElement, distance: f64, click_side: [f64; 2]) ->
 }
 
 /// Create an offset copy of a circle
+#[allow(dead_code)]
 pub fn offset_circle(circle: &SketchElement, distance: f64, click_point: [f64; 2]) -> Option<SketchElement> {
     let (center, radius) = match circle {
         SketchElement::Circle { center, radius } => (Point::new(center.x, center.y), *radius),
@@ -834,6 +835,7 @@ pub fn offset_circle(circle: &SketchElement, distance: f64, click_point: [f64; 2
 }
 
 /// Generic offset for any element
+#[allow(dead_code)]
 pub fn offset_element(element: &SketchElement, distance: f64, click_point: [f64; 2]) -> Option<Vec<SketchElement>> {
     match element {
         SketchElement::Line { .. } => offset_line(element, distance, click_point).map(|e| vec![e]),
@@ -848,6 +850,7 @@ pub fn offset_element(element: &SketchElement, distance: f64, click_point: [f64;
 
 /// Result of sketch validation for extrusion
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct SketchValidation {
     pub is_valid: bool,
     pub is_closed: bool,
@@ -857,6 +860,7 @@ pub struct SketchValidation {
 
 /// Validate sketch for extrusion operation
 /// Checks if the sketch is closed and has no self-intersections
+#[allow(dead_code)]
 pub fn validate_sketch_for_extrusion(sketch: &Sketch) -> SketchValidation {
     if sketch.elements.is_empty() {
         return SketchValidation {
@@ -913,6 +917,7 @@ pub fn validate_sketch_for_extrusion(sketch: &Sketch) -> SketchValidation {
 }
 
 /// Check if sketch elements form a closed contour
+#[allow(dead_code)]
 pub fn check_contour_closed(sketch: &Sketch) -> bool {
     // Filter chainable elements
     let chainable: Vec<&SketchElement> = sketch.elements.iter().filter(|e| {
@@ -984,6 +989,7 @@ pub fn check_contour_closed(sketch: &Sketch) -> bool {
 }
 
 /// Check if sketch has self-intersections (elements crossing each other improperly)
+#[allow(dead_code)]
 pub fn check_self_intersections(sketch: &Sketch) -> bool {
     let elements = &sketch.elements;
     let n = elements.len();
@@ -1013,6 +1019,7 @@ pub fn check_self_intersections(sketch: &Sketch) -> bool {
 }
 
 /// Get start and end points of a chainable element
+#[allow(dead_code)]
 fn get_element_endpoints(elem: &SketchElement) -> Option<([f64; 2], [f64; 2])> {
     match elem {
         SketchElement::Line { start, end } => {
@@ -1043,6 +1050,7 @@ fn get_element_endpoints(elem: &SketchElement) -> Option<([f64; 2], [f64; 2])> {
 }
 
 /// Check if two points are close within tolerance
+#[allow(dead_code)]
 fn points_close(a: [f64; 2], b: [f64; 2], tol: f64) -> bool {
     let dx = a[0] - b[0];
     let dy = a[1] - b[1];
@@ -1050,6 +1058,7 @@ fn points_close(a: [f64; 2], b: [f64; 2], tol: f64) -> bool {
 }
 
 /// Find intersection points between two sketch elements
+#[allow(dead_code)]
 fn find_element_intersections(elem1: &SketchElement, elem2: &SketchElement) -> Vec<Point> {
     match (elem1, elem2) {
         (SketchElement::Line { start: s1, end: e1 }, SketchElement::Line { start: s2, end: e2 }) => {
@@ -1129,6 +1138,7 @@ mod tests {
                     end: Point2D { x: 0.0, y: 2.0 },
                 },
             ],
+            face_normal: None,
         };
 
         let result = trim_arc(0, [0.0, 0.0], 1.0, 0.0, PI, [0.5, 0.5], &sketch);

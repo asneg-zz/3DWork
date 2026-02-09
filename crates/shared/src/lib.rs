@@ -95,6 +95,10 @@ pub struct Sketch {
     pub plane: SketchPlane,
     pub offset: f64,
     pub elements: Vec<SketchElement>,
+    /// Нормаль грани, на которой создан эскиз (для правильного направления Cut)
+    /// Если None — используется направление по умолчанию (в сторону отрицательной оси)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub face_normal: Option<[f64; 3]>,
 }
 
 /// Трансформация объекта
@@ -761,6 +765,7 @@ mod tests {
                         radius: 1.0,
                     },
                 ],
+                face_normal: None,
             },
             transform: Transform::new(),
         };
@@ -839,6 +844,7 @@ mod tests {
                                 height: 1.0,
                             },
                         ],
+                        face_normal: None,
                     },
                     transform: Transform::new(),
                 },
@@ -948,6 +954,7 @@ mod tests {
                     center: Point2D { x: 0.0, y: 0.0 },
                     radius: 1.0,
                 }],
+                face_normal: None,
             },
             sketch_transform: Transform::new(),
             height: 5.0,
@@ -965,6 +972,7 @@ mod tests {
                 plane: SketchPlane::Xz,
                 offset: 1.0,
                 elements: vec![],
+                face_normal: None,
             },
             transform: Transform::new(),
         };

@@ -92,6 +92,9 @@ impl ViewportPanel {
             self.camera.zoom(scroll * 0.01);
         }
 
+        // ── Build CSG meshes BEFORE selection (so picking uses fresh normals) ────
+        self.rebuild_csg_if_needed(state);
+
         // ── Object/Face selection via click ──────────────────────────
         self.handle_selection(&response, ui, rect, state, sketch_consumed, mod_tool_consumed);
 
@@ -105,9 +108,6 @@ impl ViewportPanel {
         if !ui.is_rect_visible(rect) {
             return;
         }
-
-        // ── Build CSG meshes ─────────────────────────────
-        self.rebuild_csg_if_needed(state);
 
         // ── Build gizmo lines ───────────────────────────────────
         let gizmo_lines = self.build_gizmo_lines(state);
@@ -635,7 +635,7 @@ impl ViewportPanel {
         if actions.duplicate_request {
             crate::ui::toolbar::action_duplicate(state);
         }
-        if let Some((body_id, plane, world_offset, centroid)) = actions.sketch_on_face_request {
+        if let Some((body_id, plane, world_offset, centroid, face_normal)) = actions.sketch_on_face_request {
             // Align camera to look perpendicular to the sketch plane
             self.camera.align_to_sketch_plane(plane.clone(), centroid);
 
@@ -651,7 +651,14 @@ impl ViewportPanel {
                 world_offset
             };
 
-            sketch_utils::add_sketch_to_existing_body(state, &body_id, plane, local_offset);
+            // Convert face normal from f32 to f64
+            let face_normal_f64 = Some([
+                face_normal[0] as f64,
+                face_normal[1] as f64,
+                face_normal[2] as f64,
+            ]);
+
+            sketch_utils::add_sketch_to_existing_body(state, &body_id, plane, local_offset, face_normal_f64);
         }
     }
 

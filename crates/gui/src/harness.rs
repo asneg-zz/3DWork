@@ -211,7 +211,7 @@ impl TestHarness {
     }
 
     /// Create a validator for a body's mesh
-    pub fn validate_mesh(&self, body_id: &str) -> Option<MeshValidator> {
+    pub fn validate_mesh(&self, body_id: &str) -> Option<MeshValidator<'_>> {
         self.last_meshes.get(body_id).map(MeshValidator::new)
     }
 

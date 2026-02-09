@@ -176,7 +176,6 @@ pub fn pick_triangle(ray: &Ray, mesh: &MeshData) -> Option<TriangleHit> {
 
         if let Some(dist) = ray_triangle_intersect(ray, v0, v1, v2) {
             if best.as_ref().is_none_or(|b| dist < b.distance) {
-                // Compute triangle normal (use stored normal from first vertex)
                 let normal = Vec3::new(
                     verts[i0 * stride + 3],
                     verts[i0 * stride + 4],

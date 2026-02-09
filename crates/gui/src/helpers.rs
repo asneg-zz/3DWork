@@ -194,6 +194,7 @@ mod tests {
                         center: shared::Point2D { x: 0.0, y: 0.0 },
                         radius: 0.5,
                     }],
+                    face_normal: None,
                 },
                 transform: Transform::new(),
             }],

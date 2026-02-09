@@ -17,7 +17,8 @@ use super::picking::{calculate_face_centroid, face_to_sketch_plane};
 pub struct ContextMenuActions {
     pub focus_request: Option<glam::Vec3>,
     pub duplicate_request: bool,
-    pub sketch_on_face_request: Option<(String, shared::SketchPlane, f64, glam::Vec3)>,
+    /// (body_id, plane, offset, centroid, face_normal)
+    pub sketch_on_face_request: Option<(String, shared::SketchPlane, f64, glam::Vec3, [f32; 3])>,
 }
 
 impl Default for ContextMenuActions {
@@ -151,8 +152,9 @@ fn show_sketch_on_face_item(
             if let Some(mesh) = meshes.get(&face.object_id) {
                 let centroid = calculate_face_centroid(mesh, &face.triangle_indices);
                 let (plane, offset) = face_to_sketch_plane(face.normal, centroid);
+                // Save the face normal for correct cut direction
                 actions.sketch_on_face_request =
-                    Some((obj_id.to_string(), plane, offset, centroid));
+                    Some((obj_id.to_string(), plane, offset, centroid, face.normal));
             }
             ui.close_menu();
         }

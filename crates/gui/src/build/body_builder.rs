@@ -38,12 +38,6 @@ pub fn build_body_mesh_data(body: &Body, selected: bool) -> Result<Option<MeshDa
         return Ok(None);
     };
 
-    tracing::info!(
-        "Building mesh for body {}, base feature: {}",
-        body.id,
-        base_feature.id()
-    );
-
     // Check if there are any modification features
     let has_modifications = body
         .features
@@ -57,7 +51,6 @@ pub fn build_body_mesh_data(body: &Body, selected: bool) -> Result<Option<MeshDa
             primitive,
             transform,
         } => {
-            tracing::info!("  Base is Primitive: {:?}", primitive);
             let part = create_primitive(id, primitive);
             let part = apply_transform(part, transform);
             Some(part)
@@ -68,11 +61,8 @@ pub fn build_body_mesh_data(body: &Body, selected: bool) -> Result<Option<MeshDa
             sketch_transform,
             height,
         } => {
-            tracing::info!("  Base is BaseExtrude, height={}", height);
-
             // If no modifications, return mesh directly
             if !has_modifications {
-                tracing::info!("  No modifications, returning extrude mesh directly");
                 let mut mesh = extrude_mesh(sketch, sketch_transform, *height)?;
                 if selected {
                     apply_selection_color(&mut mesh);
@@ -81,10 +71,6 @@ pub fn build_body_mesh_data(body: &Body, selected: bool) -> Result<Option<MeshDa
             }
 
             // Has modifications - need to create a CSG Part from the sketch bounds
-            tracing::info!(
-                "  Has modifications, creating Part from sketch bounds (plane={:?}, offset={}, pos={:?})",
-                sketch.plane, sketch.offset, sketch_transform.position
-            );
             create_extrude_part_from_sketch(id, sketch, sketch_transform, *height)
         }
         Feature::BaseRevolve {
@@ -94,11 +80,8 @@ pub fn build_body_mesh_data(body: &Body, selected: bool) -> Result<Option<MeshDa
             angle,
             segments,
         } => {
-            tracing::info!("  Base is BaseRevolve, angle={}", angle);
-
             // If no modifications, return mesh directly
             if !has_modifications {
-                tracing::info!("  No modifications, returning revolve mesh directly");
                 let mut mesh = revolve_mesh(sketch, sketch_transform, *angle, *segments)?;
                 if selected {
                     apply_selection_color(&mut mesh);
@@ -107,7 +90,6 @@ pub fn build_body_mesh_data(body: &Body, selected: bool) -> Result<Option<MeshDa
             }
 
             // Has modifications - approximate with sphere for now
-            tracing::info!("  Has modifications, creating approximate Part");
             if let Some(bounds) = sketch_bounds(sketch) {
                 let (min_x, min_y, max_x, max_y) = bounds;
                 let radius = ((max_x - min_x).max(max_y - min_y) / 2.0).max(0.1);
@@ -182,35 +164,19 @@ pub fn build_body_mesh_data(body: &Body, selected: bool) -> Result<Option<MeshDa
 fn process_extrude_feature(
     body: &Body,
     current_part: &mut Option<Part>,
-    extrude_id: &str,
+    _extrude_id: &str,
     sketch_id: &str,
     height: f64,
     cut: bool,
     symmetric: bool,
     draft_angle: f64,
 ) {
-    tracing::info!(
-        "  Processing Extrude: id={}, sketch_id={}, height={}, cut={}, symmetric={}, draft={}",
-        extrude_id,
-        sketch_id,
-        height,
-        cut,
-        symmetric,
-        draft_angle
-    );
-
     // Find the sketch in this body (can be Sketch or inside BaseExtrude/BaseRevolve)
     let sketch_data = find_sketch_in_body(body, sketch_id);
 
     if sketch_data.is_none() {
-        tracing::warn!("    Sketch not found! Available features:");
-        for f in &body.features {
-            tracing::warn!(
-                "      - {:?} id={}",
-                std::mem::discriminant(f),
-                f.id()
-            );
-        }
+        tracing::warn!("Sketch {} not found in body {}", sketch_id, body.id);
+        return;
     }
 
     if let Some((sketch, sketch_transform)) = sketch_data {
@@ -218,11 +184,6 @@ fn process_extrude_feature(
         let body_transform = get_body_base_transform(body);
         let combined_transform = combine_transforms(&body_transform, sketch_transform);
 
-        tracing::info!(
-            "    Sketch has {} elements, plane={:?}, offset={}, sketch_pos={:?}, body_pos={:?}, combined_pos={:?}",
-            sketch.elements.len(), sketch.plane, sketch.offset,
-            sketch_transform.position, body_transform.position, combined_transform.position
-        );
         if let Some(base_part) = current_part.take() {
             // Create extrusion tool from sketch (respects plane orientation and cut direction)
             if let Some(tool_part) = create_extrude_part_full(
@@ -234,35 +195,15 @@ fn process_extrude_feature(
                 symmetric,
                 draft_angle,
             ) {
-                // Debug: log bounding boxes
-                let (base_min, base_max) = base_part.bounding_box();
-                let (tool_min, tool_max) = tool_part.bounding_box();
-                tracing::info!("    Base bbox: ({:.2},{:.2},{:.2}) - ({:.2},{:.2},{:.2})",
-                    base_min[0], base_min[1], base_min[2], base_max[0], base_max[1], base_max[2]);
-                tracing::info!("    Tool bbox: ({:.2},{:.2},{:.2}) - ({:.2},{:.2},{:.2})",
-                    tool_min[0], tool_min[1], tool_min[2], tool_max[0], tool_max[1], tool_max[2]);
-
-                if cut {
-                    tracing::info!("    Performing DIFFERENCE (cut)");
-                    let base_tris = base_part.num_triangles();
-                    let tool_tris = tool_part.num_triangles();
-                    let result = base_part.difference(&tool_part);
-                    let result_tris = result.num_triangles();
-                    let (res_min, res_max) = result.bounding_box();
-                    tracing::info!("    Result bbox: ({:.2},{:.2},{:.2}) - ({:.2},{:.2},{:.2}), empty={}, tris: {} - {} = {}",
-                        res_min[0], res_min[1], res_min[2], res_max[0], res_max[1], res_max[2], result.is_empty(),
-                        base_tris, tool_tris, result_tris);
-                    *current_part = Some(result);
+                let result = if cut {
+                    base_part.difference(&tool_part)
                 } else {
-                    tracing::info!("    Performing UNION (boss)");
-                    *current_part = Some(base_part.union(&tool_part));
-                }
+                    base_part.union(&tool_part)
+                };
+                *current_part = Some(result);
             } else {
-                tracing::warn!("    No sketch bounds - sketch is empty?");
                 *current_part = Some(base_part);
             }
-        } else {
-            tracing::warn!("    No base part to apply extrude to!");
         }
     }
 }
@@ -316,7 +257,6 @@ fn find_sketch_in_body<'a>(
 ) -> Option<(&'a shared::Sketch, &'a Transform)> {
     body.features.iter().find_map(|f| match f {
         Feature::Sketch { id, sketch, transform } if id == sketch_id => {
-            tracing::info!("    Found Sketch feature with id={}", id);
             Some((sketch, transform))
         }
         // Also check if sketch_id matches a BaseExtrude/BaseRevolve
@@ -326,7 +266,6 @@ fn find_sketch_in_body<'a>(
             sketch_transform,
             ..
         } if id == sketch_id => {
-            tracing::info!("    Found BaseExtrude feature with id={}", id);
             Some((sketch, sketch_transform))
         }
         Feature::BaseRevolve {
@@ -335,7 +274,6 @@ fn find_sketch_in_body<'a>(
             sketch_transform,
             ..
         } if id == sketch_id => {
-            tracing::info!("    Found BaseRevolve feature with id={}", id);
             Some((sketch, sketch_transform))
         }
         _ => None,

@@ -336,11 +336,12 @@ fn create_sketch_body(state: &mut AppState, name: &str, plane: SketchPlane) {
     // If a body is selected, add sketch to it; otherwise create new body
     if let Some(selected_id) = state.selection.primary().cloned() {
         if state.scene.get_body(&selected_id).is_some() {
-            // Add sketch to existing body
+            // Add sketch to existing body (not on face, so no face_normal)
             let sketch = Sketch {
                 plane: plane.clone(),
                 offset: 0.0,
                 elements: vec![],
+                face_normal: None,
             };
             if let Some(feature_id) = state.scene.add_sketch_to_body(
                 &selected_id,
@@ -359,6 +360,7 @@ fn create_sketch_body(state: &mut AppState, name: &str, plane: SketchPlane) {
         plane,
         offset: 0.0,
         elements: vec![],
+        face_normal: None,
     };
     let body_id = state.scene.create_body_with_sketch(
         name.to_string(),
