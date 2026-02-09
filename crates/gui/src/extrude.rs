@@ -247,15 +247,41 @@ pub fn extract_2d_profile(elements: &[SketchElement]) -> Result<Vec<[f64; 2]>, S
     Ok(profiles.into_iter().next().unwrap())
 }
 
+/// Tolerance for connecting sketch segments (squared distance).
+/// Use larger tolerance (1e-4 = 0.01 distance) to handle trimmed sketches
+/// where endpoints may not match exactly due to floating point errors.
+const CHAIN_TOLERANCE_SQ: f64 = 1e-4;
+
+/// A segment with start/end points and tessellated points (for proper chaining)
+struct ChainableSegment {
+    points: Vec<[f64; 2]>,  // Tessellated points in order
+}
+
+impl ChainableSegment {
+    fn start(&self) -> [f64; 2] {
+        self.points[0]
+    }
+
+    fn end(&self) -> [f64; 2] {
+        *self.points.last().unwrap()
+    }
+
+    fn reverse(&mut self) {
+        self.points.reverse();
+    }
+}
+
 /// Extract multiple 2D polygon profiles from sketch elements.
 ///
 /// Self-contained closed shapes (Circle, Rectangle) become separate profiles.
 /// Chain-able elements (Line, Arc, Polyline, Spline) are chained together
-/// by proximity into connected profiles.
+/// by proximity into connected profiles, with proper reordering.
 pub fn extract_2d_profiles(elements: &[SketchElement]) -> Result<Vec<Vec<[f64; 2]>>, String> {
     if elements.is_empty() {
         return Err("Empty sketch".to_string());
     }
+
+    tracing::info!("extract_2d_profiles: {} elements", elements.len());
 
     // Single-element fast path
     if elements.len() == 1 {
@@ -264,17 +290,17 @@ pub fn extract_2d_profiles(elements: &[SketchElement]) -> Result<Vec<Vec<[f64; 2
     }
 
     let mut profiles: Vec<Vec<[f64; 2]>> = Vec::new();
-    let mut chain: Vec<[f64; 2]> = Vec::new();
+    let mut chainable_segments: Vec<ChainableSegment> = Vec::new();
 
-    for elem in elements {
+    for (i, elem) in elements.iter().enumerate() {
         match elem {
-            // Self-contained closed shapes → flush chain, add as separate profile
+            // Self-contained closed shapes → add directly as profile
             SketchElement::Circle { center, radius } => {
-                flush_chain(&mut chain, &mut profiles);
+                tracing::info!("  [{}] Circle at ({:.3},{:.3}) r={:.3}", i, center.x, center.y, radius);
                 profiles.push(tessellate_circle(center.x, center.y, *radius));
             }
             SketchElement::Rectangle { corner, width, height } => {
-                flush_chain(&mut chain, &mut profiles);
+                tracing::info!("  [{}] Rectangle at ({:.3},{:.3}) {}x{}", i, corner.x, corner.y, width, height);
                 profiles.push(vec![
                     [corner.x, corner.y],
                     [corner.x + width, corner.y],
@@ -282,57 +308,156 @@ pub fn extract_2d_profiles(elements: &[SketchElement]) -> Result<Vec<Vec<[f64; 2
                     [corner.x, corner.y + height],
                 ]);
             }
-            // Chain-able elements
+            // Chainable elements - collect for ordered chaining
             SketchElement::Line { start, end } => {
-                if chain.is_empty()
-                    || dist_sq(chain.last().unwrap(), &[start.x, start.y]) > 1e-6
-                {
-                    chain.push([start.x, start.y]);
-                }
-                chain.push([end.x, end.y]);
+                tracing::info!("  [{}] Line ({:.4},{:.4})->({:.4},{:.4})",
+                    i, start.x, start.y, end.x, end.y);
+                chainable_segments.push(ChainableSegment {
+                    points: vec![[start.x, start.y], [end.x, end.y]],
+                });
             }
-            SketchElement::Arc {
-                center,
-                radius,
-                start_angle,
-                end_angle,
-            } => {
+            SketchElement::Arc { center, radius, start_angle, end_angle } => {
                 let arc = tessellate_arc(center.x, center.y, *radius, *start_angle, *end_angle);
-                for p in &arc {
-                    if chain.is_empty() || dist_sq(chain.last().unwrap(), p) > 1e-6 {
-                        chain.push(*p);
-                    }
+                tracing::info!("  [{}] Arc center=({:.4},{:.4}) r={:.4} angles={:.4}..{:.4} pts={}",
+                    i, center.x, center.y, radius, start_angle, end_angle, arc.len());
+                if !arc.is_empty() {
+                    chainable_segments.push(ChainableSegment { points: arc });
                 }
             }
             SketchElement::Polyline { points } => {
-                for p in points {
-                    chain.push([p.x, p.y]);
+                tracing::info!("  [{}] Polyline {} points", i, points.len());
+                let pts: Vec<[f64; 2]> = points.iter().map(|p| [p.x, p.y]).collect();
+                if pts.len() >= 2 {
+                    chainable_segments.push(ChainableSegment { points: pts });
                 }
             }
             SketchElement::Spline { points } => {
-                for p in points {
-                    chain.push([p.x, p.y]);
+                tracing::info!("  [{}] Spline {} points", i, points.len());
+                let pts: Vec<[f64; 2]> = points.iter().map(|p| [p.x, p.y]).collect();
+                if pts.len() >= 2 {
+                    chainable_segments.push(ChainableSegment { points: pts });
                 }
             }
-            SketchElement::Dimension { .. } => {}
+            SketchElement::Dimension { .. } => {
+                tracing::info!("  [{}] Dimension (ignored)", i);
+            }
         }
     }
 
-    flush_chain(&mut chain, &mut profiles);
+    // Chain segments by proximity (proper reordering)
+    if !chainable_segments.is_empty() {
+        let chained_profiles = chain_segments_by_proximity(chainable_segments);
+        profiles.extend(chained_profiles);
+    }
+
+    // Log profile status
+    for (pi, profile) in profiles.iter().enumerate() {
+        if profile.len() >= 3 {
+            let gap = dist_sq(&profile[0], profile.last().unwrap()).sqrt();
+            let closed = gap < CHAIN_TOLERANCE_SQ.sqrt();
+            tracing::info!("  Profile {} has {} points, gap to close={:.6}, closed={}",
+                pi, profile.len(), gap, closed);
+        }
+    }
 
     if profiles.is_empty() {
         return Err("No valid profiles found in sketch elements".to_string());
     }
 
+    tracing::info!("extract_2d_profiles: extracted {} profiles", profiles.len());
     Ok(profiles)
 }
 
-fn flush_chain(chain: &mut Vec<[f64; 2]>, profiles: &mut Vec<Vec<[f64; 2]>>) {
-    if chain.len() >= 3 {
-        profiles.push(std::mem::take(chain));
-    } else {
-        chain.clear();
+/// Chain segments by finding connecting endpoints (handles out-of-order elements)
+fn chain_segments_by_proximity(mut segments: Vec<ChainableSegment>) -> Vec<Vec<[f64; 2]>> {
+    let mut profiles: Vec<Vec<[f64; 2]>> = Vec::new();
+
+    while !segments.is_empty() {
+        // Start new chain with first remaining segment
+        let mut chain: Vec<[f64; 2]> = segments.remove(0).points;
+
+        // Keep extending the chain
+        loop {
+            let chain_start = chain[0];
+            let chain_end = *chain.last().unwrap();
+
+            // Find best match for chain end (extend forward)
+            let mut best_match: Option<(usize, bool, f64)> = None; // (index, reversed, dist_sq)
+
+            for (i, seg) in segments.iter().enumerate() {
+                let dist_to_start = dist_sq(&chain_end, &seg.start());
+                let dist_to_end = dist_sq(&chain_end, &seg.end());
+
+                if dist_to_start <= CHAIN_TOLERANCE_SQ {
+                    if best_match.is_none() || dist_to_start < best_match.unwrap().2 {
+                        best_match = Some((i, false, dist_to_start));
+                    }
+                }
+                if dist_to_end <= CHAIN_TOLERANCE_SQ {
+                    if best_match.is_none() || dist_to_end < best_match.unwrap().2 {
+                        best_match = Some((i, true, dist_to_end)); // Need to reverse
+                    }
+                }
+            }
+
+            // Also check if we can extend backward (prepend to chain)
+            let mut best_prepend: Option<(usize, bool, f64)> = None;
+            for (i, seg) in segments.iter().enumerate() {
+                // Skip if already matched for forward extension
+                if best_match.is_some() && best_match.unwrap().0 == i {
+                    continue;
+                }
+
+                let dist_to_start = dist_sq(&chain_start, &seg.start());
+                let dist_to_end = dist_sq(&chain_start, &seg.end());
+
+                if dist_to_end <= CHAIN_TOLERANCE_SQ {
+                    if best_prepend.is_none() || dist_to_end < best_prepend.unwrap().2 {
+                        best_prepend = Some((i, false, dist_to_end)); // Seg end connects to chain start
+                    }
+                }
+                if dist_to_start <= CHAIN_TOLERANCE_SQ {
+                    if best_prepend.is_none() || dist_to_start < best_prepend.unwrap().2 {
+                        best_prepend = Some((i, true, dist_to_start)); // Need to reverse
+                    }
+                }
+            }
+
+            // Prefer forward extension, fall back to prepend
+            if let Some((idx, reversed, _dist)) = best_match {
+                let mut seg = segments.remove(idx);
+                if reversed {
+                    seg.reverse();
+                }
+                // Skip first point if it matches chain end (avoid duplicate)
+                let skip = if dist_sq(&chain_end, &seg.start()) < CHAIN_TOLERANCE_SQ { 1 } else { 0 };
+                chain.extend(seg.points.into_iter().skip(skip));
+                tracing::info!("    Extended chain forward, now {} points", chain.len());
+            } else if let Some((idx, reversed, _dist)) = best_prepend {
+                let mut seg = segments.remove(idx);
+                if reversed {
+                    seg.reverse();
+                }
+                // Prepend points (skip last if it matches chain start)
+                let mut new_chain = seg.points;
+                if dist_sq(new_chain.last().unwrap(), &chain_start) < CHAIN_TOLERANCE_SQ {
+                    new_chain.pop();
+                }
+                new_chain.extend(chain);
+                chain = new_chain;
+                tracing::info!("    Extended chain backward, now {} points", chain.len());
+            } else {
+                // No more connections found
+                break;
+            }
+        }
+
+        if chain.len() >= 3 {
+            profiles.push(chain);
+        }
     }
+
+    profiles
 }
 
 fn extract_single_element(elem: &SketchElement) -> Result<Vec<[f64; 2]>, String> {

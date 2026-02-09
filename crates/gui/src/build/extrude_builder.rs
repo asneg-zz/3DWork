@@ -54,8 +54,17 @@ pub fn create_extrude_part_full(
     let _pos = &transform.position;
     // For cuts, we extrude in the opposite direction (into the body)
     let dir = if is_cut { -1.0 } else { 1.0 };
-    // For symmetric extrusion, center on sketch plane (no offset)
-    let center_offset = if symmetric { 0.0 } else { dir * height / 2.0 };
+    // Center offset for centered_cube (used by bounding box fallback)
+    // For cuts: tool center at offset - h/2, so tool spans [offset-h, offset]
+    // For boss symmetric: tool center at offset, spans [offset-h/2, offset+h/2]
+    // For boss non-symmetric: tool center at offset + h/2, spans [offset, offset+h]
+    let center_offset = if is_cut {
+        -height.abs() / 2.0
+    } else if symmetric {
+        0.0
+    } else {
+        height.abs() / 2.0
+    };
 
     // Check if the sketch is a single circle - use cylinder for better CSG
     if let Some(circle_part) =
@@ -158,42 +167,55 @@ fn try_create_profile_extrusion(
 
     // Transform based on sketch plane
     // Manifold creates geometry in XY plane extruded along Z (from 0 to height)
+    // After rotation, extrusion spans [0, height] along the extrusion axis
+    // For cuts: shift so tool is INSIDE the body (ends at sketch plane)
+    // For boss: shift so tool is OUTSIDE the body (starts at sketch plane)
     let final_manifold = match sketch.plane {
         SketchPlane::Xy => {
-            let m = if symmetric {
-                manifold.translate(0.0, 0.0, -height.abs() / 2.0)
-            } else if is_cut {
-                manifold.translate(0.0, 0.0, -height.abs())
+            // XY plane: extrusion along Z
+            // After extrude: Z from 0 to height
+            // Boss: keep at [0, h], then add offset → [offset, offset+h] (goes up from plane)
+            // Cut: shift to [-h, 0], then add offset → [offset-h, offset] (goes down into body)
+            // Symmetric boss: [-h/2, h/2] + offset → [offset-h/2, offset+h/2]
+            // Symmetric cut: same as cut, tool fully inside body
+            let z_shift = if is_cut {
+                -height.abs()  // Tool ends at sketch plane, extends into body
+            } else if symmetric {
+                -height.abs() / 2.0  // Centered on sketch plane
             } else {
-                manifold
+                0.0  // Starts at sketch plane
             };
-            m.translate(pos[0], pos[1], sketch.offset + pos[2])
+            manifold
+                .translate(0.0, 0.0, z_shift)
+                .translate(pos[0], pos[1], sketch.offset + pos[2])
         }
         SketchPlane::Xz => {
-            // Rotate -90° around X to make Z become Y (extrusion direction)
+            // XZ plane: extrusion along Y (after rotation)
             let rotated = manifold.rotate(-90.0, 0.0, 0.0);
-            // After rotation: extrusion goes from Y=0 to Y=height
-            let m = if symmetric {
-                rotated.translate(0.0, -height.abs() / 2.0, 0.0)
-            } else if is_cut {
-                rotated.translate(0.0, -height.abs(), 0.0)
+            let y_shift = if is_cut {
+                -height.abs()
+            } else if symmetric {
+                -height.abs() / 2.0
             } else {
-                rotated
+                0.0
             };
-            m.translate(pos[0], sketch.offset + pos[1], pos[2])
+            rotated
+                .translate(0.0, y_shift, 0.0)
+                .translate(pos[0], sketch.offset + pos[1], pos[2])
         }
         SketchPlane::Yz => {
-            // Rotate 90° around Y to make Z become X (extrusion direction)
+            // YZ plane: extrusion along X (after rotation)
             let rotated = manifold.rotate(0.0, 90.0, 0.0);
-            // After rotation: extrusion goes from X=0 to X=height
-            let m = if symmetric {
-                rotated.translate(-height.abs() / 2.0, 0.0, 0.0)
-            } else if is_cut {
-                rotated.translate(-height.abs(), 0.0, 0.0)
+            let x_shift = if is_cut {
+                -height.abs()
+            } else if symmetric {
+                -height.abs() / 2.0
             } else {
-                rotated
+                0.0
             };
-            m.translate(sketch.offset + pos[0], pos[1], pos[2])
+            rotated
+                .translate(x_shift, 0.0, 0.0)
+                .translate(sketch.offset + pos[0], pos[1], pos[2])
         }
     };
 
@@ -282,10 +304,17 @@ fn try_create_cylinder_from_sketch_full(
 
     let (center, radius) = circle;
     let pos = &transform.position;
-    let center_offset = if symmetric {
-        0.0
+    let is_cut = dir < 0.0;
+
+    // For cuts: tool center should be at (offset - height/2) so tool spans [offset-height, offset]
+    // For boss: tool center should be at (offset + height/2) so tool spans [offset, offset+height]
+    // Symmetric boss: tool center at offset so tool spans [offset-height/2, offset+height/2]
+    let center_offset = if is_cut {
+        -height.abs() / 2.0  // Always shift into body for cuts
+    } else if symmetric {
+        0.0  // Centered on sketch plane
     } else {
-        dir * height.abs() / 2.0
+        height.abs() / 2.0  // Starts at sketch plane, goes outward
     };
 
     tracing::info!(
