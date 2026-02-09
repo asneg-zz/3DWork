@@ -227,16 +227,29 @@ fn arc_circle_intersection(
     end_angle: f64,
     circle: KCircle,
 ) -> Vec<Point> {
-    arc_arc_intersection(
-        arc_center,
-        arc_radius,
-        start_angle,
-        end_angle,
-        circle.center,
-        circle.radius,
-        0.0,
-        TAU,
-    )
+    // First get raw circle-circle intersections
+    let raw_ints = circle_circle_intersection(
+        KCircle::new(arc_center, arc_radius),
+        circle,
+    );
+
+    tracing::info!("    arc_circle_intersection: arc center=({:.2},{:.2}) r={:.2} angles={:.2}..{:.2}, circle center=({:.2},{:.2}) r={:.2}",
+        arc_center.x, arc_center.y, arc_radius, start_angle, end_angle,
+        circle.center.x, circle.center.y, circle.radius);
+    tracing::info!("    raw circle-circle intersections: {}", raw_ints.len());
+
+    let result: Vec<Point> = raw_ints
+        .into_iter()
+        .filter(|pt| {
+            let angle = (pt.y - arc_center.y).atan2(pt.x - arc_center.x);
+            let in_range = angle_in_arc_range(angle, start_angle, end_angle);
+            tracing::info!("      point ({:.2},{:.2}) angle={:.2} in_range={}", pt.x, pt.y, angle, in_range);
+            in_range
+        })
+        .collect();
+
+    tracing::info!("    filtered to {} points", result.len());
+    result
 }
 
 // ============================================================================
@@ -393,15 +406,35 @@ fn find_circle_intersections(
     let circle = KCircle::new(center, radius);
     let mut results = Vec::new();
 
+    tracing::info!("find_circle_intersections: circle idx={}, center=({:.2},{:.2}), r={:.2}, {} elements in sketch",
+        idx, center.x, center.y, radius, sketch.elements.len());
+
     for (i, elem) in sketch.elements.iter().enumerate() {
         if i == idx {
             continue;
         }
 
+        // Log element type for debugging
+        let elem_type = match elem {
+            SketchElement::Line { .. } => "Line",
+            SketchElement::Circle { .. } => "Circle",
+            SketchElement::Arc { .. } => "Arc",
+            SketchElement::Rectangle { .. } => "Rectangle",
+            SketchElement::Spline { .. } => "Spline",
+            SketchElement::Polyline { .. } => "Polyline",
+            SketchElement::Dimension { .. } => "Dimension",
+        };
+        tracing::info!("  Element[{}] type: {}", i, elem_type);
+
         let points: Vec<Point> = match elem {
             SketchElement::Line { start, end } => {
                 let line = KLine::new(Point::new(start.x, start.y), Point::new(end.x, end.y));
-                line_circle_intersection(line, circle)
+                let all_ints = line_circle_intersection(line, circle);
+                tracing::info!("    Line ({:.2},{:.2})->({:.2},{:.2}): {} raw intersections, t values: {:?}",
+                    start.x, start.y, end.x, end.y,
+                    all_ints.len(),
+                    all_ints.iter().map(|(t, _)| *t).collect::<Vec<_>>());
+                all_ints
                     .into_iter()
                     .filter(|(t, _)| *t >= -1e-6 && *t <= 1.0 + 1e-6)
                     .map(|(_, pt)| pt)
@@ -588,7 +621,9 @@ pub fn trim_circle(
     let c = to_point(center);
     let ints = find_circle_intersections(idx, c, radius, sketch);
 
-    tracing::info!("trim_circle: found {} intersections", ints.len());
+    tracing::info!("trim_circle: found {} intersections, angles: {:?}",
+        ints.len(),
+        ints.iter().map(|i| i.param).collect::<Vec<_>>());
 
     if ints.len() < 2 {
         return TrimResult::NoChange;
@@ -596,6 +631,7 @@ pub fn trim_circle(
 
     // Find click angle
     let click_angle = normalize_angle((click[1] - center[1]).atan2(click[0] - center[0]));
+    tracing::info!("trim_circle: click_angle = {:.2} rad ({:.1}°)", click_angle, click_angle.to_degrees());
 
     // Find which segment the click is in
     let n = ints.len();
@@ -610,19 +646,40 @@ pub fn trim_circle(
         };
 
         if in_segment {
-            // Keep the opposite segment as an arc
-            tracing::info!("trim_circle: removing segment {}, arc {:.2} to {:.2}",
-                i, end_angle, start_angle);
+            tracing::info!("trim_circle: click is in segment {} ({:.2} to {:.2})", i, start_angle, end_angle);
 
-            return TrimResult::Replaced(vec![SketchElement::Arc {
-                center: Point2D { x: center[0], y: center[1] },
-                radius,
-                start_angle: end_angle,
-                end_angle: start_angle,
-            }]);
+            if n == 2 {
+                // Simple case: 2 intersections, create single arc for the other segment
+                tracing::info!("trim_circle: 2 intersections, creating single arc {:.2} to {:.2}", end_angle, start_angle);
+                return TrimResult::Replaced(vec![SketchElement::Arc {
+                    center: Point2D { x: center[0], y: center[1] },
+                    radius,
+                    start_angle: end_angle,
+                    end_angle: start_angle,
+                }]);
+            } else {
+                // Multiple intersections: create arcs for all OTHER segments
+                let mut arcs = Vec::new();
+                for j in 0..n {
+                    if j == i {
+                        continue; // Skip the clicked segment
+                    }
+                    let arc_start = ints[j].param;
+                    let arc_end = ints[(j + 1) % n].param;
+                    tracing::info!("trim_circle: keeping segment {} as arc {:.2} to {:.2}", j, arc_start, arc_end);
+                    arcs.push(SketchElement::Arc {
+                        center: Point2D { x: center[0], y: center[1] },
+                        radius,
+                        start_angle: arc_start,
+                        end_angle: arc_end,
+                    });
+                }
+                return TrimResult::Replaced(arcs);
+            }
         }
     }
 
+    tracing::warn!("trim_circle: click_angle {:.2} not found in any segment", click_angle);
     TrimResult::NoChange
 }
 
