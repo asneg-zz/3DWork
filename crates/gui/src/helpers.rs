@@ -95,6 +95,29 @@ pub fn has_sketch_with_elements(body: &Body) -> bool {
     })
 }
 
+/// Find the last sketch feature ID in a body (Sketch, BaseExtrude, or BaseRevolve)
+pub fn find_last_sketch_feature_id(body: &Body) -> Option<String> {
+    // First try to find the last standalone Sketch
+    body.features
+        .iter()
+        .rev()
+        .find_map(|f| {
+            if let Feature::Sketch { id, .. } = f {
+                Some(id.clone())
+            } else {
+                None
+            }
+        })
+        .or_else(|| {
+            // Fall back to BaseExtrude or BaseRevolve
+            body.features.iter().find_map(|f| match f {
+                Feature::BaseExtrude { id, .. } => Some(id.clone()),
+                Feature::BaseRevolve { id, .. } => Some(id.clone()),
+                _ => None,
+            })
+        })
+}
+
 /// Context for feature operations (extrude, revolve, cut)
 pub struct BodyContext {
     pub body_id: String,
@@ -193,7 +216,7 @@ pub fn find_construction_axes(sketch: &Sketch) -> Vec<RevolveAxis> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared::{Primitive, SketchPlane};
+    use shared::Primitive;
 
     fn make_body_with_primitive() -> Body {
         Body {
@@ -220,13 +243,11 @@ mod tests {
             features: vec![Feature::Sketch {
                 id: "sketch-1".to_string(),
                 sketch: Sketch {
-                    plane: SketchPlane::Xy,
-                    offset: 0.0,
                     elements: vec![shared::SketchElement::Circle {
                         center: shared::Point2D { x: 0.0, y: 0.0 },
                         radius: 0.5,
                     }],
-                    face_normal: None,
+                    ..Default::default()
                 },
                 transform: Transform::new(),
             }],

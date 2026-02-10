@@ -1,8 +1,34 @@
 //! Sketch element operations
 
-use shared::{BodyId, Feature, ObjectId, SketchElement};
+use shared::{BodyId, Body, Feature, ObjectId, SketchElement};
 
 use super::SceneState;
+
+/// Find the index of a sketch-containing feature in a body.
+/// If feature_id is Some, finds that specific feature.
+/// If feature_id is None, finds the LAST Sketch, or falls back to BaseExtrude/BaseRevolve.
+fn find_sketch_feature_index(body: &Body, feature_id: Option<&str>) -> Option<usize> {
+    if let Some(fid) = feature_id {
+        // Find specific feature by ID
+        body.features.iter().position(|f| match f {
+            Feature::Sketch { id, .. } => id == fid,
+            Feature::BaseExtrude { id, .. } => id == fid,
+            Feature::BaseRevolve { id, .. } => id == fid,
+            _ => false,
+        })
+    } else {
+        // First try to find the last standalone Sketch
+        body.features
+            .iter()
+            .rposition(|f| matches!(f, Feature::Sketch { .. }))
+            .or_else(|| {
+                // Fall back to BaseExtrude or BaseRevolve
+                body.features.iter().position(|f| {
+                    matches!(f, Feature::BaseExtrude { .. } | Feature::BaseRevolve { .. })
+                })
+            })
+    }
+}
 
 impl SceneState {
     /// Add a sketch element to a sketch feature
@@ -46,7 +72,7 @@ impl SceneState {
 
     /// Add a sketch element to a sketch feature in a body
     /// If feature_id is Some, adds to that specific feature
-    /// If feature_id is None, adds to the LAST Sketch feature
+    /// If feature_id is None, adds to the LAST Sketch feature, or falls back to BaseExtrude/BaseRevolve
     pub fn add_element_to_body_sketch_ex(
         &mut self,
         body_id: &str,
@@ -57,28 +83,15 @@ impl SceneState {
         self.redo_stack.clear();
 
         if let Some(body) = self.scene.bodies.iter_mut().find(|b| b.id == body_id) {
-            if let Some(fid) = feature_id {
-                for feature in &mut body.features {
-                    if let Feature::Sketch { id, sketch, .. } = feature {
-                        if id == fid {
-                            sketch.elements.push(element);
-                            self.version += 1;
-                            return;
-                        }
-                    }
-                }
-            } else {
-                let last_sketch_idx = body
-                    .features
-                    .iter()
-                    .rposition(|f| matches!(f, Feature::Sketch { .. }));
-                if let Some(idx) = last_sketch_idx {
-                    if let Feature::Sketch { sketch, .. } = &mut body.features[idx] {
-                        sketch.elements.push(element);
-                        self.version += 1;
-                        return;
-                    }
-                }
+            if let Some(idx) = find_sketch_feature_index(body, feature_id) {
+                let sketch = match &mut body.features[idx] {
+                    Feature::Sketch { sketch, .. }
+                    | Feature::BaseExtrude { sketch, .. }
+                    | Feature::BaseRevolve { sketch, .. } => sketch,
+                    _ => return,
+                };
+                sketch.elements.push(element);
+                self.version += 1;
             }
         }
     }
@@ -138,7 +151,7 @@ impl SceneState {
 
     /// Remove a single sketch element by index
     /// If feature_id is Some, removes from that specific feature
-    /// If feature_id is None, removes from the LAST Sketch feature
+    /// If feature_id is None, removes from the LAST Sketch feature, or falls back to BaseExtrude/BaseRevolve
     pub fn remove_sketch_element(
         &mut self,
         body_id: &str,
@@ -149,22 +162,16 @@ impl SceneState {
         self.redo_stack.clear();
 
         if let Some(body) = self.scene.bodies.iter_mut().find(|b| b.id == body_id) {
-            let feature_idx = if let Some(fid) = feature_id {
-                body.features.iter().position(|f| {
-                    matches!(f, Feature::Sketch { id, .. } if id == fid)
-                })
-            } else {
-                body.features
-                    .iter()
-                    .rposition(|f| matches!(f, Feature::Sketch { .. }))
-            };
-
-            if let Some(idx) = feature_idx {
-                if let Feature::Sketch { sketch, .. } = &mut body.features[idx] {
-                    if element_index < sketch.elements.len() {
-                        sketch.elements.remove(element_index);
-                        self.version += 1;
-                    }
+            if let Some(idx) = find_sketch_feature_index(body, feature_id) {
+                let sketch = match &mut body.features[idx] {
+                    Feature::Sketch { sketch, .. }
+                    | Feature::BaseExtrude { sketch, .. }
+                    | Feature::BaseRevolve { sketch, .. } => sketch,
+                    _ => return,
+                };
+                if element_index < sketch.elements.len() {
+                    sketch.elements.remove(element_index);
+                    self.version += 1;
                 }
             }
         }
@@ -172,7 +179,7 @@ impl SceneState {
 
     /// Replace a sketch element with one or more new elements
     /// If feature_id is Some, operates on that specific feature
-    /// If feature_id is None, operates on the LAST Sketch feature
+    /// If feature_id is None, operates on the LAST Sketch feature, or falls back to BaseExtrude/BaseRevolve
     pub fn replace_sketch_element(
         &mut self,
         body_id: &str,
@@ -184,27 +191,21 @@ impl SceneState {
         self.redo_stack.clear();
 
         if let Some(body) = self.scene.bodies.iter_mut().find(|b| b.id == body_id) {
-            let feature_idx = if let Some(fid) = feature_id {
-                body.features.iter().position(|f| {
-                    matches!(f, Feature::Sketch { id, .. } if id == fid)
-                })
-            } else {
-                body.features
-                    .iter()
-                    .rposition(|f| matches!(f, Feature::Sketch { .. }))
-            };
-
-            if let Some(idx) = feature_idx {
-                if let Feature::Sketch { sketch, .. } = &mut body.features[idx] {
-                    if element_index < sketch.elements.len() {
-                        // Remove the original element
-                        sketch.elements.remove(element_index);
-                        // Insert new elements at the same position
-                        for (i, elem) in new_elements.into_iter().enumerate() {
-                            sketch.elements.insert(element_index + i, elem);
-                        }
-                        self.version += 1;
+            if let Some(idx) = find_sketch_feature_index(body, feature_id) {
+                let sketch = match &mut body.features[idx] {
+                    Feature::Sketch { sketch, .. }
+                    | Feature::BaseExtrude { sketch, .. }
+                    | Feature::BaseRevolve { sketch, .. } => sketch,
+                    _ => return,
+                };
+                if element_index < sketch.elements.len() {
+                    // Remove the original element
+                    sketch.elements.remove(element_index);
+                    // Insert new elements at the same position
+                    for (i, elem) in new_elements.into_iter().enumerate() {
+                        sketch.elements.insert(element_index + i, elem);
                     }
+                    self.version += 1;
                 }
             }
         }
@@ -225,38 +226,21 @@ impl SceneState {
         self.redo_stack.clear();
 
         if let Some(body) = self.scene.bodies.iter_mut().find(|b| b.id == body_id) {
-            // Find feature by id - could be Sketch, BaseExtrude, or BaseRevolve
-            let feature_idx = if let Some(fid) = feature_id {
-                body.features.iter().position(|f| match f {
-                    Feature::Sketch { id, .. } => id == fid,
-                    Feature::BaseExtrude { id, .. } => id == fid,
-                    Feature::BaseRevolve { id, .. } => id == fid,
-                    _ => false,
-                })
-            } else {
-                body.features
-                    .iter()
-                    .rposition(|f| matches!(f, Feature::Sketch { .. }))
-            };
-
-            if let Some(idx) = feature_idx {
-                // Get mutable reference to sketch from any feature type
+            if let Some(idx) = find_sketch_feature_index(body, feature_id) {
                 let sketch = match &mut body.features[idx] {
-                    Feature::Sketch { sketch, .. } => Some(sketch),
-                    Feature::BaseExtrude { sketch, .. } => Some(sketch),
-                    Feature::BaseRevolve { sketch, .. } => Some(sketch),
-                    _ => None,
+                    Feature::Sketch { sketch, .. }
+                    | Feature::BaseExtrude { sketch, .. }
+                    | Feature::BaseRevolve { sketch, .. } => sketch,
+                    _ => return,
                 };
 
-                if let Some(sketch) = sketch {
-                    for &elem_idx in element_indices {
-                        if elem_idx < sketch.elements.len() {
-                            let current = sketch.is_construction(elem_idx);
-                            sketch.set_construction(elem_idx, !current);
-                        }
+                for &elem_idx in element_indices {
+                    if elem_idx < sketch.elements.len() {
+                        let current = sketch.is_construction(elem_idx);
+                        sketch.set_construction(elem_idx, !current);
                     }
-                    self.version += 1;
                 }
+                self.version += 1;
             }
         }
     }
@@ -272,36 +256,19 @@ impl SceneState {
         self.redo_stack.clear();
 
         if let Some(body) = self.scene.bodies.iter_mut().find(|b| b.id == body_id) {
-            // Find feature by id - could be Sketch, BaseExtrude, or BaseRevolve
-            let feature_idx = if let Some(fid) = feature_id {
-                body.features.iter().position(|f| match f {
-                    Feature::Sketch { id, .. } => id == fid,
-                    Feature::BaseExtrude { id, .. } => id == fid,
-                    Feature::BaseRevolve { id, .. } => id == fid,
-                    _ => false,
-                })
-            } else {
-                body.features
-                    .iter()
-                    .rposition(|f| matches!(f, Feature::Sketch { .. }))
-            };
-
-            if let Some(idx) = feature_idx {
-                // Get mutable reference to sketch from any feature type
+            if let Some(idx) = find_sketch_feature_index(body, feature_id) {
                 let sketch = match &mut body.features[idx] {
-                    Feature::Sketch { sketch, .. } => Some(sketch),
-                    Feature::BaseExtrude { sketch, .. } => Some(sketch),
-                    Feature::BaseRevolve { sketch, .. } => Some(sketch),
-                    _ => None,
+                    Feature::Sketch { sketch, .. }
+                    | Feature::BaseExtrude { sketch, .. }
+                    | Feature::BaseRevolve { sketch, .. } => sketch,
+                    _ => return,
                 };
 
-                if let Some(sketch) = sketch {
-                    // Check that element exists and is a line
-                    if element_index < sketch.elements.len() {
-                        if matches!(sketch.elements[element_index], shared::SketchElement::Line { .. }) {
-                            sketch.toggle_revolve_axis(element_index);
-                            self.version += 1;
-                        }
+                // Check that element exists and is a line
+                if element_index < sketch.elements.len() {
+                    if matches!(sketch.elements[element_index], shared::SketchElement::Line { .. }) {
+                        sketch.toggle_revolve_axis(element_index);
+                        self.version += 1;
                     }
                 }
             }
@@ -326,29 +293,24 @@ impl SceneState {
         self.redo_stack.clear();
 
         if let Some(body) = self.scene.bodies.iter_mut().find(|b| b.id == body_id) {
-            let feature_idx = if let Some(fid) = feature_id {
-                body.features.iter().position(|f| {
-                    matches!(f, Feature::Sketch { id, .. } if id == fid)
-                })
-            } else {
-                body.features
-                    .iter()
-                    .rposition(|f| matches!(f, Feature::Sketch { .. }))
-            };
+            if let Some(idx) = find_sketch_feature_index(body, feature_id) {
+                let sketch = match &mut body.features[idx] {
+                    Feature::Sketch { sketch, .. }
+                    | Feature::BaseExtrude { sketch, .. }
+                    | Feature::BaseRevolve { sketch, .. } => sketch,
+                    _ => return,
+                };
 
-            if let Some(idx) = feature_idx {
-                if let Feature::Sketch { sketch, .. } = &mut body.features[idx] {
-                    for elem_idx in indices {
-                        if elem_idx < sketch.elements.len() {
-                            sketch.elements.remove(elem_idx);
-                            // Also remove construction flag if exists
-                            if elem_idx < sketch.construction.len() {
-                                sketch.construction.remove(elem_idx);
-                            }
+                for elem_idx in indices {
+                    if elem_idx < sketch.elements.len() {
+                        sketch.elements.remove(elem_idx);
+                        // Also remove construction flag if exists
+                        if elem_idx < sketch.construction.len() {
+                            sketch.construction.remove(elem_idx);
                         }
                     }
-                    self.version += 1;
                 }
+                self.version += 1;
             }
         }
     }

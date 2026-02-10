@@ -1119,13 +1119,10 @@ fn find_element_intersections(elem1: &SketchElement, elem2: &SketchElement) -> V
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared::SketchPlane;
 
     #[test]
     fn test_trim_arc_with_line() {
         let sketch = Sketch {
-            plane: SketchPlane::Xy,
-            offset: 0.0,
             elements: vec![
                 SketchElement::Arc {
                     center: Point2D { x: 0.0, y: 0.0 },
@@ -1138,7 +1135,7 @@ mod tests {
                     end: Point2D { x: 0.0, y: 2.0 },
                 },
             ],
-            face_normal: None,
+            ..Default::default()
         };
 
         let result = trim_arc(0, [0.0, 0.0], 1.0, 0.0, PI, [0.5, 0.5], &sketch);

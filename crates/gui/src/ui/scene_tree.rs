@@ -4,7 +4,7 @@
 
 use egui::Ui;
 
-use crate::helpers::{find_any_sketch, has_sketch_with_elements};
+use crate::helpers::{find_any_sketch, find_last_sketch_feature_id, has_sketch_with_elements};
 use crate::i18n::t;
 use crate::state::scene::{body_display_name, feature_display_name, feature_icon};
 use crate::state::{AppState, ExtrudeParams};
@@ -281,9 +281,10 @@ pub fn show(ui: &mut Ui, state: &mut AppState) {
                                     construction: vec![],
                                     revolve_axis: None,
                                 };
-                                state.scene.add_sketch_to_body(body_id, sketch, shared::Transform::new());
-                                state.sketch.enter_edit(body_id.clone());
-                                state.selection.select(body_id.clone());
+                                if let Some(feature_id) = state.scene.add_sketch_to_body(body_id, sketch, shared::Transform::new()) {
+                                    state.sketch.enter_edit_feature(body_id.clone(), feature_id);
+                                    state.selection.select(body_id.clone());
+                                }
                                 ui.close_menu();
                             }
                             if ui.button("XZ").clicked() {
@@ -295,9 +296,10 @@ pub fn show(ui: &mut Ui, state: &mut AppState) {
                                     construction: vec![],
                                     revolve_axis: None,
                                 };
-                                state.scene.add_sketch_to_body(body_id, sketch, shared::Transform::new());
-                                state.sketch.enter_edit(body_id.clone());
-                                state.selection.select(body_id.clone());
+                                if let Some(feature_id) = state.scene.add_sketch_to_body(body_id, sketch, shared::Transform::new()) {
+                                    state.sketch.enter_edit_feature(body_id.clone(), feature_id);
+                                    state.selection.select(body_id.clone());
+                                }
                                 ui.close_menu();
                             }
                             if ui.button("YZ").clicked() {
@@ -309,9 +311,10 @@ pub fn show(ui: &mut Ui, state: &mut AppState) {
                                     construction: vec![],
                                     revolve_axis: None,
                                 };
-                                state.scene.add_sketch_to_body(body_id, sketch, shared::Transform::new());
-                                state.sketch.enter_edit(body_id.clone());
-                                state.selection.select(body_id.clone());
+                                if let Some(feature_id) = state.scene.add_sketch_to_body(body_id, sketch, shared::Transform::new()) {
+                                    state.sketch.enter_edit_feature(body_id.clone(), feature_id);
+                                    state.selection.select(body_id.clone());
+                                }
                                 ui.close_menu();
                             }
                         });
@@ -336,8 +339,13 @@ pub fn show(ui: &mut Ui, state: &mut AppState) {
 
                         // Edit Sketch
                         if ui.button(t("ctx.edit_sketch")).clicked() {
-                            state.sketch.enter_edit(body_id.clone());
-                            state.selection.select(body_id.clone());
+                            // Find the last sketch feature in this body
+                            if let Some(body) = state.scene.get_body(body_id) {
+                                if let Some(feature_id) = find_last_sketch_feature_id(body) {
+                                    state.sketch.enter_edit_feature(body_id.clone(), feature_id);
+                                    state.selection.select(body_id.clone());
+                                }
+                            }
                             ui.close_menu();
                         }
 

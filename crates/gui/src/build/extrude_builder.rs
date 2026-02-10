@@ -12,35 +12,44 @@ use crate::sketch::operations::{validate_sketch_for_extrusion, SketchValidation}
 
 /// Determine if cut direction should be reversed based on face normal.
 ///
+/// The face normal points OUTWARD from the body.
+/// To cut INTO the body, we should cut in the OPPOSITE direction of the face normal.
+///
 /// The default cut direction for each plane:
 /// - XY: -Z (into the body from above)
 /// - XZ: -Y (into the body from front)
 /// - YZ: -X (into the body from right)
 ///
-/// If the face normal points in the opposite direction (e.g., the sketch is on
-/// a face facing negative Z), we need to reverse the cut direction to go into the body.
+/// We check if the face normal points in the same direction as the default cut.
+/// If the dot product with the default cut direction is POSITIVE, the face normal
+/// points AGAINST the default cut direction, meaning body is behind us - DON'T reverse.
+/// If the dot product is NEGATIVE, face normal points WITH the default cut direction,
+/// meaning body is in front of us - REVERSE the cut.
 fn should_reverse_cut_direction(plane: &SketchPlane, face_normal: Option<[f64; 3]>) -> bool {
     let Some(normal) = face_normal else {
         return false;
     };
 
-    match plane {
-        SketchPlane::Xy => {
-            // Default cut goes in -Z. If face normal points in -Z (normal.z < 0),
-            // the body is above the sketch, so cut should go in +Z (reverse).
-            normal[2] < 0.0
-        }
-        SketchPlane::Xz => {
-            // Default cut goes in -Y. If face normal points in -Y (normal.y < 0),
-            // the body is in front of the sketch, so cut should go in +Y (reverse).
-            normal[1] < 0.0
-        }
-        SketchPlane::Yz => {
-            // Default cut goes in -X. If face normal points in -X (normal.x < 0),
-            // the body is to the right of the sketch, so cut should go in +X (reverse).
-            normal[0] < 0.0
-        }
-    }
+    // Default cut directions (negative axis)
+    let default_cut_dir = match plane {
+        SketchPlane::Xy => [0.0, 0.0, -1.0], // -Z
+        SketchPlane::Xz => [0.0, -1.0, 0.0], // -Y
+        SketchPlane::Yz => [-1.0, 0.0, 0.0], // -X
+    };
+
+    // The cut direction into the body = -face_normal (opposite to face normal)
+    // We need to reverse if -face_normal doesn't match default_cut_dir
+    //
+    // dot(face_normal, default_cut) > 0 means they point same direction
+    // → -face_normal points opposite to default_cut → REVERSE needed
+    //
+    // dot(face_normal, default_cut) < 0 means they point opposite directions
+    // → -face_normal points same as default_cut → NO REVERSE needed
+    let dot = normal[0] * default_cut_dir[0]
+        + normal[1] * default_cut_dir[1]
+        + normal[2] * default_cut_dir[2];
+
+    dot > 0.0
 }
 
 /// Create an extruded Part from sketch profile, respecting sketch plane orientation
@@ -203,7 +212,10 @@ fn try_create_profile_extrusion(
                 // Using rotate(0, -90, 0): Manifold X -> world Z, Manifold Y -> world Y, Manifold Z -> world -X
                 // So: Manifold X = world Z = sketch_y, Manifold Y = world Y = sketch_x
                 // Extrusion goes along world -X (into body from positive X)
-                profile.iter().flat_map(|p| vec![p[1], p[0]]).collect()
+                // Swapping x,y reverses winding order, so we need to reverse the points
+                let mut pts: Vec<[f64; 2]> = profile.iter().map(|p| [p[1], p[0]]).collect();
+                pts.reverse(); // Fix winding order after coordinate swap
+                pts.iter().flat_map(|p| vec![p[0], p[1]]).collect()
             }
         };
 
@@ -289,12 +301,25 @@ fn try_create_profile_extrusion(
         SketchPlane::Yz => {
             // YZ plane: extrusion along X (after rotation)
             // rotate(0, -90, 0) makes Manifold Z become world -X
+            // So the extrusion goes from X=0 to X=-height
             let rotated = manifold.rotate(0.0, -90.0, 0.0);
-            let x_shift = if is_cut {
-                if reverse_cut { height.abs() - backward_shift } else { -backward_shift }
+
+            // For reverse_cut, we need the tool to go in +X direction
+            // Flip the tool by scaling X by -1
+            let rotated = if is_cut && reverse_cut {
+                rotated.scale(-1.0, 1.0, 1.0)
             } else {
-                height.abs() - backward_shift
+                rotated
             };
+
+            // x_shift positions the tool so the sketch plane ends up at the correct position
+            // After rotation, the sketch plane (originally at Z=height_backward) is at X=-height_backward
+            // After scale(-1,1,1) for reverse, it's at X=+height_backward
+            // backward_shift = -height_backward, so:
+            // - Without flip: x_shift = -backward_shift = height_backward
+            // - With flip: x_shift = backward_shift = -height_backward
+            let x_shift = if reverse_cut { backward_shift } else { -backward_shift };
+
             rotated
                 .translate(x_shift, 0.0, 0.0)
                 .translate(sketch.offset + pos[0] + cut_overshoot, pos[1], pos[2])
@@ -424,17 +449,6 @@ fn try_create_cylinder_from_sketch_full(
     Some(part)
 }
 
-/// Create a revolved Part from sketch profile (default axis X=0)
-pub fn create_revolve_part_from_sketch(
-    id: &str,
-    sketch: &Sketch,
-    transform: &Transform,
-    angle_deg: f64,
-    segments: u32,
-) -> Option<Part> {
-    create_revolve_part_from_sketch_with_axis(id, sketch, transform, angle_deg, segments, None)
-}
-
 /// Create a revolved Part from sketch profile with optional custom axis
 /// If axis is None, uses the default X=0 vertical axis
 /// axis format: (start_point, end_point) in sketch 2D coordinates
@@ -469,8 +483,8 @@ pub fn create_revolve_part_from_sketch_with_axis(
             end_3d[1] - origin[1],
             end_3d[2] - origin[2],
         ];
-        let len = (dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]).sqrt().max(0.0001);
-        (origin, [dir[0] / len, dir[1] / len, dir[2] / len])
+        let dir_normalized = normalize_vector(dir).unwrap_or([0.0, 1.0, 0.0]);
+        (origin, dir_normalized)
     } else {
         // Default axis: Y axis at sketch origin
         let origin = sketch_point_to_3d([0.0, 0.0], sketch, pos);
@@ -496,56 +510,114 @@ pub fn create_revolve_part_from_sketch_with_axis(
     };
 
     // ref_dir = sketch_normal × axis_dir (perpendicular to axis, in sketch plane)
-    let ref_dir = cross_product(sketch_normal, axis_dir_3d);
-    let ref_len = (ref_dir[0] * ref_dir[0] + ref_dir[1] * ref_dir[1] + ref_dir[2] * ref_dir[2]).sqrt();
-
     // If axis is parallel to sketch normal, use sketch X direction as reference
-    let ref_dir = if ref_len < 0.0001 {
+    let ref_dir = normalize_vector(cross_product(sketch_normal, axis_dir_3d)).unwrap_or_else(|| {
         match sketch.plane {
-            SketchPlane::Xy => [1.0, 0.0, 0.0],
-            SketchPlane::Xz => [1.0, 0.0, 0.0],
+            SketchPlane::Xy | SketchPlane::Xz => [1.0, 0.0, 0.0],
             SketchPlane::Yz => [0.0, 1.0, 0.0],
         }
-    } else {
-        [ref_dir[0] / ref_len, ref_dir[1] / ref_len, ref_dir[2] / ref_len]
-    };
+    });
 
     // Transform each profile point to Manifold coordinates:
-    // X = signed distance from axis (in ref_dir direction)
+    // X = distance from axis (must be positive for Manifold::revolve)
     // Y = distance along axis from axis_origin
-    let transformed_profiles: Vec<Vec<[f64; 2]>> = profiles
-        .iter()
-        .map(|profile| {
-            profile
-                .iter()
-                .map(|p| {
-                    let p3d = sketch_point_to_3d(*p, sketch, pos);
 
-                    // Vector from axis origin to point
-                    let v = [
-                        p3d[0] - axis_origin_3d[0],
-                        p3d[1] - axis_origin_3d[1],
-                        p3d[2] - axis_origin_3d[2],
-                    ];
+    // First pass: compute signed X coordinates to determine if we need to flip ref_dir
+    let mut sum_x = 0.0;
+    let mut count = 0;
+    for profile in &profiles {
+        for p in profile {
+            let p3d = sketch_point_to_3d(*p, sketch, pos);
+            let v = [
+                p3d[0] - axis_origin_3d[0],
+                p3d[1] - axis_origin_3d[1],
+                p3d[2] - axis_origin_3d[2],
+            ];
+            let y_coord = dot_product(v, axis_dir_3d);
+            let perp = [
+                v[0] - y_coord * axis_dir_3d[0],
+                v[1] - y_coord * axis_dir_3d[1],
+                v[2] - y_coord * axis_dir_3d[2],
+            ];
+            sum_x += dot_product(perp, ref_dir);
+            count += 1;
+        }
+    }
 
-                    // Project onto axis (Y coordinate in Manifold space)
-                    let y_coord = dot_product(v, axis_dir_3d);
+    // If average X is negative, flip ref_dir so profile ends up on positive X side
+    let ref_dir = if count > 0 && sum_x / (count as f64) < 0.0 {
+        [-ref_dir[0], -ref_dir[1], -ref_dir[2]]
+    } else {
+        ref_dir
+    };
 
-                    // Component perpendicular to axis
-                    let perp = [
-                        v[0] - y_coord * axis_dir_3d[0],
-                        v[1] - y_coord * axis_dir_3d[1],
-                        v[2] - y_coord * axis_dir_3d[2],
-                    ];
+    // Check if axis is along sketch Y (vertical on sketch)
+    // This is common for XY plane with vertical axis line
+    let axis_is_vertical_on_sketch = if let Some((start, end)) = axis {
+        (start[0] - end[0]).abs() < 0.001  // X is constant = vertical line
+    } else {
+        true  // Default axis is always vertical
+    };
 
-                    // X coordinate = projection onto ref_dir (signed distance)
-                    let x_coord = dot_product(perp, ref_dir);
+    let axis_x_on_sketch = if let Some((start, _)) = axis {
+        start[0]
+    } else {
+        0.0
+    };
 
-                    [x_coord, y_coord]
-                })
-                .collect()
-        })
-        .collect();
+    let transformed_profiles: Vec<Vec<[f64; 2]>> = if axis_is_vertical_on_sketch && matches!(sketch.plane, SketchPlane::Xy) {
+        // Simplified path for XY sketch with vertical axis:
+        // - Manifold X = sketch_x - axis_x (distance from axis)
+        // - Manifold Y = sketch_y (direct mapping)
+        profiles
+            .iter()
+            .map(|profile| {
+                profile
+                    .iter()
+                    .map(|p| {
+                        let x_coord = p[0] - axis_x_on_sketch;  // Distance from axis
+                        let y_coord = p[1];  // Sketch Y directly
+                        [x_coord, y_coord]
+                    })
+                    .collect()
+            })
+            .collect()
+    } else {
+        // General case: project onto axis coordinate system
+        profiles
+            .iter()
+            .map(|profile| {
+                profile
+                    .iter()
+                    .map(|p| {
+                        let p3d = sketch_point_to_3d(*p, sketch, pos);
+
+                        // Vector from axis origin to point
+                        let v = [
+                            p3d[0] - axis_origin_3d[0],
+                            p3d[1] - axis_origin_3d[1],
+                            p3d[2] - axis_origin_3d[2],
+                        ];
+
+                        // Project onto axis (Y coordinate in Manifold space)
+                        let y_coord = dot_product(v, axis_dir_3d);
+
+                        // Component perpendicular to axis
+                        let perp = [
+                            v[0] - y_coord * axis_dir_3d[0],
+                            v[1] - y_coord * axis_dir_3d[1],
+                            v[2] - y_coord * axis_dir_3d[2],
+                        ];
+
+                        // X coordinate = projection onto ref_dir
+                        let x_coord = dot_product(perp, ref_dir);
+
+                        [x_coord, y_coord]
+                    })
+                    .collect()
+            })
+            .collect()
+    };
 
     // Convert profiles to format for Manifold::revolve
     let polygon_data: Vec<Vec<f64>> = transformed_profiles
@@ -560,6 +632,15 @@ pub fn create_revolve_part_from_sketch_with_axis(
 
     let polygon_slices: Vec<&[f64]> = polygon_data.iter().map(|v| v.as_slice()).collect();
 
+    tracing::info!(
+        "create_revolve: axis_origin_3d={:?}, axis_dir_3d={:?}, ref_dir={:?}",
+        axis_origin_3d, axis_dir_3d, ref_dir
+    );
+    tracing::info!(
+        "create_revolve: transformed_profiles={:?}",
+        transformed_profiles
+    );
+
     // Create the manifold revolution around Y axis
     let manifold = Manifold::revolve(
         &polygon_slices,
@@ -572,21 +653,124 @@ pub fn create_revolve_part_from_sketch_with_axis(
         return None;
     }
 
-    // Now transform the result back to world coordinates:
-    // Manifold Y axis -> axis_dir_3d
-    // Manifold X axis -> ref_dir
-    // Manifold Z axis -> axis_dir × ref_dir
+    // Transform the result to world coordinates.
+    // Manifold::revolve creates geometry around Y axis with profile on +X side.
+    //
+    // We transform the profile so that:
+    // - Manifold X = distance from axis (positive = right side of axis)
+    // - Manifold Y = position along axis
+    //
+    // After revolve, we need to map back to world coordinates.
+    // For sketch plane XY with vertical axis:
+    // - Manifold X,Z rotate in world XZ plane
+    // - Manifold Y stays as world Y
+    //
+    // The key insight: Manifold revolve generates geometry where each profile point
+    // at (X, Y) traces a circle of radius X at height Y in the XZ plane.
+    //
+    // We need to rotate and translate so that:
+    // - The axis (Manifold Y) aligns with axis_dir_3d
+    // - The radial direction (Manifold X at theta=0) aligns with ref_dir
+    // - The origin moves to axis_origin_3d
 
-    // Build rotation matrix from Manifold coords to world coords
-    let third_dir = cross_product(axis_dir_3d, ref_dir);
+    // Check if axis is along world Y (common case for XY sketch with vertical axis)
+    let axis_along_y = axis_dir_3d[1].abs() > 0.9 && axis_dir_3d[0].abs() < 0.1 && axis_dir_3d[2].abs() < 0.1;
 
-    // The rotation matrix columns are: [ref_dir, axis_dir, third_dir]
-    // We need to find Euler angles that achieve this rotation
-    let (rot_x, rot_y, rot_z) = matrix_to_euler_xyz(ref_dir, axis_dir_3d, third_dir);
+    let final_manifold = if axis_along_y {
+        // Simple case: axis along Y, no rotation needed
+        //
+        // Manifold::revolve creates geometry where:
+        // - Profile (px, py) at theta becomes (px*cos(theta), py, px*sin(theta))
+        // - Axis is Y, radial direction is X at theta=0
+        //
+        // For XY sketch with vertical axis at x=axis_x:
+        // - We transformed profile so px = sketch_x - axis_x, py = sketch_y
+        // - world_x = axis_x + px*cos(theta) = axis_x + Manifold_x
+        // - world_y = sketch_y = py = Manifold_y (no shift needed!)
+        // - world_z = sketch.offset + px*sin(theta) = sketch.offset + Manifold_z
+        //
+        // So translate should be (axis_x, 0, sketch.offset), NOT axis_origin!
 
-    let final_manifold = manifold
-        .rotate(rot_x, rot_y, rot_z)
-        .translate(axis_origin_3d[0], axis_origin_3d[1], axis_origin_3d[2]);
+        // Extract axis X position (same for all points on vertical axis)
+        let axis_x = if let Some((start, _end)) = axis {
+            start[0]
+        } else {
+            0.0
+        };
+
+        let tx = axis_x;
+        let ty = 0.0;  // No Y shift - Manifold Y = sketch Y directly
+        let tz = sketch.offset;
+
+        tracing::info!(
+            "create_revolve: axis_along_y path, translate=({:.2}, {:.2}, {:.2})",
+            tx, ty, tz
+        );
+
+        // Manifold::revolve creates geometry around Z axis.
+        // Rotate -90° around X to transform:
+        // - Manifold XY plane → world XZ plane (torus ring)
+        // - Manifold Z (profile height) → world Y
+        // At theta=0: (r, 0, h) → (r, h, 0) after rotation
+        manifold
+            .rotate(-90.0, 0.0, 0.0)
+            .translate(tx, ty, tz)
+    } else {
+        // General case: compute rotation matrix R = [ref_dir | tan_dir | axis_dir]
+        // This maps Manifold coordinates to world coordinates:
+        // - Manifold X (radial at θ=0) → ref_dir
+        // - Manifold Y (tangent) → tan_dir = axis × ref
+        // - Manifold Z (axis) → axis_dir
+        //
+        // Then decompose R into Euler angles XYZ (i.e., R = Rz * Ry * Rx)
+
+        // Compute tangent direction (perpendicular to both axis and ref)
+        let tan_dir = normalize_vector(cross_product(axis_dir_3d, ref_dir))
+            .unwrap_or([1.0, 0.0, 0.0]); // Fallback if axis and ref are parallel
+
+        // Decompose R = [ref_dir | tan_dir | axis_dir] into Euler XYZ angles
+        // For Rz * Ry * Rx:
+        // R[2][0] = ref_dir[2] = -sin(ry)
+        // R[0][0] = ref_dir[0] = cos(ry) * cos(rz)
+        // R[1][0] = ref_dir[1] = cos(ry) * sin(rz)
+        // R[2][1] = tan_dir[2] = sin(rx) * cos(ry)
+        // R[2][2] = axis_dir[2] = cos(rx) * cos(ry)
+
+        let ry = (-ref_dir[2]).asin();
+        let cy = ry.cos();
+
+        let (rx, rz) = if cy.abs() > 0.0001 {
+            // Normal case
+            let rz = ref_dir[1].atan2(ref_dir[0]);
+            let rx = tan_dir[2].atan2(axis_dir_3d[2]);
+            (rx.to_degrees(), rz.to_degrees())
+        } else {
+            // Gimbal lock: ry = ±90°, ref_dir[2] ≈ ±1
+            // In this case, rx and rz are not uniquely determined
+            // Use a simple fallback
+            (0.0, 0.0)
+        };
+
+        let ry_deg = ry.to_degrees();
+
+        tracing::info!(
+            "create_revolve general: ref_dir={:?}, tan_dir={:?}, axis_dir={:?}",
+            ref_dir, tan_dir, axis_dir_3d
+        );
+        tracing::info!(
+            "create_revolve general: euler angles=({:.2}, {:.2}, {:.2})",
+            rx, ry_deg, rz
+        );
+
+        manifold
+            .rotate(rx, ry_deg, rz)
+            .translate(axis_origin_3d[0], axis_origin_3d[1], axis_origin_3d[2])
+    };
+
+    tracing::info!(
+        "create_revolve: axis_along_y={}, axis_origin={:?}",
+        axis_along_y, axis_origin_3d
+    );
 
     Some(Part::new(id, final_manifold))
 }
@@ -614,64 +798,20 @@ fn dot_product(a: [f64; 3], b: [f64; 3]) -> f64 {
     a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 }
 
-/// Convert rotation matrix (given as column vectors) to Euler angles XYZ (in degrees)
-/// The matrix transforms from Manifold space to world space:
-/// - col_x (ref_dir) is where Manifold +X goes
-/// - col_y (axis_dir) is where Manifold +Y goes
-/// - col_z (third_dir) is where Manifold +Z goes
-fn matrix_to_euler_xyz(col_x: [f64; 3], col_y: [f64; 3], col_z: [f64; 3]) -> (f64, f64, f64) {
-    // Rotation matrix R = [col_x | col_y | col_z]
-    // R[i][j] = col_j[i]
-    //
-    // For XYZ Euler angles, Manifold applies R = Rz * Ry * Rx
-    // So we need to decompose our matrix into this form
-    //
-    // R = | cos(y)cos(z)                           -cos(y)sin(z)                          sin(y)      |
-    //     | cos(x)sin(z)+sin(x)sin(y)cos(z)        cos(x)cos(z)-sin(x)sin(y)sin(z)       -sin(x)cos(y)|
-    //     | sin(x)sin(z)-cos(x)sin(y)cos(z)        sin(x)cos(z)+cos(x)sin(y)sin(z)        cos(x)cos(y)|
-    //
-    // From R[0][2] = sin(y), we get y = asin(R[0][2])
-    // From R[1][2] = -sin(x)cos(y) and R[2][2] = cos(x)cos(y), we get x = atan2(-R[1][2], R[2][2])
-    // From R[0][1] = -cos(y)sin(z) and R[0][0] = cos(y)cos(z), we get z = atan2(-R[0][1], R[0][0])
-
-    let r02 = col_z[0]; // sin(y)
-    let r12 = col_z[1]; // -sin(x)cos(y)
-    let r22 = col_z[2]; // cos(x)cos(y)
-    let r01 = col_y[0]; // -cos(y)sin(z)
-    let r00 = col_x[0]; // cos(y)cos(z)
-
-    let rot_y = r02.asin();
-    let cos_y = rot_y.cos();
-
-    let (rot_x, rot_z) = if cos_y.abs() > 0.0001 {
-        let rot_x = (-r12).atan2(r22);
-        let rot_z = (-r01).atan2(r00);
-        (rot_x, rot_z)
+/// Normalize a 3D vector, returns original if length is too small
+fn normalize_vector(v: [f64; 3]) -> Option<[f64; 3]> {
+    let len = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+    if len > 0.0001 {
+        Some([v[0] / len, v[1] / len, v[2] / len])
     } else {
-        // Gimbal lock case - y is ±90°
-        // Use R[1][0] and R[1][1] to find x+z or x-z
-        let r10 = col_x[1];
-        let r11 = col_y[1];
-        if r02 > 0.0 {
-            // y = 90°, sin(y) = 1
-            // R[1][0] = sin(x+z), R[1][1] = cos(x+z)
-            let sum = r10.atan2(r11);
-            (sum, 0.0)
-        } else {
-            // y = -90°, sin(y) = -1
-            // R[1][0] = -sin(x-z), R[1][1] = cos(x-z)
-            let diff = (-r10).atan2(r11);
-            (diff, 0.0)
-        }
-    };
-
-    (rot_x.to_degrees(), rot_y.to_degrees(), rot_z.to_degrees())
+        None
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared::{Point2D, SketchPlane};
+    use shared::Point2D;
 
     fn identity() -> Transform {
         Transform::new()
@@ -679,12 +819,7 @@ mod tests {
 
     #[test]
     fn test_validate_empty_sketch() {
-        let sketch = Sketch {
-            plane: SketchPlane::Xy,
-            offset: 0.0,
-            elements: vec![],
-            face_normal: None,
-        };
+        let sketch = Sketch::default();
         let validation = validate_sketch(&sketch);
         assert!(!validation.is_valid);
         assert!(validation.error_message.is_some());
@@ -693,13 +828,11 @@ mod tests {
     #[test]
     fn test_validate_single_circle() {
         let sketch = Sketch {
-            plane: SketchPlane::Xy,
-            offset: 0.0,
             elements: vec![SketchElement::Circle {
                 center: Point2D { x: 0.0, y: 0.0 },
                 radius: 1.0,
             }],
-            face_normal: None,
+            ..Default::default()
         };
         let validation = validate_sketch(&sketch);
         assert!(validation.is_valid);
@@ -710,14 +843,12 @@ mod tests {
     #[test]
     fn test_validate_single_rectangle() {
         let sketch = Sketch {
-            plane: SketchPlane::Xy,
-            offset: 0.0,
             elements: vec![SketchElement::Rectangle {
                 corner: Point2D { x: 0.0, y: 0.0 },
                 width: 2.0,
                 height: 1.0,
             }],
-            face_normal: None,
+            ..Default::default()
         };
         let validation = validate_sketch(&sketch);
         assert!(validation.is_valid);
@@ -727,13 +858,11 @@ mod tests {
     #[test]
     fn test_extrude_circle_creates_cylinder() {
         let sketch = Sketch {
-            plane: SketchPlane::Xy,
-            offset: 0.0,
             elements: vec![SketchElement::Circle {
                 center: Point2D { x: 0.0, y: 0.0 },
                 radius: 1.0,
             }],
-            face_normal: None,
+            ..Default::default()
         };
         let part = create_extrude_part_from_sketch("test", &sketch, &identity(), 2.0);
         assert!(part.is_some());
@@ -742,14 +871,12 @@ mod tests {
     #[test]
     fn test_extrude_rectangle_creates_profile() {
         let sketch = Sketch {
-            plane: SketchPlane::Xy,
-            offset: 0.0,
             elements: vec![SketchElement::Rectangle {
                 corner: Point2D { x: -1.0, y: -1.0 },
                 width: 2.0,
                 height: 2.0,
             }],
-            face_normal: None,
+            ..Default::default()
         };
         let part = create_extrude_part_from_sketch("test", &sketch, &identity(), 1.0);
         assert!(part.is_some());
@@ -759,8 +886,6 @@ mod tests {
     fn test_extrude_closed_lines() {
         // Create a closed triangle from 3 lines
         let sketch = Sketch {
-            plane: SketchPlane::Xy,
-            offset: 0.0,
             elements: vec![
                 SketchElement::Line {
                     start: Point2D { x: 0.0, y: 0.0 },
@@ -775,7 +900,7 @@ mod tests {
                     end: Point2D { x: 0.0, y: 0.0 },
                 },
             ],
-            face_normal: None,
+            ..Default::default()
         };
         let part = create_extrude_part_from_sketch("test", &sketch, &identity(), 1.0);
         assert!(part.is_some());

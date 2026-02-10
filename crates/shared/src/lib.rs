@@ -108,6 +108,19 @@ pub struct Sketch {
     pub revolve_axis: Option<usize>,
 }
 
+impl Default for Sketch {
+    fn default() -> Self {
+        Self {
+            plane: SketchPlane::Xy,
+            offset: 0.0,
+            elements: Vec::new(),
+            face_normal: None,
+            construction: Vec::new(),
+            revolve_axis: None,
+        }
+    }
+}
+
 impl Sketch {
     /// Проверить, является ли элемент вспомогательной геометрией
     pub fn is_construction(&self, index: usize) -> bool {

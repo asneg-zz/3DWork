@@ -644,6 +644,11 @@ impl ViewportPanel {
     ) -> context_menu::ContextMenuActions {
         let mut actions = context_menu::ContextMenuActions::default();
 
+        // Don't show object context menu if sketch element context menu is active
+        if self.sketch_element_context_menu {
+            return actions;
+        }
+
         let ctx_id = self.context_target.clone();
         let ctx_center = ctx_id
             .as_ref()
@@ -768,7 +773,8 @@ impl ViewportPanel {
             }
 
             // Rotation axis option - only for single line selection
-            if selected_count == 1 {
+            // Check current selection state (may have changed after button clicks above)
+            if state.sketch.element_selection.selected.len() == 1 {
                 let selected_idx = state.sketch.element_selection.selected[0];
                 // Check if selected element is a line
                 let is_line = if let (Some(body_id), feature_id) = (

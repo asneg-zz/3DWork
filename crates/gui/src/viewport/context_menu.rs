@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use egui::Ui;
 
 use crate::build::CsgCache;
+use crate::helpers::find_last_sketch_feature_id;
 use crate::i18n::t;
 use crate::state::AppState;
 use crate::ui::toolbar;
@@ -118,8 +119,13 @@ fn show_sketch_menu_items(ui: &mut Ui, state: &mut AppState, obj_id: &str) {
 
     if has_sketch {
         if ui.button(t("ctx.edit_sketch")).clicked() {
-            state.sketch.enter_edit(obj_id.to_string());
-            state.selection.select(obj_id.to_string());
+            // Find the last sketch feature in this body
+            if let Some(body) = state.scene.get_body(&obj_id_string) {
+                if let Some(feature_id) = find_last_sketch_feature_id(body) {
+                    state.sketch.enter_edit_feature(obj_id.to_string(), feature_id);
+                    state.selection.select(obj_id.to_string());
+                }
+            }
             ui.close_menu();
         }
         // Extrude/Revolve (only if sketch has elements)

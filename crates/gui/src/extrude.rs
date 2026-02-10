@@ -727,7 +727,7 @@ mod tests {
     use shared::*;
 
     fn xy_sketch(elements: Vec<SketchElement>) -> Sketch {
-        Sketch { plane: SketchPlane::Xy, offset: 0.0, elements, face_normal: None, construction: vec![] }
+        Sketch { elements, ..Default::default() }
     }
 
     fn identity() -> Transform {
@@ -886,28 +886,28 @@ mod tests {
 
     #[test]
     fn test_sketch_to_3d_xy() {
-        let s = Sketch { plane: SketchPlane::Xy, offset: 5.0, elements: vec![], face_normal: None, construction: vec![] };
+        let s = Sketch { offset: 5.0, ..Default::default() };
         let p = sketch_to_3d(1.0, 2.0, &s, &identity());
         assert_eq!(p, [1.0, 2.0, 5.0]);
     }
 
     #[test]
     fn test_sketch_to_3d_xz() {
-        let s = Sketch { plane: SketchPlane::Xz, offset: 3.0, elements: vec![], face_normal: None, construction: vec![] };
+        let s = Sketch { plane: SketchPlane::Xz, offset: 3.0, ..Default::default() };
         let p = sketch_to_3d(1.0, 2.0, &s, &identity());
         assert_eq!(p, [1.0, 3.0, 2.0]);
     }
 
     #[test]
     fn test_sketch_to_3d_yz() {
-        let s = Sketch { plane: SketchPlane::Yz, offset: 7.0, elements: vec![], face_normal: None, construction: vec![] };
+        let s = Sketch { plane: SketchPlane::Yz, offset: 7.0, ..Default::default() };
         let p = sketch_to_3d(1.0, 2.0, &s, &identity());
         assert_eq!(p, [7.0, 1.0, 2.0]);
     }
 
     #[test]
     fn test_sketch_to_3d_with_transform() {
-        let s = Sketch { plane: SketchPlane::Xy, offset: 0.0, elements: vec![], face_normal: None, construction: vec![] };
+        let s = Sketch::default();
         let t = Transform { position: [10.0, 20.0, 30.0], rotation: [0.0; 3], scale: [1.0; 3] };
         let p = sketch_to_3d(1.0, 2.0, &s, &t);
         assert_eq!(p, [11.0, 22.0, 30.0]);
@@ -1062,9 +1062,8 @@ mod tests {
     fn test_extrude_xz_plane() {
         let sketch = Sketch {
             plane: SketchPlane::Xz,
-            offset: 0.0,
             elements: vec![rect_element(-0.5, -0.5, 1.0, 1.0)],
-            face_normal: None,
+            ..Default::default()
         };
         let mesh = extrude_mesh(&sketch, &identity(), 2.0).unwrap();
         assert_mesh_valid(&mesh);
@@ -1077,9 +1076,8 @@ mod tests {
     fn test_extrude_yz_plane() {
         let sketch = Sketch {
             plane: SketchPlane::Yz,
-            offset: 0.0,
             elements: vec![rect_element(-0.5, -0.5, 1.0, 1.0)],
-            face_normal: None,
+            ..Default::default()
         };
         let mesh = extrude_mesh(&sketch, &identity(), 3.0).unwrap();
         assert_mesh_valid(&mesh);

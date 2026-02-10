@@ -1,6 +1,6 @@
 //! Sketch geometry helpers (bounds, center calculations)
 
-use shared::{Sketch, SketchElement, SketchPlane, Transform};
+use shared::{Sketch, SketchElement};
 
 /// Get bounding box of sketch elements
 pub fn sketch_bounds(sketch: &Sketch) -> Option<(f64, f64, f64, f64)> {
@@ -45,32 +45,5 @@ pub fn sketch_bounds(sketch: &Sketch) -> Option<(f64, f64, f64, f64)> {
         Some((min_x, min_y, max_x, max_y))
     } else {
         None
-    }
-}
-
-/// Get 3D center point of sketch
-pub fn sketch_center_3d(sketch: &Sketch, transform: &Transform) -> [f32; 3] {
-    let bounds = sketch_bounds(sketch).unwrap_or((0.0, 0.0, 1.0, 1.0));
-    let cx = (bounds.0 + bounds.2) / 2.0;
-    let cy = (bounds.1 + bounds.3) / 2.0;
-
-    let pos = &transform.position;
-
-    match sketch.plane {
-        SketchPlane::Xy => [
-            cx as f32 + pos[0] as f32,
-            cy as f32 + pos[1] as f32,
-            sketch.offset as f32 + pos[2] as f32,
-        ],
-        SketchPlane::Xz => [
-            cx as f32 + pos[0] as f32,
-            sketch.offset as f32 + pos[1] as f32,
-            cy as f32 + pos[2] as f32,
-        ],
-        SketchPlane::Yz => [
-            sketch.offset as f32 + pos[0] as f32,
-            cx as f32 + pos[1] as f32,
-            cy as f32 + pos[2] as f32,
-        ],
     }
 }

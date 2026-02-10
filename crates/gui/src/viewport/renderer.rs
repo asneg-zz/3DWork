@@ -520,7 +520,6 @@ fn draw_dashed_line_2d(
     let dir_y = dy / length;
 
     let gap_length = dash_length * 0.6;
-    let pattern_length = dash_length + gap_length;
 
     let mut pos = 0.0;
     let mut drawing = true;
