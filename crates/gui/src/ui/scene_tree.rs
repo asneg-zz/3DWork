@@ -278,6 +278,8 @@ pub fn show(ui: &mut Ui, state: &mut AppState) {
                                     offset: 0.0,
                                     elements: vec![],
                                     face_normal: None,
+                                    construction: vec![],
+                                    revolve_axis: None,
                                 };
                                 state.scene.add_sketch_to_body(body_id, sketch, shared::Transform::new());
                                 state.sketch.enter_edit(body_id.clone());
@@ -290,6 +292,8 @@ pub fn show(ui: &mut Ui, state: &mut AppState) {
                                     offset: 0.0,
                                     elements: vec![],
                                     face_normal: None,
+                                    construction: vec![],
+                                    revolve_axis: None,
                                 };
                                 state.scene.add_sketch_to_body(body_id, sketch, shared::Transform::new());
                                 state.sketch.enter_edit(body_id.clone());
@@ -302,6 +306,8 @@ pub fn show(ui: &mut Ui, state: &mut AppState) {
                                     offset: 0.0,
                                     elements: vec![],
                                     face_normal: None,
+                                    construction: vec![],
+                                    revolve_axis: None,
                                 };
                                 state.scene.add_sketch_to_body(body_id, sketch, shared::Transform::new());
                                 state.sketch.enter_edit(body_id.clone());

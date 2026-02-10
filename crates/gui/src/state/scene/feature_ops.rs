@@ -121,6 +121,19 @@ impl SceneState {
         segments: u32,
         cut: bool,
     ) -> bool {
+        self.add_revolve_to_body_with_axis(body_id, sketch_id, angle, segments, cut, None)
+    }
+
+    /// Add a revolve feature to a body with custom axis
+    pub fn add_revolve_to_body_with_axis(
+        &mut self,
+        body_id: &BodyId,
+        sketch_id: &str,
+        angle: f64,
+        segments: u32,
+        cut: bool,
+        axis: Option<([f64; 2], [f64; 2])>,
+    ) -> bool {
         if !self.scene.bodies.iter().any(|b| &b.id == body_id) {
             return false;
         }
@@ -136,6 +149,8 @@ impl SceneState {
                 angle,
                 segments,
                 cut,
+                axis_start: axis.map(|(s, _)| s),
+                axis_end: axis.map(|(_, e)| e),
             });
             self.version += 1;
             true

@@ -35,6 +35,8 @@ pub struct ViewportPanel {
     gizmo_state: GizmoState,
     /// Object ID picked by right-click (for context menu)
     context_target: Option<String>,
+    /// Show sketch element context menu
+    sketch_element_context_menu: bool,
 }
 
 impl ViewportPanel {
@@ -45,6 +47,7 @@ impl ViewportPanel {
             csg_cache: CsgCache::new(),
             gizmo_state: GizmoState::default(),
             context_target: None,
+            sketch_element_context_menu: false,
         }
     }
 
@@ -104,6 +107,9 @@ impl ViewportPanel {
         // ── Context menu ──────────────────────────────────
         let ctx_actions = self.show_context_menu(&response, state);
         self.apply_context_actions(ctx_actions, state);
+
+        // ── Sketch element context menu ──────────────────
+        self.show_sketch_element_context_menu(ui, &response, state);
 
         if !ui.is_rect_visible(rect) {
             return;
@@ -170,6 +176,14 @@ impl ViewportPanel {
                             state.sketch.preview_point = Some(point_2d);
                             state.sketch.active_snap = None;
                         }
+
+                        // Update hover element for selection highlighting
+                        let hit_tolerance = 0.15; // Tolerance in sketch units
+                        if let Some(hit) = sketch_interact::hit_test_elements(point_2d, &sketch, hit_tolerance) {
+                            state.sketch.element_selection.hover_element = Some(hit.element_index);
+                        } else {
+                            state.sketch.element_selection.hover_element = None;
+                        }
                     }
                 }
 
@@ -181,6 +195,31 @@ impl ViewportPanel {
                     | crate::state::sketch::SketchTool::Fillet
                     | crate::state::sketch::SketchTool::Offset
                 );
+
+                // Handle element selection when tool is None
+                if response.clicked() && state.sketch.tool == crate::state::sketch::SketchTool::None {
+                    if let Some(pos) = response.interact_pointer_pos() {
+                        let ray = self.camera.screen_ray(pos, rect);
+                        if let Some(point_2d) = sketch_interact::ray_sketch_plane(&ray, &sketch, &transform) {
+                            let hit_tolerance = 0.15;
+                            if let Some(hit) = sketch_interact::hit_test_elements(point_2d, &sketch, hit_tolerance) {
+                                // Check for Ctrl modifier to toggle selection
+                                if ui.input(|i| i.modifiers.command) {
+                                    state.sketch.element_selection.toggle(hit.element_index);
+                                } else {
+                                    state.sketch.element_selection.select(hit.element_index);
+                                }
+                                sketch_consumed = true;
+                            } else {
+                                // Click on empty space - clear selection
+                                if !ui.input(|i| i.modifiers.command) {
+                                    state.sketch.element_selection.selected.clear();
+                                }
+                            }
+                        }
+                    }
+                }
+
                 if response.clicked() && is_drawing_tool {
                     if let Some(pos) = response.interact_pointer_pos() {
                         let ray = self.camera.screen_ray(pos, rect);
@@ -208,7 +247,7 @@ impl ViewportPanel {
                     }
                 }
 
-                // Handle right click - finalize multi-point tools or cancel
+                // Handle right click - finalize multi-point tools, show context menu, or cancel
                 if response.secondary_clicked() {
                     if state.sketch.tool == crate::state::sketch::SketchTool::Polyline
                         || state.sketch.tool == crate::state::sketch::SketchTool::Spline
@@ -220,8 +259,13 @@ impl ViewportPanel {
                                 element,
                             );
                         }
+                        state.sketch.clear_drawing();
+                    } else if !state.sketch.element_selection.selected.is_empty() {
+                        // Show context menu for selected elements
+                        self.sketch_element_context_menu = true;
+                    } else {
+                        state.sketch.clear_drawing();
                     }
-                    state.sketch.clear_drawing();
                     sketch_consumed = true;
                 }
             }
@@ -662,6 +706,129 @@ impl ViewportPanel {
         }
     }
 
+    fn show_sketch_element_context_menu(
+        &mut self,
+        ui: &mut Ui,
+        response: &egui::Response,
+        state: &mut AppState,
+    ) {
+        use crate::i18n::t;
+
+        if !self.sketch_element_context_menu {
+            return;
+        }
+
+        let selected_count = state.sketch.element_selection.selected.len();
+        if selected_count == 0 {
+            self.sketch_element_context_menu = false;
+            return;
+        }
+
+        response.context_menu(|ui| {
+            // Delete option
+            let delete_label = if selected_count == 1 {
+                t("sketch.context.delete").to_string()
+            } else {
+                format!("{} ({})", t("sketch.context.delete"), selected_count)
+            };
+            if ui.button(&delete_label).clicked() {
+                if let (Some(body_id), feature_id) = (
+                    state.sketch.editing_body_id().cloned(),
+                    state.sketch.active_feature_id().cloned(),
+                ) {
+                    let indices = state.sketch.element_selection.get_selected_for_removal();
+                    state.scene.remove_sketch_elements_by_indices(
+                        &body_id,
+                        feature_id.as_deref(),
+                        indices,
+                    );
+                    state.sketch.element_selection.clear();
+                }
+                ui.close_menu();
+                self.sketch_element_context_menu = false;
+            }
+
+            ui.separator();
+
+            // Toggle construction geometry option
+            if ui.button(t("sketch.context.construction")).clicked() {
+                if let (Some(body_id), feature_id) = (
+                    state.sketch.editing_body_id().cloned(),
+                    state.sketch.active_feature_id().cloned(),
+                ) {
+                    let indices: Vec<usize> = state.sketch.element_selection.selected.clone();
+                    state.scene.toggle_construction(
+                        &body_id,
+                        feature_id.as_deref(),
+                        &indices,
+                    );
+                }
+                ui.close_menu();
+                self.sketch_element_context_menu = false;
+            }
+
+            // Rotation axis option - only for single line selection
+            if selected_count == 1 {
+                let selected_idx = state.sketch.element_selection.selected[0];
+                // Check if selected element is a line
+                let is_line = if let (Some(body_id), feature_id) = (
+                    state.sketch.editing_body_id(),
+                    state.sketch.active_feature_id(),
+                ) {
+                    sketch_utils::find_sketch_data_ex(&state.scene.scene, body_id, feature_id.map(|s| s.as_str()))
+                        .map(|(sketch, _)| {
+                            sketch.elements.get(selected_idx)
+                                .map(|el| matches!(el, shared::SketchElement::Line { .. }))
+                                .unwrap_or(false)
+                        })
+                        .unwrap_or(false)
+                } else {
+                    false
+                };
+
+                if is_line {
+                    // Check if this element is already the revolve axis
+                    let is_axis = if let (Some(body_id), feature_id) = (
+                        state.sketch.editing_body_id(),
+                        state.sketch.active_feature_id(),
+                    ) {
+                        sketch_utils::find_sketch_data_ex(&state.scene.scene, body_id, feature_id.map(|s| s.as_str()))
+                            .map(|(sketch, _)| sketch.is_revolve_axis(selected_idx))
+                            .unwrap_or(false)
+                    } else {
+                        false
+                    };
+
+                    let label = if is_axis {
+                        format!("{} ✓", t("sketch.context.revolve_axis"))
+                    } else {
+                        t("sketch.context.revolve_axis").to_string()
+                    };
+
+                    if ui.button(label).clicked() {
+                        if let (Some(body_id), feature_id) = (
+                            state.sketch.editing_body_id().cloned(),
+                            state.sketch.active_feature_id().cloned(),
+                        ) {
+                            state.scene.toggle_revolve_axis(
+                                &body_id,
+                                feature_id.as_deref(),
+                                selected_idx,
+                            );
+                        }
+                        ui.close_menu();
+                        self.sketch_element_context_menu = false;
+                    }
+                }
+            }
+        });
+
+        // Close menu if clicked elsewhere
+        if ui.input(|i| i.pointer.any_click()) && !response.context_menu_opened() {
+            self.sketch_element_context_menu = false;
+        }
+    }
+
     fn rebuild_csg_if_needed(&mut self, state: &mut AppState) {
         let scene_version = state.scene.version();
         let selected_ids: Vec<String> = state.selection.all().to_vec();
@@ -797,7 +964,12 @@ impl ViewportPanel {
         // Sketch editing overlays
         if state.sketch.is_editing() {
             self.draw_sketch_editing_overlays(&painter, rect, state);
+            // Show revolve axis preview when a sketch has designated revolve axis
+            overlays::draw_sketch_revolve_axis_preview(&painter, rect, &self.camera, state);
         }
+
+        // Revolve operation overlay (axis and angle arc)
+        overlays::draw_revolve_overlay(&painter, rect, &self.camera, state);
     }
 
     fn draw_camera_info(&self, painter: &egui::Painter, rect: egui::Rect) {
@@ -865,6 +1037,11 @@ impl ViewportPanel {
                     egui::Color32::from_rgb(200, 180, 100)
                 };
                 let sketch_stroke = egui::Stroke::new(1.5, stroke_color);
+                let display_info = renderer::SketchElementDisplayInfo {
+                    construction: sketch.construction.clone(),
+                    revolve_axis: sketch.revolve_axis,
+                    ..Default::default()
+                };
                 renderer::draw_sketch_elements(
                     painter,
                     rect,
@@ -872,7 +1049,7 @@ impl ViewportPanel {
                     sketch,
                     &final_transform,
                     sketch_stroke,
-                    &renderer::SketchElementDisplayInfo::default(),
+                    &display_info,
                 );
             }
         }
@@ -904,6 +1081,12 @@ impl ViewportPanel {
                     crate::helpers::combine_transforms(&body_transform, transform);
 
                 let sketch_stroke = egui::Stroke::new(2.0, egui::Color32::from_rgb(255, 200, 50));
+                let display_info = renderer::SketchElementDisplayInfo {
+                    selected: state.sketch.element_selection.selected.clone(),
+                    hover_element: state.sketch.element_selection.hover_element,
+                    construction: sketch.construction.clone(),
+                    revolve_axis: sketch.revolve_axis,
+                };
                 renderer::draw_sketch_elements(
                     painter,
                     rect,
@@ -911,7 +1094,7 @@ impl ViewportPanel {
                     sketch,
                     &combined_transform,
                     sketch_stroke,
-                    &renderer::SketchElementDisplayInfo::default(),
+                    &display_info,
                 );
             }
         }

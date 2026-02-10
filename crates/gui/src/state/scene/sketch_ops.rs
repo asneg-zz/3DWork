@@ -210,6 +210,149 @@ impl SceneState {
         }
     }
 
+    /// Toggle construction geometry flag for sketch elements
+    pub fn toggle_construction(
+        &mut self,
+        body_id: &str,
+        feature_id: Option<&str>,
+        element_indices: &[usize],
+    ) {
+        if element_indices.is_empty() {
+            return;
+        }
+
+        self.save_undo();
+        self.redo_stack.clear();
+
+        if let Some(body) = self.scene.bodies.iter_mut().find(|b| b.id == body_id) {
+            // Find feature by id - could be Sketch, BaseExtrude, or BaseRevolve
+            let feature_idx = if let Some(fid) = feature_id {
+                body.features.iter().position(|f| match f {
+                    Feature::Sketch { id, .. } => id == fid,
+                    Feature::BaseExtrude { id, .. } => id == fid,
+                    Feature::BaseRevolve { id, .. } => id == fid,
+                    _ => false,
+                })
+            } else {
+                body.features
+                    .iter()
+                    .rposition(|f| matches!(f, Feature::Sketch { .. }))
+            };
+
+            if let Some(idx) = feature_idx {
+                // Get mutable reference to sketch from any feature type
+                let sketch = match &mut body.features[idx] {
+                    Feature::Sketch { sketch, .. } => Some(sketch),
+                    Feature::BaseExtrude { sketch, .. } => Some(sketch),
+                    Feature::BaseRevolve { sketch, .. } => Some(sketch),
+                    _ => None,
+                };
+
+                if let Some(sketch) = sketch {
+                    for &elem_idx in element_indices {
+                        if elem_idx < sketch.elements.len() {
+                            let current = sketch.is_construction(elem_idx);
+                            sketch.set_construction(elem_idx, !current);
+                        }
+                    }
+                    self.version += 1;
+                }
+            }
+        }
+    }
+
+    /// Toggle revolve axis for a sketch element (only one axis per sketch)
+    pub fn toggle_revolve_axis(
+        &mut self,
+        body_id: &str,
+        feature_id: Option<&str>,
+        element_index: usize,
+    ) {
+        self.save_undo();
+        self.redo_stack.clear();
+
+        if let Some(body) = self.scene.bodies.iter_mut().find(|b| b.id == body_id) {
+            // Find feature by id - could be Sketch, BaseExtrude, or BaseRevolve
+            let feature_idx = if let Some(fid) = feature_id {
+                body.features.iter().position(|f| match f {
+                    Feature::Sketch { id, .. } => id == fid,
+                    Feature::BaseExtrude { id, .. } => id == fid,
+                    Feature::BaseRevolve { id, .. } => id == fid,
+                    _ => false,
+                })
+            } else {
+                body.features
+                    .iter()
+                    .rposition(|f| matches!(f, Feature::Sketch { .. }))
+            };
+
+            if let Some(idx) = feature_idx {
+                // Get mutable reference to sketch from any feature type
+                let sketch = match &mut body.features[idx] {
+                    Feature::Sketch { sketch, .. } => Some(sketch),
+                    Feature::BaseExtrude { sketch, .. } => Some(sketch),
+                    Feature::BaseRevolve { sketch, .. } => Some(sketch),
+                    _ => None,
+                };
+
+                if let Some(sketch) = sketch {
+                    // Check that element exists and is a line
+                    if element_index < sketch.elements.len() {
+                        if matches!(sketch.elements[element_index], shared::SketchElement::Line { .. }) {
+                            sketch.toggle_revolve_axis(element_index);
+                            self.version += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Remove selected sketch elements by indices (handles multiple at once, sorted descending)
+    pub fn remove_sketch_elements_by_indices(
+        &mut self,
+        body_id: &str,
+        feature_id: Option<&str>,
+        mut indices: Vec<usize>,
+    ) {
+        if indices.is_empty() {
+            return;
+        }
+
+        // Sort in descending order to remove from the end first
+        indices.sort_by(|a, b| b.cmp(a));
+
+        self.save_undo();
+        self.redo_stack.clear();
+
+        if let Some(body) = self.scene.bodies.iter_mut().find(|b| b.id == body_id) {
+            let feature_idx = if let Some(fid) = feature_id {
+                body.features.iter().position(|f| {
+                    matches!(f, Feature::Sketch { id, .. } if id == fid)
+                })
+            } else {
+                body.features
+                    .iter()
+                    .rposition(|f| matches!(f, Feature::Sketch { .. }))
+            };
+
+            if let Some(idx) = feature_idx {
+                if let Feature::Sketch { sketch, .. } = &mut body.features[idx] {
+                    for elem_idx in indices {
+                        if elem_idx < sketch.elements.len() {
+                            sketch.elements.remove(elem_idx);
+                            // Also remove construction flag if exists
+                            if elem_idx < sketch.construction.len() {
+                                sketch.construction.remove(elem_idx);
+                            }
+                        }
+                    }
+                    self.version += 1;
+                }
+            }
+        }
+    }
+
     /// Update a control point of a sketch element
     pub fn update_sketch_element_point(
         &mut self,

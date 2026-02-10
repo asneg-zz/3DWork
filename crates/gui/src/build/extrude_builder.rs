@@ -424,8 +424,7 @@ fn try_create_cylinder_from_sketch_full(
     Some(part)
 }
 
-/// Create a revolved Part from sketch profile
-#[allow(dead_code)]
+/// Create a revolved Part from sketch profile (default axis X=0)
 pub fn create_revolve_part_from_sketch(
     id: &str,
     sketch: &Sketch,
@@ -433,19 +432,123 @@ pub fn create_revolve_part_from_sketch(
     angle_deg: f64,
     segments: u32,
 ) -> Option<Part> {
+    create_revolve_part_from_sketch_with_axis(id, sketch, transform, angle_deg, segments, None)
+}
+
+/// Create a revolved Part from sketch profile with optional custom axis
+/// If axis is None, uses the default X=0 vertical axis
+/// axis format: (start_point, end_point) in sketch 2D coordinates
+pub fn create_revolve_part_from_sketch_with_axis(
+    id: &str,
+    sketch: &Sketch,
+    transform: &Transform,
+    angle_deg: f64,
+    segments: u32,
+    axis: Option<([f64; 2], [f64; 2])>,
+) -> Option<Part> {
     if sketch.elements.is_empty() {
         return None;
     }
 
-    // Extract 2D profiles from sketch
-    let profiles = extract_2d_profiles(&sketch.elements).ok()?;
+    // Extract 2D profiles from sketch (excluding construction geometry)
+    let geometry_elements: Vec<SketchElement> = sketch.geometry_elements().map(|(_, e)| e.clone()).collect();
+    let profiles = extract_2d_profiles(&geometry_elements).ok()?;
 
     if profiles.is_empty() {
         return None;
     }
 
+    let pos = &transform.position;
+
+    // Compute 3D axis origin and direction
+    let (axis_origin_3d, axis_dir_3d) = if let Some((start, end)) = axis {
+        let origin = sketch_point_to_3d(start, sketch, pos);
+        let end_3d = sketch_point_to_3d(end, sketch, pos);
+        let dir = [
+            end_3d[0] - origin[0],
+            end_3d[1] - origin[1],
+            end_3d[2] - origin[2],
+        ];
+        let len = (dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]).sqrt().max(0.0001);
+        (origin, [dir[0] / len, dir[1] / len, dir[2] / len])
+    } else {
+        // Default axis: Y axis at sketch origin
+        let origin = sketch_point_to_3d([0.0, 0.0], sketch, pos);
+        let axis_dir = match sketch.plane {
+            SketchPlane::Xy => [0.0, 1.0, 0.0], // +Y in world
+            SketchPlane::Xz => [0.0, 0.0, 1.0], // +Z in world (sketch Y -> world Z)
+            SketchPlane::Yz => [0.0, 0.0, 1.0], // +Z in world (sketch Y -> world Z)
+        };
+        (origin, axis_dir)
+    };
+
+    // Compute a reference direction perpendicular to axis (in the sketch plane)
+    // This will be the +X direction in Manifold space (radial direction at angle 0)
+    // Use face_normal if available (for sketches on faces), otherwise use standard plane normal
+    let sketch_normal = if let Some(fn_) = sketch.face_normal {
+        fn_
+    } else {
+        match sketch.plane {
+            SketchPlane::Xy => [0.0, 0.0, 1.0],
+            SketchPlane::Xz => [0.0, 1.0, 0.0],
+            SketchPlane::Yz => [1.0, 0.0, 0.0],
+        }
+    };
+
+    // ref_dir = sketch_normal × axis_dir (perpendicular to axis, in sketch plane)
+    let ref_dir = cross_product(sketch_normal, axis_dir_3d);
+    let ref_len = (ref_dir[0] * ref_dir[0] + ref_dir[1] * ref_dir[1] + ref_dir[2] * ref_dir[2]).sqrt();
+
+    // If axis is parallel to sketch normal, use sketch X direction as reference
+    let ref_dir = if ref_len < 0.0001 {
+        match sketch.plane {
+            SketchPlane::Xy => [1.0, 0.0, 0.0],
+            SketchPlane::Xz => [1.0, 0.0, 0.0],
+            SketchPlane::Yz => [0.0, 1.0, 0.0],
+        }
+    } else {
+        [ref_dir[0] / ref_len, ref_dir[1] / ref_len, ref_dir[2] / ref_len]
+    };
+
+    // Transform each profile point to Manifold coordinates:
+    // X = signed distance from axis (in ref_dir direction)
+    // Y = distance along axis from axis_origin
+    let transformed_profiles: Vec<Vec<[f64; 2]>> = profiles
+        .iter()
+        .map(|profile| {
+            profile
+                .iter()
+                .map(|p| {
+                    let p3d = sketch_point_to_3d(*p, sketch, pos);
+
+                    // Vector from axis origin to point
+                    let v = [
+                        p3d[0] - axis_origin_3d[0],
+                        p3d[1] - axis_origin_3d[1],
+                        p3d[2] - axis_origin_3d[2],
+                    ];
+
+                    // Project onto axis (Y coordinate in Manifold space)
+                    let y_coord = dot_product(v, axis_dir_3d);
+
+                    // Component perpendicular to axis
+                    let perp = [
+                        v[0] - y_coord * axis_dir_3d[0],
+                        v[1] - y_coord * axis_dir_3d[1],
+                        v[2] - y_coord * axis_dir_3d[2],
+                    ];
+
+                    // X coordinate = projection onto ref_dir (signed distance)
+                    let x_coord = dot_product(perp, ref_dir);
+
+                    [x_coord, y_coord]
+                })
+                .collect()
+        })
+        .collect();
+
     // Convert profiles to format for Manifold::revolve
-    let polygon_data: Vec<Vec<f64>> = profiles
+    let polygon_data: Vec<Vec<f64>> = transformed_profiles
         .iter()
         .map(|profile| {
             profile
@@ -457,7 +560,7 @@ pub fn create_revolve_part_from_sketch(
 
     let polygon_slices: Vec<&[f64]> = polygon_data.iter().map(|v| v.as_slice()).collect();
 
-    // Create the manifold revolution around Y axis (standard convention)
+    // Create the manifold revolution around Y axis
     let manifold = Manifold::revolve(
         &polygon_slices,
         segments,
@@ -469,36 +572,100 @@ pub fn create_revolve_part_from_sketch(
         return None;
     }
 
-    let pos = &transform.position;
+    // Now transform the result back to world coordinates:
+    // Manifold Y axis -> axis_dir_3d
+    // Manifold X axis -> ref_dir
+    // Manifold Z axis -> axis_dir × ref_dir
 
-    // Transform based on sketch plane
-    let (final_manifold, translate) = match sketch.plane {
-        SketchPlane::Xy => {
-            // For XY sketch, revolve around the Y axis
-            let tx = pos[0];
-            let ty = pos[1];
-            let tz = sketch.offset + pos[2];
-            (manifold, (tx, ty, tz))
-        }
-        SketchPlane::Xz => {
-            let rotated = manifold.rotate(-90.0, 0.0, 0.0);
-            let tx = pos[0];
-            let ty = sketch.offset + pos[1];
-            let tz = pos[2];
-            (rotated, (tx, ty, tz))
-        }
-        SketchPlane::Yz => {
-            let rotated = manifold.rotate(0.0, 90.0, 0.0);
-            let tx = sketch.offset + pos[0];
-            let ty = pos[1];
-            let tz = pos[2];
-            (rotated, (tx, ty, tz))
+    // Build rotation matrix from Manifold coords to world coords
+    let third_dir = cross_product(axis_dir_3d, ref_dir);
+
+    // The rotation matrix columns are: [ref_dir, axis_dir, third_dir]
+    // We need to find Euler angles that achieve this rotation
+    let (rot_x, rot_y, rot_z) = matrix_to_euler_xyz(ref_dir, axis_dir_3d, third_dir);
+
+    let final_manifold = manifold
+        .rotate(rot_x, rot_y, rot_z)
+        .translate(axis_origin_3d[0], axis_origin_3d[1], axis_origin_3d[2]);
+
+    Some(Part::new(id, final_manifold))
+}
+
+/// Convert 2D sketch point to 3D world coordinates
+fn sketch_point_to_3d(p: [f64; 2], sketch: &Sketch, pos: &[f64; 3]) -> [f64; 3] {
+    match sketch.plane {
+        SketchPlane::Xy => [p[0] + pos[0], p[1] + pos[1], sketch.offset + pos[2]],
+        SketchPlane::Xz => [p[0] + pos[0], sketch.offset + pos[1], p[1] + pos[2]],
+        SketchPlane::Yz => [sketch.offset + pos[0], p[0] + pos[1], p[1] + pos[2]],
+    }
+}
+
+/// Cross product of two 3D vectors
+fn cross_product(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
+}
+
+/// Dot product of two 3D vectors
+fn dot_product(a: [f64; 3], b: [f64; 3]) -> f64 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+/// Convert rotation matrix (given as column vectors) to Euler angles XYZ (in degrees)
+/// The matrix transforms from Manifold space to world space:
+/// - col_x (ref_dir) is where Manifold +X goes
+/// - col_y (axis_dir) is where Manifold +Y goes
+/// - col_z (third_dir) is where Manifold +Z goes
+fn matrix_to_euler_xyz(col_x: [f64; 3], col_y: [f64; 3], col_z: [f64; 3]) -> (f64, f64, f64) {
+    // Rotation matrix R = [col_x | col_y | col_z]
+    // R[i][j] = col_j[i]
+    //
+    // For XYZ Euler angles, Manifold applies R = Rz * Ry * Rx
+    // So we need to decompose our matrix into this form
+    //
+    // R = | cos(y)cos(z)                           -cos(y)sin(z)                          sin(y)      |
+    //     | cos(x)sin(z)+sin(x)sin(y)cos(z)        cos(x)cos(z)-sin(x)sin(y)sin(z)       -sin(x)cos(y)|
+    //     | sin(x)sin(z)-cos(x)sin(y)cos(z)        sin(x)cos(z)+cos(x)sin(y)sin(z)        cos(x)cos(y)|
+    //
+    // From R[0][2] = sin(y), we get y = asin(R[0][2])
+    // From R[1][2] = -sin(x)cos(y) and R[2][2] = cos(x)cos(y), we get x = atan2(-R[1][2], R[2][2])
+    // From R[0][1] = -cos(y)sin(z) and R[0][0] = cos(y)cos(z), we get z = atan2(-R[0][1], R[0][0])
+
+    let r02 = col_z[0]; // sin(y)
+    let r12 = col_z[1]; // -sin(x)cos(y)
+    let r22 = col_z[2]; // cos(x)cos(y)
+    let r01 = col_y[0]; // -cos(y)sin(z)
+    let r00 = col_x[0]; // cos(y)cos(z)
+
+    let rot_y = r02.asin();
+    let cos_y = rot_y.cos();
+
+    let (rot_x, rot_z) = if cos_y.abs() > 0.0001 {
+        let rot_x = (-r12).atan2(r22);
+        let rot_z = (-r01).atan2(r00);
+        (rot_x, rot_z)
+    } else {
+        // Gimbal lock case - y is ±90°
+        // Use R[1][0] and R[1][1] to find x+z or x-z
+        let r10 = col_x[1];
+        let r11 = col_y[1];
+        if r02 > 0.0 {
+            // y = 90°, sin(y) = 1
+            // R[1][0] = sin(x+z), R[1][1] = cos(x+z)
+            let sum = r10.atan2(r11);
+            (sum, 0.0)
+        } else {
+            // y = -90°, sin(y) = -1
+            // R[1][0] = -sin(x-z), R[1][1] = cos(x-z)
+            let diff = (-r10).atan2(r11);
+            (diff, 0.0)
         }
     };
 
-    let final_manifold = final_manifold.translate(translate.0, translate.1, translate.2);
-
-    Some(Part::new(id, final_manifold))
+    (rot_x.to_degrees(), rot_y.to_degrees(), rot_z.to_degrees())
 }
 
 #[cfg(test)]

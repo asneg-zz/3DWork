@@ -263,6 +263,10 @@ pub struct SketchElementDisplayInfo {
     pub selected: Vec<usize>,
     /// Element under cursor (hover)
     pub hover_element: Option<usize>,
+    /// Construction flags (parallel to sketch.elements)
+    pub construction: Vec<bool>,
+    /// Index of element designated as revolve axis (only one per sketch)
+    pub revolve_axis: Option<usize>,
 }
 
 
@@ -278,12 +282,34 @@ pub(crate) fn draw_sketch_elements(
     let default_stroke = Stroke::new(stroke.width, Color32::from_rgb(255, 200, 50));
     let selected_stroke = Stroke::new(stroke.width + 1.5, Color32::from_rgb(100, 255, 100));
     let hover_stroke = Stroke::new(stroke.width + 0.5, Color32::from_rgb(150, 220, 255));
+    // Construction geometry - brown/orange dashed style
+    let construction_stroke = Stroke::new(stroke.width * 0.7, Color32::from_rgb(180, 120, 60));
+    let construction_selected_stroke = Stroke::new(stroke.width + 0.5, Color32::from_rgb(100, 200, 100));
+    // Revolve axis - magenta/purple color to stand out
+    let revolve_axis_stroke = Stroke::new(stroke.width + 1.0, Color32::from_rgb(200, 50, 200));
+    let revolve_axis_selected_stroke = Stroke::new(stroke.width + 2.0, Color32::from_rgb(255, 100, 255));
 
     for (idx, elem) in sketch.elements.iter().enumerate() {
         let is_selected = display_info.selected.contains(&idx);
         let is_hover = display_info.hover_element == Some(idx) && !is_selected;
+        let is_construction = display_info.construction.get(idx).copied().unwrap_or(false)
+            || sketch.is_construction(idx);
+        let is_revolve_axis = display_info.revolve_axis == Some(idx);
 
-        let elem_stroke = if is_selected {
+        let elem_stroke = if is_revolve_axis {
+            // Revolve axis has highest priority for coloring
+            if is_selected {
+                revolve_axis_selected_stroke
+            } else {
+                revolve_axis_stroke
+            }
+        } else if is_construction {
+            if is_selected {
+                construction_selected_stroke
+            } else {
+                construction_stroke
+            }
+        } else if is_selected {
             selected_stroke
         } else if is_hover {
             hover_stroke
@@ -291,11 +317,17 @@ pub(crate) fn draw_sketch_elements(
             default_stroke
         };
 
+        let draw_dashed = is_construction;
+
         match elem {
             shared::SketchElement::Line { start, end } => {
                 let p1 = sketch_point_to_3d(start.x, start.y, sketch, transform);
                 let p2 = sketch_point_to_3d(end.x, end.y, sketch, transform);
-                draw_line_3d(painter, rect, camera, p1, p2, elem_stroke);
+                if draw_dashed {
+                    draw_dashed_line_3d(painter, rect, camera, p1, p2, elem_stroke, 8.0);
+                } else {
+                    draw_line_3d(painter, rect, camera, p1, p2, elem_stroke);
+                }
             }
             shared::SketchElement::Circle { center, radius } => {
                 let segments = 24;
@@ -306,7 +338,11 @@ pub(crate) fn draw_sketch_elements(
                     let y = center.y + radius * angle.sin();
                     ring.push(sketch_point_to_3d(x, y, sketch, transform));
                 }
-                draw_ring(painter, rect, camera, &ring, elem_stroke);
+                if draw_dashed {
+                    draw_dashed_ring(painter, rect, camera, &ring, elem_stroke, 8.0);
+                } else {
+                    draw_ring(painter, rect, camera, &ring, elem_stroke);
+                }
             }
             shared::SketchElement::Rectangle { corner, width, height } => {
                 let x0 = corner.x;
@@ -319,14 +355,22 @@ pub(crate) fn draw_sketch_elements(
                     sketch_point_to_3d(x1, y1, sketch, transform),
                     sketch_point_to_3d(x0, y1, sketch, transform),
                 ];
-                draw_ring(painter, rect, camera, &corners, elem_stroke);
+                if draw_dashed {
+                    draw_dashed_ring(painter, rect, camera, &corners, elem_stroke, 8.0);
+                } else {
+                    draw_ring(painter, rect, camera, &corners, elem_stroke);
+                }
             }
             shared::SketchElement::Polyline { points } | shared::SketchElement::Spline { points } => {
                 let pts: Vec<_> = points.iter()
                     .map(|p| sketch_point_to_3d(p.x, p.y, sketch, transform))
                     .collect();
                 for w in pts.windows(2) {
-                    draw_line_3d(painter, rect, camera, w[0], w[1], elem_stroke);
+                    if draw_dashed {
+                        draw_dashed_line_3d(painter, rect, camera, w[0], w[1], elem_stroke, 8.0);
+                    } else {
+                        draw_line_3d(painter, rect, camera, w[0], w[1], elem_stroke);
+                    }
                 }
             }
             shared::SketchElement::Arc { center, radius, start_angle, end_angle } => {
@@ -344,7 +388,11 @@ pub(crate) fn draw_sketch_elements(
                     arc_points.push(sketch_point_to_3d(x, y, sketch, transform));
                 }
                 for w in arc_points.windows(2) {
-                    draw_line_3d(painter, rect, camera, w[0], w[1], elem_stroke);
+                    if draw_dashed {
+                        draw_dashed_line_3d(painter, rect, camera, w[0], w[1], elem_stroke, 8.0);
+                    } else {
+                        draw_line_3d(painter, rect, camera, w[0], w[1], elem_stroke);
+                    }
                 }
             }
             shared::SketchElement::Dimension { from, to, value } => {
@@ -434,6 +482,78 @@ fn draw_ring(
     for i in 0..points.len() {
         let next = (i + 1) % points.len();
         draw_line_3d(painter, rect, camera, points[i], points[next], stroke);
+    }
+}
+
+/// Draw a dashed line in 3D space
+fn draw_dashed_line_3d(
+    painter: &egui::Painter,
+    rect: Rect,
+    camera: &ArcBallCamera,
+    a: [f32; 3],
+    b: [f32; 3],
+    stroke: Stroke,
+    dash_length: f32,
+) {
+    if let (Some(pa), Some(pb)) = (camera.project(a, rect), camera.project(b, rect)) {
+        draw_dashed_line_2d(painter, pa, pb, stroke, dash_length);
+    }
+}
+
+/// Draw a dashed line in 2D screen space
+fn draw_dashed_line_2d(
+    painter: &egui::Painter,
+    start: egui::Pos2,
+    end: egui::Pos2,
+    stroke: Stroke,
+    dash_length: f32,
+) {
+    let dx = end.x - start.x;
+    let dy = end.y - start.y;
+    let length = (dx * dx + dy * dy).sqrt();
+
+    if length < 0.1 {
+        return;
+    }
+
+    let dir_x = dx / length;
+    let dir_y = dy / length;
+
+    let gap_length = dash_length * 0.6;
+    let pattern_length = dash_length + gap_length;
+
+    let mut pos = 0.0;
+    let mut drawing = true;
+
+    while pos < length {
+        if drawing {
+            let segment_end = (pos + dash_length).min(length);
+            let p1 = egui::pos2(start.x + dir_x * pos, start.y + dir_y * pos);
+            let p2 = egui::pos2(start.x + dir_x * segment_end, start.y + dir_y * segment_end);
+            painter.line_segment([p1, p2], stroke);
+            pos = segment_end;
+        } else {
+            pos += gap_length;
+        }
+        drawing = !drawing;
+    }
+}
+
+/// Draw a dashed ring (closed polygon)
+fn draw_dashed_ring(
+    painter: &egui::Painter,
+    rect: Rect,
+    camera: &ArcBallCamera,
+    points: &[[f32; 3]],
+    stroke: Stroke,
+    dash_length: f32,
+) {
+    if points.len() < 2 {
+        return;
+    }
+    for i in 0..points.len() {
+        let next = (i + 1) % points.len();
+        draw_dashed_line_3d(painter, rect, camera, points[i], points[next], stroke, dash_length);
     }
 }
 

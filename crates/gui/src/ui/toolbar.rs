@@ -101,22 +101,88 @@ pub fn action_revolve(state: &mut AppState) {
         }
     };
 
-    let Some((sketch_id, _sketch, _transform)) = ctx.last_sketch else {
+    let Some((sketch_id, sketch, _transform)) = ctx.last_sketch else {
         tracing::warn!("Revolve: selected body has no sketch with elements");
         return;
     };
 
-    if ctx.has_base {
-        // Body has base + sketch: add Revolve feature (boss revolve)
-        state.scene.add_revolve_to_body(&ctx.body_id, &sketch_id, 360.0, 32, false);
-        tracing::info!("Added revolve feature to body {}", ctx.body_id);
+    // Find construction lines that can be used as axes
+    let axes = crate::helpers::find_construction_axes(&sketch);
+
+    // Open dialog for revolve parameters with available axes
+    // Pass designated revolve_axis from sketch (if set)
+    state.operation_dialog.open_revolve_with_axes(ctx.body_id.clone(), sketch_id, axes, sketch.revolve_axis);
+}
+
+pub fn action_cut_revolve(state: &mut AppState) {
+    let ctx = match get_selected_body_context(state) {
+        Ok(ctx) => ctx,
+        Err(msg) => {
+            tracing::warn!("Cut Revolve: {}", msg);
+            return;
+        }
+    };
+
+    let Some((sketch_id, sketch, _transform)) = ctx.last_sketch else {
+        tracing::warn!("Cut Revolve: selected body has no sketch with elements");
+        return;
+    };
+
+    if !ctx.has_base {
+        tracing::warn!("Cut Revolve: body has no base geometry to cut from");
+        return;
+    }
+
+    // Find construction lines that can be used as axes
+    let axes = crate::helpers::find_construction_axes(&sketch);
+
+    // Open dialog for cut revolve parameters with available axes
+    // Pass designated revolve_axis from sketch (if set)
+    state.operation_dialog.open_cut_revolve_with_axes(ctx.body_id.clone(), sketch_id, axes, sketch.revolve_axis);
+}
+
+/// Apply revolve operation with parameters from dialog
+pub fn apply_revolve(state: &mut AppState) {
+    let Some(body_id) = state.operation_dialog.body_id.clone() else { return };
+    let Some(sketch_id) = state.operation_dialog.sketch_id.clone() else { return };
+    let params = &state.operation_dialog.revolve_params;
+    let is_cut = state.operation_dialog.is_cut;
+
+    // Get axis from params (None for default X=0 axis)
+    let axis = if params.axis.element_index >= 0 {
+        Some((params.axis.start, params.axis.end))
     } else {
+        None
+    };
+
+    // Check if body has base geometry
+    let has_base = state.scene.get_body(&body_id)
+        .map(|b| has_base_geometry(b))
+        .unwrap_or(false);
+
+    if has_base {
+        // Body has base + sketch: add Revolve feature with axis
+        state.scene.add_revolve_to_body_with_axis(
+            &body_id,
+            &sketch_id,
+            params.angle,
+            params.segments,
+            is_cut,
+            axis,
+        );
+        tracing::info!("Added {} revolve feature to body {} with axis {:?}",
+            if is_cut { "cut" } else { "boss" }, body_id, axis);
+    } else if !is_cut {
         // Body has only sketch (no base): convert Sketch to BaseRevolve
-        state.scene.convert_sketch_to_base_revolve(&ctx.body_id, &sketch_id, 360.0, 32);
-        tracing::info!("Converted sketch to base revolve in body {}", ctx.body_id);
+        // TODO: BaseRevolve doesn't support custom axis yet
+        state.scene.convert_sketch_to_base_revolve(&body_id, &sketch_id, params.angle, params.segments);
+        tracing::info!("Converted sketch to base revolve in body {}", body_id);
+    } else {
+        tracing::warn!("Cannot cut revolve from body without base geometry");
     }
 
     state.sketch.exit_edit();
+    state.operation_dialog.close();
 }
 
 pub fn action_cut(state: &mut AppState) {
@@ -212,35 +278,38 @@ pub fn apply_cut(state: &mut AppState) {
 
 pub fn show(ui: &mut Ui, state: &mut AppState) {
     ui.horizontal(|ui| {
-        // ── Primitives group ──
-        toolbar_group(ui, t("tb.primitives"), |ui| {
+        // ── Primitives dropdown ──
+        ui.menu_button(t("tb.primitives"), |ui| {
             if ui.button(t("prim.cube")).on_hover_text(t("tip.cube")).clicked() {
                 action_create_cube(state);
+                ui.close_menu();
             }
             if ui.button(t("prim.cylinder")).on_hover_text(t("tip.cylinder")).clicked() {
                 action_create_cylinder(state);
+                ui.close_menu();
             }
             if ui.button(t("prim.sphere")).on_hover_text(t("tip.sphere")).clicked() {
                 action_create_sphere(state);
+                ui.close_menu();
             }
             if ui.button(t("prim.cone")).on_hover_text(t("tip.cone")).clicked() {
                 action_create_cone(state);
+                ui.close_menu();
             }
         });
 
-        ui.separator();
-
-        // ── Sketch operations group ──
+        // ── Features dropdown ──
         let can_extrude = can_perform_extrude(state);
         let can_cut = can_perform_cut(state);
 
-        toolbar_group(ui, t("tb.features"), |ui| {
+        ui.menu_button(t("tb.features"), |ui| {
             if ui
                 .add_enabled(can_extrude, egui::Button::new(t("tb.extrude")))
                 .on_hover_text(t("tip.extrude"))
                 .clicked()
             {
                 action_extrude(state);
+                ui.close_menu();
             }
             if ui
                 .add_enabled(can_extrude, egui::Button::new(t("tb.revolve")))
@@ -248,27 +317,40 @@ pub fn show(ui: &mut Ui, state: &mut AppState) {
                 .clicked()
             {
                 action_revolve(state);
+                ui.close_menu();
             }
+
+            ui.separator();
+
             if ui
                 .add_enabled(can_cut, egui::Button::new(t("tb.cut")))
                 .on_hover_text(t("tip.cut"))
                 .clicked()
             {
                 action_cut(state);
+                ui.close_menu();
+            }
+            if ui
+                .add_enabled(can_cut, egui::Button::new(t("tb.cut_revolve")))
+                .on_hover_text(t("tip.cut_revolve"))
+                .clicked()
+            {
+                action_cut_revolve(state);
+                ui.close_menu();
             }
         });
 
-        ui.separator();
-
-        // ── Boolean group ──
+        // ── Boolean dropdown ──
         let has_two = state.selection.count() >= 2;
-        toolbar_group(ui, t("tb.boolean"), |ui| {
+
+        ui.menu_button(t("tb.boolean"), |ui| {
             if ui
                 .add_enabled(has_two, egui::Button::new(t("tb.union")))
                 .on_hover_text(t("tip.union"))
                 .clicked()
             {
                 do_boolean(state, BooleanOp::Union);
+                ui.close_menu();
             }
             if ui
                 .add_enabled(has_two, egui::Button::new(t("tb.diff")))
@@ -276,6 +358,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState) {
                 .clicked()
             {
                 do_boolean(state, BooleanOp::Difference);
+                ui.close_menu();
             }
             if ui
                 .add_enabled(has_two, egui::Button::new(t("tb.intersect")))
@@ -283,12 +366,13 @@ pub fn show(ui: &mut Ui, state: &mut AppState) {
                 .clicked()
             {
                 do_boolean(state, BooleanOp::Intersection);
+                ui.close_menu();
             }
         });
 
         ui.separator();
 
-        // ── History group ──
+        // ── History buttons ──
         if ui
             .add_enabled(state.scene.can_undo(), egui::Button::new(t("tb.undo")))
             .on_hover_text(t("tip.undo"))
@@ -316,13 +400,6 @@ pub fn show(ui: &mut Ui, state: &mut AppState) {
 
 // ── Helpers ──────────────────────────────────────────────────
 
-fn toolbar_group(ui: &mut Ui, label: &str, content: impl FnOnce(&mut Ui)) {
-    ui.horizontal(|ui| {
-        ui.weak(format!("{label}:"));
-        content(ui);
-    });
-}
-
 fn create_primitive_body(state: &mut AppState, name: &str, primitive: Primitive) {
     let id = state.scene.create_body_with_primitive(
         name.to_string(),
@@ -342,6 +419,8 @@ fn create_sketch_body(state: &mut AppState, name: &str, plane: SketchPlane) {
                 offset: 0.0,
                 elements: vec![],
                 face_normal: None,
+                construction: vec![],
+                revolve_axis: None,
             };
             if let Some(feature_id) = state.scene.add_sketch_to_body(
                 &selected_id,
@@ -361,6 +440,8 @@ fn create_sketch_body(state: &mut AppState, name: &str, plane: SketchPlane) {
         offset: 0.0,
         elements: vec![],
         face_normal: None,
+        construction: vec![],
+        revolve_axis: None,
     };
     let body_id = state.scene.create_body_with_sketch(
         name.to_string(),

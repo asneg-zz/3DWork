@@ -102,6 +102,8 @@ pub fn add_sketch_to_existing_body(
         offset,
         elements: vec![],
         face_normal,
+        construction: vec![],
+        revolve_axis: None,
     };
 
     // Add sketch to the existing body

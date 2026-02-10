@@ -160,6 +160,8 @@ impl eframe::App for CadApp {
 
 impl CadApp {
     fn handle_operation_dialog(&mut self, ctx: &egui::Context) {
+        use crate::state::OperationType;
+
         if let Some(confirmed) = self.state.operation_dialog.show(ctx) {
             if confirmed {
                 if self.state.operation_dialog.edit_mode {
@@ -179,10 +181,15 @@ impl CadApp {
                         tracing::info!("Updated extrude feature {}", feature_id);
                     }
                     self.state.operation_dialog.close();
-                } else if self.state.operation_dialog.is_cut {
-                    toolbar::apply_cut(&mut self.state);
                 } else {
-                    toolbar::apply_extrude(&mut self.state);
+                    // Apply operation based on type
+                    match self.state.operation_dialog.operation_type {
+                        OperationType::Extrude => toolbar::apply_extrude(&mut self.state),
+                        OperationType::Cut => toolbar::apply_cut(&mut self.state),
+                        OperationType::Revolve | OperationType::CutRevolve => {
+                            toolbar::apply_revolve(&mut self.state)
+                        }
+                    }
                 }
             }
         }

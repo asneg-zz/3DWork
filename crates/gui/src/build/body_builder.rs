@@ -7,10 +7,9 @@ use crate::extrude::{extrude_mesh, revolve_mesh};
 use crate::helpers::{combine_transforms, get_body_base_transform};
 use crate::viewport::mesh::MeshData;
 
-use super::extrude_builder::{create_extrude_part_from_sketch, create_extrude_part_full};
+use super::extrude_builder::{create_extrude_part_from_sketch, create_extrude_part_full, create_revolve_part_from_sketch_with_axis};
 use super::mesh_extraction::{apply_selection_color, extract_mesh_data};
 use super::primitives::{apply_transform, create_primitive};
-use super::sketch_geometry::{sketch_bounds, sketch_center_3d};
 
 /// Build MeshData directly from a body's features
 pub fn build_body_mesh_data(body: &Body, selected: bool) -> Result<Option<MeshData>, String> {
@@ -80,8 +79,22 @@ pub fn build_body_mesh_data(body: &Body, selected: bool) -> Result<Option<MeshDa
             angle,
             segments,
         } => {
+            // Extract axis from sketch's revolve_axis if set
+            let axis = extract_revolve_axis_from_sketch(sketch);
+
             // If no modifications, return mesh directly
             if !has_modifications {
+                // TODO: revolve_mesh doesn't support custom axis yet, use CSG path
+                if axis.is_some() {
+                    // Use CSG path for custom axis
+                    let part = create_revolve_part_from_sketch_with_axis(
+                        id, sketch, sketch_transform, *angle, *segments, axis
+                    );
+                    if let Some(p) = part {
+                        let mesh = extract_mesh_data(&p, selected);
+                        return Ok(mesh);
+                    }
+                }
                 let mut mesh = revolve_mesh(sketch, sketch_transform, *angle, *segments)?;
                 if selected {
                     apply_selection_color(&mut mesh);
@@ -89,17 +102,8 @@ pub fn build_body_mesh_data(body: &Body, selected: bool) -> Result<Option<MeshDa
                 return Ok(Some(mesh));
             }
 
-            // Has modifications - approximate with sphere for now
-            if let Some(bounds) = sketch_bounds(sketch) {
-                let (min_x, min_y, max_x, max_y) = bounds;
-                let radius = ((max_x - min_x).max(max_y - min_y) / 2.0).max(0.1);
-                let part = Part::sphere(id, radius, *segments);
-                let offset = sketch_center_3d(sketch, sketch_transform);
-                let part = part.translate(offset[0] as f64, offset[1] as f64, offset[2] as f64);
-                Some(part)
-            } else {
-                None
-            }
+            // Has modifications - use real revolve CSG with axis
+            create_revolve_part_from_sketch_with_axis(id, sketch, sketch_transform, *angle, *segments, axis)
         }
         _ => {
             return Err("Unexpected feature type".to_string());
@@ -140,8 +144,12 @@ pub fn build_body_mesh_data(body: &Body, selected: bool) -> Result<Option<MeshDa
                     *draft_angle,
                 );
             }
-            Feature::Revolve { sketch_id, cut, .. } => {
-                process_revolve_feature(body, &mut current_part, sketch_id, *cut);
+            Feature::Revolve { sketch_id, angle, segments, cut, axis_start, axis_end, .. } => {
+                let axis = match (axis_start, axis_end) {
+                    (Some(start), Some(end)) => Some((*start, *end)),
+                    _ => None,
+                };
+                process_revolve_feature(body, &mut current_part, sketch_id, *angle, *segments, *cut, axis);
             }
             Feature::Sketch { .. } => {
                 // Sketches are reference geometry, don't modify the part
@@ -213,7 +221,10 @@ fn process_revolve_feature(
     body: &Body,
     current_part: &mut Option<Part>,
     sketch_id: &str,
+    angle: f64,
+    segments: u32,
     cut: bool,
+    axis: Option<([f64; 2], [f64; 2])>,
 ) {
     // Find the sketch and apply revolve
     let sketch_data = find_sketch_in_body(body, sketch_id);
@@ -224,26 +235,23 @@ fn process_revolve_feature(
         let combined_transform = combine_transforms(&body_transform, sketch_transform);
 
         if let Some(base_part) = current_part.take() {
-            if let Some(bounds) = sketch_bounds(sketch) {
-                let (min_x, min_y, max_x, max_y) = bounds;
-                let width = (max_x - min_x).max(0.1);
-                let depth = (max_y - min_y).max(0.1);
-
-                let tool_part = vcad::centered_cube("revolve_tool", width, depth, depth);
-
-                let offset = sketch_center_3d(sketch, &combined_transform);
-                let tool_part = tool_part.translate(
-                    offset[0] as f64,
-                    offset[1] as f64,
-                    offset[2] as f64,
-                );
-
-                if cut {
-                    *current_part = Some(base_part.difference(&tool_part));
+            // Create revolve tool from sketch using real revolve CSG with axis
+            if let Some(tool_part) = create_revolve_part_from_sketch_with_axis(
+                "revolve_tool",
+                sketch,
+                &combined_transform,
+                angle,
+                segments,
+                axis,
+            ) {
+                let result = if cut {
+                    base_part.difference(&tool_part)
                 } else {
-                    *current_part = Some(base_part.union(&tool_part));
-                }
+                    base_part.union(&tool_part)
+                };
+                *current_part = Some(result);
             } else {
+                tracing::warn!("Failed to create revolve geometry from sketch {}", sketch_id);
                 *current_part = Some(base_part);
             }
         }
@@ -278,4 +286,15 @@ fn find_sketch_in_body<'a>(
         }
         _ => None,
     })
+}
+
+/// Extract revolve axis from sketch's revolve_axis field if set
+fn extract_revolve_axis_from_sketch(sketch: &shared::Sketch) -> Option<([f64; 2], [f64; 2])> {
+    let axis_index = sketch.revolve_axis?;
+
+    if let Some(shared::SketchElement::Line { start, end }) = sketch.elements.get(axis_index) {
+        Some(([start.x, start.y], [end.x, end.y]))
+    } else {
+        None
+    }
 }

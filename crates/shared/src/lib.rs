@@ -99,6 +99,64 @@ pub struct Sketch {
     /// Если None — используется направление по умолчанию (в сторону отрицательной оси)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub face_normal: Option<[f64; 3]>,
+    /// Флаги вспомогательной геометрии (параллельный вектор к elements)
+    /// true = вспомогательная геометрия (не используется для 3D)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub construction: Vec<bool>,
+    /// Индекс элемента, помеченного как ось вращения (только один на эскиз)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revolve_axis: Option<usize>,
+}
+
+impl Sketch {
+    /// Проверить, является ли элемент вспомогательной геометрией
+    pub fn is_construction(&self, index: usize) -> bool {
+        self.construction.get(index).copied().unwrap_or(false)
+    }
+
+    /// Установить флаг вспомогательной геометрии
+    pub fn set_construction(&mut self, index: usize, value: bool) {
+        // Расширить вектор если нужно
+        while self.construction.len() <= index {
+            self.construction.push(false);
+        }
+        self.construction[index] = value;
+    }
+
+    /// Получить только не-вспомогательные элементы (для формирования 3D)
+    pub fn geometry_elements(&self) -> impl Iterator<Item = (usize, &SketchElement)> {
+        self.elements.iter().enumerate().filter(|(i, _)| !self.is_construction(*i) && self.revolve_axis != Some(*i))
+    }
+
+    /// Проверить, является ли элемент осью вращения
+    pub fn is_revolve_axis(&self, index: usize) -> bool {
+        self.revolve_axis == Some(index)
+    }
+
+    /// Установить/сбросить элемент как ось вращения (toggle)
+    /// Возвращает true если ось установлена, false если сброшена
+    pub fn toggle_revolve_axis(&mut self, index: usize) -> bool {
+        if self.revolve_axis == Some(index) {
+            self.revolve_axis = None;
+            false
+        } else {
+            self.revolve_axis = Some(index);
+            true
+        }
+    }
+
+    /// Получить ось вращения как элемент (если установлена и это линия)
+    pub fn get_revolve_axis_line(&self) -> Option<(usize, &SketchElement)> {
+        self.revolve_axis.and_then(|idx| {
+            self.elements.get(idx).and_then(|el| {
+                if matches!(el, SketchElement::Line { .. }) {
+                    Some((idx, el))
+                } else {
+                    None
+                }
+            })
+        })
+    }
 }
 
 /// Трансформация объекта
@@ -282,6 +340,12 @@ pub enum Feature {
         segments: u32,
         #[serde(default)]
         cut: bool,
+        /// Axis start point in sketch coordinates (None = default X=0)
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        axis_start: Option<[f64; 2]>,
+        /// Axis end point in sketch coordinates
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        axis_end: Option<[f64; 2]>,
     },
     /// Булева модификация этого тела другим телом
     BooleanModify {
@@ -772,6 +836,7 @@ mod tests {
                     },
                 ],
                 face_normal: None,
+                construction: vec![],
             },
             transform: Transform::new(),
         };
@@ -851,6 +916,7 @@ mod tests {
                             },
                         ],
                         face_normal: None,
+                        construction: vec![],
                     },
                     transform: Transform::new(),
                 },
@@ -961,6 +1027,7 @@ mod tests {
                     radius: 1.0,
                 }],
                 face_normal: None,
+                construction: vec![],
             },
             sketch_transform: Transform::new(),
             height: 5.0,
@@ -979,6 +1046,7 @@ mod tests {
                 offset: 1.0,
                 elements: vec![],
                 face_normal: None,
+                construction: vec![],
             },
             transform: Transform::new(),
         };

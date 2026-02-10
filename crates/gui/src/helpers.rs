@@ -3,8 +3,9 @@
 //! This module provides shared utilities to avoid code duplication
 //! across toolbar.rs, scene_tree.rs, and other UI components.
 
-use shared::{Body, Feature, Sketch, Transform};
+use shared::{Body, Feature, Sketch, SketchElement, Transform};
 use crate::state::AppState;
+use crate::state::operation_dialog::RevolveAxis;
 
 /// Check if body has base geometry (primitive, extrude, or revolve)
 pub fn has_base_geometry(body: &Body) -> bool {
@@ -156,6 +157,37 @@ pub fn can_perform_extrude(state: &AppState) -> bool {
         .and_then(|id| state.scene.get_body(id))
         .map(has_sketch_with_elements)
         .unwrap_or(false)
+}
+
+/// Find construction lines in a sketch that can be used as revolve axes
+/// Also includes the designated revolve axis (even if not construction geometry)
+pub fn find_construction_axes(sketch: &Sketch) -> Vec<RevolveAxis> {
+    let mut axes = Vec::new();
+    let mut line_count = 0;
+
+    for (index, element) in sketch.elements.iter().enumerate() {
+        // Include if: construction geometry OR designated as revolve axis
+        let is_construction = sketch.is_construction(index);
+        let is_designated_axis = sketch.revolve_axis == Some(index);
+
+        if !is_construction && !is_designated_axis {
+            continue;
+        }
+
+        // Only lines can be used as axes
+        if let SketchElement::Line { start, end } = element {
+            line_count += 1;
+            let suffix = if is_designated_axis { " *" } else { "" };
+            axes.push(RevolveAxis {
+                start: [start.x, start.y],
+                end: [end.x, end.y],
+                name: format!("Line {}{}", line_count, suffix),
+                element_index: index as i32,
+            });
+        }
+    }
+
+    axes
 }
 
 #[cfg(test)]

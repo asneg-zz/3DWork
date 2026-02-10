@@ -82,6 +82,7 @@ pub fn t(key: &str) -> &'static str {
         "tb.extrude" => if ru { "Выдавить" } else { "Extrude" },
         "tb.revolve" => if ru { "Вращение" } else { "Revolve" },
         "tb.cut" => if ru { "Вырезать" } else { "Cut" },
+        "tb.cut_revolve" => if ru { "Вырез вращением" } else { "Cut Revolve" },
         "tb.undo" => if ru { "Отменить" } else { "Undo" },
         "tb.redo" => if ru { "Повторить" } else { "Redo" },
         "tb.clear_all" => if ru { "Очистить" } else { "Clear all" },
@@ -99,6 +100,7 @@ pub fn t(key: &str) -> &'static str {
         "tip.extrude" => if ru { "Выдавить выбранный эскиз (E)" } else { "Extrude selected sketch (E)" },
         "tip.revolve" => if ru { "Тело вращения из эскиза" } else { "Revolve selected sketch around axis" },
         "tip.cut" => if ru { "Вырезать эскиз из выбранного объекта" } else { "Cut sketch from selected object" },
+        "tip.cut_revolve" => if ru { "Вырезать вращением эскиз из объекта" } else { "Cut revolve sketch from object" },
         "tip.undo" => if ru { "Отменить (Ctrl+Z)" } else { "Undo (Ctrl+Z)" },
         "tip.redo" => if ru { "Повторить (Ctrl+Shift+Z)" } else { "Redo (Ctrl+Shift+Z)" },
         "tip.clear_all" => if ru { "Удалить все объекты" } else { "Remove all objects" },
@@ -130,10 +132,18 @@ pub fn t(key: &str) -> &'static str {
         // ── Operation Dialog ─────────────────────────────────
         "dialog.extrude_title" => if ru { "Выдавливание" } else { "Extrude" },
         "dialog.cut_title" => if ru { "Вырез" } else { "Cut" },
+        "dialog.revolve_title" => if ru { "Вращение" } else { "Revolve" },
+        "dialog.cut_revolve_title" => if ru { "Вырез вращением" } else { "Cut Revolve" },
         "dialog.height_forward" => if ru { "Высота вперёд:" } else { "Height forward:" },
         "dialog.height_backward" => if ru { "Высота назад:" } else { "Height backward:" },
         "dialog.draft_angle" => if ru { "Угол уклона:" } else { "Draft angle:" },
         "dialog.draft_hint" => if ru { "+ расширение, - сужение" } else { "+ widens, - narrows" },
+        "dialog.angle" => if ru { "Угол:" } else { "Angle:" },
+        "dialog.segments" => if ru { "Сегменты:" } else { "Segments:" },
+        "dialog.axis" => if ru { "Ось:" } else { "Axis:" },
+        "dialog.revolve_axis_hint" => if ru { "Ось вращения: X=0 (вертикальная)" } else { "Axis: X=0 (vertical)" },
+        "dialog.revolve_axis_hint_select" => if ru { "Выберите ось вращения" } else { "Select rotation axis" },
+        "dialog.revolve_axis_hint_construction" => if ru { "Добавьте construction line для выбора оси" } else { "Add construction line for axis selection" },
         "dialog.ok" => if ru { "ОК" } else { "OK" },
         "dialog.cancel" => if ru { "Отмена" } else { "Cancel" },
         "ctx.edit_operation" => if ru { "Редактировать операцию" } else { "Edit Operation" },
@@ -328,6 +338,11 @@ pub fn t(key: &str) -> &'static str {
         "settings.apply" => if ru { "Применить" } else { "Apply" },
         "settings.reset" => if ru { "Сбросить" } else { "Reset" },
         "settings.close" => if ru { "Закрыть" } else { "Close" },
+
+        // ── Sketch element context menu ─────────────────────
+        "sketch.context.delete" => if ru { "Удалить" } else { "Delete" },
+        "sketch.context.construction" => if ru { "Вспомогательная геометрия" } else { "Construction geometry" },
+        "sketch.context.revolve_axis" => if ru { "Ось вращения" } else { "Rotation axis" },
 
         // ── Fallback ────────────────────────────────────────
         _ => "???",

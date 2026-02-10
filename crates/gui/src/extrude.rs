@@ -10,12 +10,26 @@ const ARC_SEGMENTS: usize = 24;
 // ── Extrude ─────────────────────────────────────────────────
 
 /// Generate extruded mesh from a sketch (supports multiple profiles).
+/// Construction geometry is automatically excluded.
 pub fn extrude_mesh(
     sketch: &Sketch,
     transform: &Transform,
     height: f64,
 ) -> Result<MeshData, String> {
-    let profiles = extract_2d_profiles(&sketch.elements)?;
+    // Filter out construction geometry
+    let geometry_elements: Vec<&SketchElement> = sketch
+        .elements
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| !sketch.is_construction(*i))
+        .map(|(_, e)| e)
+        .collect();
+
+    if geometry_elements.is_empty() {
+        return Err("No geometry elements to extrude (all elements are construction)".to_string());
+    }
+
+    let profiles = extract_2d_profiles_ref(&geometry_elements)?;
 
     let normal = plane_normal(&sketch.plane);
     let extrude_vec = [
@@ -141,13 +155,27 @@ pub fn extrude_mesh(
 
 /// Generate revolved mesh from a sketch (supports multiple profiles).
 /// The revolution axis is the Y-axis of the sketch coordinate system (x=0 line).
+/// Construction geometry is automatically excluded.
 pub fn revolve_mesh(
     sketch: &Sketch,
     transform: &Transform,
     angle_deg: f64,
     segments: u32,
 ) -> Result<MeshData, String> {
-    let profiles = extract_2d_profiles(&sketch.elements)?;
+    // Filter out construction geometry
+    let geometry_elements: Vec<&SketchElement> = sketch
+        .elements
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| !sketch.is_construction(*i))
+        .map(|(_, e)| e)
+        .collect();
+
+    if geometry_elements.is_empty() {
+        return Err("No geometry elements to revolve (all elements are construction)".to_string());
+    }
+
+    let profiles = extract_2d_profiles_ref(&geometry_elements)?;
 
     let segments = segments.clamp(4, 256);
     let angle_rad = angle_deg.to_radians().min(std::f64::consts::TAU);
@@ -246,6 +274,78 @@ pub fn revolve_mesh(
 pub fn extract_2d_profile(elements: &[SketchElement]) -> Result<Vec<[f64; 2]>, String> {
     let profiles = extract_2d_profiles(elements)?;
     Ok(profiles.into_iter().next().unwrap())
+}
+
+/// Extract 2D profiles from a slice of element references (used after filtering construction geometry).
+fn extract_2d_profiles_ref(elements: &[&SketchElement]) -> Result<Vec<Vec<[f64; 2]>>, String> {
+    if elements.is_empty() {
+        return Err("Empty sketch".to_string());
+    }
+
+    // Single-element fast path
+    if elements.len() == 1 {
+        let profile = extract_single_element(elements[0])?;
+        return Ok(vec![profile]);
+    }
+
+    let mut profiles: Vec<Vec<[f64; 2]>> = Vec::new();
+    let mut chainable_segments: Vec<ChainableSegment> = Vec::new();
+
+    for elem in elements.iter() {
+        match elem {
+            // Self-contained closed shapes → add directly as profile
+            SketchElement::Circle { center, radius } => {
+                profiles.push(tessellate_circle(center.x, center.y, *radius));
+            }
+            SketchElement::Rectangle { corner, width, height } => {
+                profiles.push(vec![
+                    [corner.x, corner.y],
+                    [corner.x + width, corner.y],
+                    [corner.x + width, corner.y + height],
+                    [corner.x, corner.y + height],
+                ]);
+            }
+            // Chainable elements - collect for ordered chaining
+            SketchElement::Line { start, end } => {
+                chainable_segments.push(ChainableSegment {
+                    points: vec![[start.x, start.y], [end.x, end.y]],
+                });
+            }
+            SketchElement::Arc { center, radius, start_angle, end_angle } => {
+                let arc = tessellate_arc(center.x, center.y, *radius, *start_angle, *end_angle);
+                if !arc.is_empty() {
+                    chainable_segments.push(ChainableSegment { points: arc });
+                }
+            }
+            SketchElement::Polyline { points } => {
+                let pts: Vec<[f64; 2]> = points.iter().map(|p| [p.x, p.y]).collect();
+                if pts.len() >= 2 {
+                    chainable_segments.push(ChainableSegment { points: pts });
+                }
+            }
+            SketchElement::Spline { points } => {
+                let pts: Vec<[f64; 2]> = points.iter().map(|p| [p.x, p.y]).collect();
+                if pts.len() >= 2 {
+                    chainable_segments.push(ChainableSegment { points: pts });
+                }
+            }
+            SketchElement::Dimension { .. } => {
+                // Dimensions are for display only, not geometry
+            }
+        }
+    }
+
+    // Chain segments by proximity (proper reordering)
+    if !chainable_segments.is_empty() {
+        let chained_profiles = chain_segments_by_proximity(chainable_segments);
+        profiles.extend(chained_profiles);
+    }
+
+    if profiles.is_empty() {
+        return Err("No valid profiles found in sketch elements".to_string());
+    }
+
+    Ok(profiles)
 }
 
 /// Tolerance for connecting sketch segments (squared distance).
@@ -627,7 +727,7 @@ mod tests {
     use shared::*;
 
     fn xy_sketch(elements: Vec<SketchElement>) -> Sketch {
-        Sketch { plane: SketchPlane::Xy, offset: 0.0, elements, face_normal: None }
+        Sketch { plane: SketchPlane::Xy, offset: 0.0, elements, face_normal: None, construction: vec![] }
     }
 
     fn identity() -> Transform {
@@ -786,28 +886,28 @@ mod tests {
 
     #[test]
     fn test_sketch_to_3d_xy() {
-        let s = Sketch { plane: SketchPlane::Xy, offset: 5.0, elements: vec![], face_normal: None };
+        let s = Sketch { plane: SketchPlane::Xy, offset: 5.0, elements: vec![], face_normal: None, construction: vec![] };
         let p = sketch_to_3d(1.0, 2.0, &s, &identity());
         assert_eq!(p, [1.0, 2.0, 5.0]);
     }
 
     #[test]
     fn test_sketch_to_3d_xz() {
-        let s = Sketch { plane: SketchPlane::Xz, offset: 3.0, elements: vec![], face_normal: None };
+        let s = Sketch { plane: SketchPlane::Xz, offset: 3.0, elements: vec![], face_normal: None, construction: vec![] };
         let p = sketch_to_3d(1.0, 2.0, &s, &identity());
         assert_eq!(p, [1.0, 3.0, 2.0]);
     }
 
     #[test]
     fn test_sketch_to_3d_yz() {
-        let s = Sketch { plane: SketchPlane::Yz, offset: 7.0, elements: vec![], face_normal: None };
+        let s = Sketch { plane: SketchPlane::Yz, offset: 7.0, elements: vec![], face_normal: None, construction: vec![] };
         let p = sketch_to_3d(1.0, 2.0, &s, &identity());
         assert_eq!(p, [7.0, 1.0, 2.0]);
     }
 
     #[test]
     fn test_sketch_to_3d_with_transform() {
-        let s = Sketch { plane: SketchPlane::Xy, offset: 0.0, elements: vec![], face_normal: None };
+        let s = Sketch { plane: SketchPlane::Xy, offset: 0.0, elements: vec![], face_normal: None, construction: vec![] };
         let t = Transform { position: [10.0, 20.0, 30.0], rotation: [0.0; 3], scale: [1.0; 3] };
         let p = sketch_to_3d(1.0, 2.0, &s, &t);
         assert_eq!(p, [11.0, 22.0, 30.0]);
