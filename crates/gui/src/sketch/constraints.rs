@@ -4,18 +4,6 @@
 //! The solver works iteratively to satisfy all constraints.
 
 use shared::{PointRef, Sketch, SketchConstraint, SketchElement};
-use std::io::Write;
-
-/// Helper to log to file
-fn log_to_file(msg: &str) {
-    if let Ok(mut file) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open("/tmp/tangent_debug.log")
-    {
-        let _ = writeln!(file, "{}", msg);
-    }
-}
 
 /// Maximum number of solver iterations
 const MAX_ITERATIONS: usize = 50;
@@ -26,8 +14,6 @@ const TOLERANCE: f64 = 1e-6;
 /// Solve all constraints in the sketch
 /// Returns true if all constraints were satisfied
 pub fn solve_constraints(sketch: &mut Sketch) -> bool {
-    log_to_file(&format!("=== solve_constraints called, {} constraints", sketch.constraints.len()));
-
     if sketch.constraints.is_empty() {
         return true;
     }
@@ -363,8 +349,6 @@ fn apply_equal(sketch: &mut Sketch, elem1_idx: usize, elem2_idx: usize) -> bool 
 /// Make a line tangent to a circle or arc
 /// Moves the circle/arc center so that it touches the line at a point within the line segment
 fn apply_tangent(sketch: &mut Sketch, elem1_idx: usize, elem2_idx: usize) -> bool {
-    log_to_file(&format!("=== apply_tangent called: elem1={}, elem2={}", elem1_idx, elem2_idx));
-
     let elem1 = sketch.elements.get(elem1_idx).cloned();
     let elem2 = sketch.elements.get(elem2_idx).cloned();
 
@@ -383,30 +367,25 @@ fn apply_tangent(sketch: &mut Sketch, elem1_idx: usize, elem2_idx: usize) -> boo
             (elem2_idx, elem1_idx, (center.x, center.y), *radius)
         }
         _ => {
-            log_to_file("  -> Not line + circle/arc, returning");
+
             return true;
         }
     };
-
-    log_to_file(&format!("  line_idx={}, circle_idx={}, center=({:.3}, {:.3}), radius={:.3}",
-        line_idx, circle_idx, circle_center.0, circle_center.1, circle_radius));
 
     // Get line endpoints
     let (s, e) = if let Some(SketchElement::Line { start, end }) = sketch.elements.get(line_idx) {
         ((start.x, start.y), (end.x, end.y))
     } else {
-        log_to_file("  -> Line not found");
+
         return true;
     };
-
-    log_to_file(&format!("  line: start=({:.3}, {:.3}), end=({:.3}, {:.3})", s.0, s.1, e.0, e.1));
 
     // Calculate distance from circle center to line
     let dx = e.0 - s.0;
     let dy = e.1 - s.1;
     let len = (dx * dx + dy * dy).sqrt();
     if len < TOLERANCE {
-        log_to_file("  -> Line too short");
+
         return true;
     }
 
@@ -423,18 +402,14 @@ fn apply_tangent(sketch: &mut Sketch, elem1_idx: usize, elem2_idx: usize) -> boo
     // Project center onto line to find tangent point parameter
     let t = (to_center.0 * dir.0 + to_center.1 * dir.1) / len; // normalized parameter [0, 1]
 
-    log_to_file(&format!("  dist_to_line={:.3}, t={:.3} (normalized)", dist, t));
-
     let dist_error = dist.abs() - circle_radius;
 
     // Target: tangent point should be at center of line (t=0.5)
     let t_target = 0.5;
     let t_error = (t - t_target).abs();
 
-    log_to_file(&format!("  dist_error={:.6}, t_error={:.6}", dist_error, t_error));
-
     if dist_error.abs() < TOLERANCE && t_error < TOLERANCE {
-        log_to_file("  -> Constraint satisfied");
+
         return true;
     }
 
@@ -448,22 +423,20 @@ fn apply_tangent(sketch: &mut Sketch, elem1_idx: usize, elem2_idx: usize) -> boo
     // Move along line direction to bring tangent point to center
     let along_shift = (t - t_target) * len * 0.8;
 
-    log_to_file(&format!("  normal_shift={:.3}, along_shift={:.3}", normal_shift, along_shift));
-
     // Update circle/arc center
     match sketch.elements.get_mut(circle_idx) {
         Some(SketchElement::Circle { center, .. }) => {
             center.x -= normal.0 * normal_shift + dir.0 * along_shift;
             center.y -= normal.1 * normal_shift + dir.1 * along_shift;
-            log_to_file(&format!("  -> Circle center moved to ({:.3}, {:.3})", center.x, center.y));
+
         }
         Some(SketchElement::Arc { center, .. }) => {
             center.x -= normal.0 * normal_shift + dir.0 * along_shift;
             center.y -= normal.1 * normal_shift + dir.1 * along_shift;
-            log_to_file(&format!("  -> Arc center moved to ({:.3}, {:.3})", center.x, center.y));
+
         }
         _ => {
-            log_to_file("  -> Failed to update circle/arc center");
+
         }
     }
 
@@ -476,32 +449,25 @@ fn trim_line_to_tangent(
     line_idx: usize,
     tangent_point: (f64, f64),
 ) {
-    log_to_file(&format!("  trim_line_to_tangent: line_idx={}, tangent=({:.3}, {:.3})",
-        line_idx, tangent_point.0, tangent_point.1));
-
     // Get current line endpoints
     let (s, e) = if let Some(SketchElement::Line { start, end }) = sketch.elements.get(line_idx) {
         ((start.x, start.y), (end.x, end.y))
     } else {
-        log_to_file("    -> Failed to get line");
+
         return;
     };
 
     // Calculate distances from tangent point to both endpoints
     let dist_to_start = ((tangent_point.0 - s.0).powi(2) + (tangent_point.1 - s.1).powi(2)).sqrt();
     let dist_to_end = ((tangent_point.0 - e.0).powi(2) + (tangent_point.1 - e.1).powi(2)).sqrt();
-
-    log_to_file(&format!("    line: ({:.3}, {:.3}) -> ({:.3}, {:.3})", s.0, s.1, e.0, e.1));
-    log_to_file(&format!("    dist_to_start={:.3}, dist_to_end={:.3}", dist_to_start, dist_to_end));
-
     // Move the closer endpoint to the tangent point
     if let Some(SketchElement::Line { start, end }) = sketch.elements.get_mut(line_idx) {
         if dist_to_start < dist_to_end {
-            log_to_file(&format!("    Moving START to tangent point"));
+
             start.x = tangent_point.0;
             start.y = tangent_point.1;
         } else {
-            log_to_file(&format!("    Moving END to tangent point"));
+
             end.x = tangent_point.0;
             end.y = tangent_point.1;
         }

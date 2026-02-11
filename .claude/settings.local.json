@@ -12,7 +12,8 @@
       "Bash(cargo check:*)",
       "Bash(ls:*)",
       "Bash(done)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ]
   }
 }

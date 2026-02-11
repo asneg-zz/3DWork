@@ -2,7 +2,6 @@
 
 use kurbo::{Circle as KCircle, Line as KLine, Point};
 use shared::{Point2D, Sketch, SketchElement};
-use std::io::Write;
 
 use super::geometry::{
     dedup_intersections, find_arc_intersections, find_circle_intersections, find_line_intersections,
@@ -11,17 +10,6 @@ use super::geometry::{
     point_on_line, to_point,
 };
 use super::types::{Intersection, TrimResult};
-
-/// Helper to log to file
-fn log_trim(msg: &str) {
-    if let Ok(mut file) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open("/tmp/trim_debug.log")
-    {
-        let _ = writeln!(file, "{}", msg);
-    }
-}
 
 // ============================================================================
 // TRIM operations
@@ -35,19 +23,10 @@ pub fn trim_line(
     click: [f64; 2],
     sketch: &Sketch,
 ) -> TrimResult {
-    log_trim(&format!("=== trim_line: idx={}, start={:?}, end={:?}", idx, start, end));
-    log_trim(&format!("  sketch has {} elements", sketch.elements.len()));
-
     let line = KLine::new(to_point(start), to_point(end));
     let ints = find_line_intersections(idx, line, sketch);
 
-    log_trim(&format!("  found {} intersections", ints.len()));
-    for (i, int) in ints.iter().enumerate() {
-        log_trim(&format!("    int[{}]: point=({:.3}, {:.3}), param={:.3}", i, int.point.x, int.point.y, int.param));
-    }
-
     if ints.is_empty() {
-        log_trim("  -> NoChange (no intersections)");
         return TrimResult::NoChange;
     }
 
@@ -100,22 +79,12 @@ pub fn trim_arc(
     click: [f64; 2],
     sketch: &Sketch,
 ) -> TrimResult {
-    log_trim(&format!("=== trim_arc: idx={}, center={:?}, r={:.3}, angles=[{:.3}, {:.3}]",
-        idx, center, radius, start_angle, end_angle));
-    log_trim(&format!("  sketch has {} elements", sketch.elements.len()));
-
     let c = to_point(center);
     let ints = find_arc_intersections(idx, c, radius, start_angle, end_angle, sketch);
-
-    log_trim(&format!("  found {} intersections", ints.len()));
-    for (i, int) in ints.iter().enumerate() {
-        log_trim(&format!("    int[{}]: point=({:.3}, {:.3}), param={:.3}", i, int.point.x, int.point.y, int.param));
-    }
 
     tracing::info!("trim_arc: found {} intersections", ints.len());
 
     if ints.is_empty() {
-        log_trim("  -> NoChange (no intersections)");
         return TrimResult::NoChange;
     }
 
