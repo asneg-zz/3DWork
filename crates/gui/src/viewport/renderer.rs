@@ -261,8 +261,12 @@ fn draw_primitive(
 pub struct SketchElementDisplayInfo {
     /// Indices of selected elements
     pub selected: Vec<usize>,
+    /// Selected points (element_index, point_index)
+    pub selected_points: Vec<(usize, usize)>,
     /// Element under cursor (hover)
     pub hover_element: Option<usize>,
+    /// Point under cursor (element_index, point_index)
+    pub hover_point: Option<(usize, usize)>,
     /// Construction flags (parallel to sketch.elements)
     pub construction: Vec<bool>,
     /// Index of element designated as revolve axis (only one per sketch)
@@ -670,3 +674,198 @@ pub fn draw_snap_marker(
 
 // ============================================================================
 // Control points for selected elements
+// ============================================================================
+
+/// Draw control points (handles) for selected elements
+pub fn draw_control_points(
+    painter: &egui::Painter,
+    rect: Rect,
+    camera: &ArcBallCamera,
+    sketch: &shared::Sketch,
+    transform: &Transform,
+    display_info: &SketchElementDisplayInfo,
+) {
+    use super::sketch_interact::get_element_control_points;
+
+    let normal_color = Color32::from_rgb(100, 200, 255);
+    let hover_color = Color32::from_rgb(255, 180, 50);
+    let selected_color = Color32::from_rgb(50, 255, 100); // Green for selected points
+    let marker_size = 5.0;
+
+    // Collect elements to show control points for
+    let mut elements_to_show: Vec<usize> = display_info.selected.clone();
+    if let Some(hover_idx) = display_info.hover_element {
+        if !elements_to_show.contains(&hover_idx) {
+            elements_to_show.push(hover_idx);
+        }
+    }
+    // Also show control points for elements that have selected points
+    for (elem_idx, _) in &display_info.selected_points {
+        if !elements_to_show.contains(elem_idx) {
+            elements_to_show.push(*elem_idx);
+        }
+    }
+
+    for elem_idx in elements_to_show {
+        if let Some(elem) = sketch.elements.get(elem_idx) {
+            let control_points = get_element_control_points(elem);
+
+            for (point_idx, pos) in control_points {
+                let point_3d = sketch_point_to_3d(pos[0], pos[1], sketch, transform);
+
+                if let Some(screen_pos) = camera.project(point_3d, rect) {
+                    // Check if this point is selected
+                    let is_selected = display_info.selected_points.contains(&(elem_idx, point_idx));
+                    // Check if this is the hovered point
+                    let is_hover = display_info.hover_point == Some((elem_idx, point_idx));
+
+                    let color = if is_selected {
+                        selected_color
+                    } else if is_hover {
+                        hover_color
+                    } else {
+                        normal_color
+                    };
+
+                    // Draw filled square marker
+                    let half = marker_size;
+                    let marker_rect = egui::Rect::from_center_size(
+                        screen_pos,
+                        egui::vec2(half * 2.0, half * 2.0),
+                    );
+
+                    if is_selected {
+                        // Larger, filled marker for selected points
+                        painter.rect_filled(marker_rect, 1.0, color);
+                        painter.rect_stroke(
+                            marker_rect,
+                            1.0,
+                            Stroke::new(2.0, Color32::WHITE),
+                            egui::StrokeKind::Outside,
+                        );
+                    } else if is_hover {
+                        // Larger, filled marker for hover
+                        painter.rect_filled(marker_rect, 1.0, color);
+                        painter.rect_stroke(
+                            marker_rect,
+                            1.0,
+                            Stroke::new(1.5, Color32::WHITE),
+                            egui::StrokeKind::Outside,
+                        );
+                    } else {
+                        // Smaller, outlined marker for normal state
+                        let small_rect = egui::Rect::from_center_size(
+                            screen_pos,
+                            egui::vec2(half * 1.5, half * 1.5),
+                        );
+                        painter.rect_filled(small_rect, 1.0, Color32::from_rgba_unmultiplied(100, 200, 255, 180));
+                        painter.rect_stroke(
+                            small_rect,
+                            1.0,
+                            Stroke::new(1.0, color),
+                            egui::StrokeKind::Outside,
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ============================================================================
+// Constraint icons for hovered elements
+// ============================================================================
+
+/// Draw constraint icons near a hovered element
+pub fn draw_constraint_icons(
+    painter: &egui::Painter,
+    rect: Rect,
+    camera: &ArcBallCamera,
+    sketch: &shared::Sketch,
+    transform: &Transform,
+    element_idx: usize,
+) {
+    use crate::sketch::constraints::get_element_constraint_icons;
+
+    let icons = get_element_constraint_icons(sketch, element_idx);
+    if icons.is_empty() {
+        return;
+    }
+
+    // Get element center point for icon placement
+    let center = get_element_center(sketch, element_idx);
+    if center.is_none() {
+        return;
+    }
+    let center = center.unwrap();
+
+    let point_3d = sketch_point_to_3d(center[0], center[1], sketch, transform);
+
+    if let Some(screen_pos) = camera.project(point_3d, rect) {
+        // Draw constraint icons as a horizontal row above the element
+        let icon_text = icons.join(" ");
+        let offset_y = -25.0; // Above the element
+
+        // Background rectangle
+        let text_pos = egui::pos2(screen_pos.x, screen_pos.y + offset_y);
+        let galley = painter.layout_no_wrap(
+            icon_text.clone(),
+            egui::FontId::proportional(14.0),
+            Color32::WHITE,
+        );
+        let text_rect = galley.rect.translate(text_pos.to_vec2());
+        let bg_rect = text_rect.expand(4.0);
+
+        painter.rect_filled(
+            bg_rect,
+            4.0,
+            Color32::from_rgba_unmultiplied(40, 40, 40, 220),
+        );
+        painter.rect_stroke(
+            bg_rect,
+            4.0,
+            Stroke::new(1.0, Color32::from_rgb(100, 100, 100)),
+            egui::StrokeKind::Outside,
+        );
+
+        // Draw icons text
+        painter.galley(text_pos, galley, Color32::WHITE);
+    }
+}
+
+/// Get the center point of a sketch element
+fn get_element_center(sketch: &shared::Sketch, element_idx: usize) -> Option<[f64; 2]> {
+    let elem = sketch.elements.get(element_idx)?;
+
+    match elem {
+        shared::SketchElement::Line { start, end } => {
+            Some([(start.x + end.x) / 2.0, (start.y + end.y) / 2.0])
+        }
+        shared::SketchElement::Circle { center, .. } => Some([center.x, center.y]),
+        shared::SketchElement::Arc { center, .. } => Some([center.x, center.y]),
+        shared::SketchElement::Rectangle { corner, width, height } => {
+            Some([corner.x + width / 2.0, corner.y + height / 2.0])
+        }
+        shared::SketchElement::Polyline { points } => {
+            if points.is_empty() {
+                return None;
+            }
+            let sum_x: f64 = points.iter().map(|p| p.x).sum();
+            let sum_y: f64 = points.iter().map(|p| p.y).sum();
+            let n = points.len() as f64;
+            Some([sum_x / n, sum_y / n])
+        }
+        shared::SketchElement::Spline { points } => {
+            if points.is_empty() {
+                return None;
+            }
+            let sum_x: f64 = points.iter().map(|p| p.x).sum();
+            let sum_y: f64 = points.iter().map(|p| p.y).sum();
+            let n = points.len() as f64;
+            Some([sum_x / n, sum_y / n])
+        }
+        shared::SketchElement::Dimension { from, to, .. } => {
+            Some([(from.x + to.x) / 2.0, (from.y + to.y) / 2.0])
+        }
+    }
+}

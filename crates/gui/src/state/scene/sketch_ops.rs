@@ -340,6 +340,121 @@ impl SceneState {
         }
         false
     }
+
+    /// Update a control point of a sketch element (with feature_id as Option<&str>)
+    /// This version doesn't save undo - caller should call save_undo() before first update
+    pub fn update_sketch_element_point_ex(
+        &mut self,
+        body_id: &str,
+        feature_id: Option<&str>,
+        element_index: usize,
+        point_index: usize,
+        new_pos: [f64; 2],
+    ) -> bool {
+        if let Some(body) = self.scene.bodies.iter_mut().find(|b| b.id == body_id) {
+            if let Some(idx) = find_sketch_feature_index(body, feature_id) {
+                let sketch = match &mut body.features[idx] {
+                    Feature::Sketch { sketch, .. }
+                    | Feature::BaseExtrude { sketch, .. }
+                    | Feature::BaseRevolve { sketch, .. } => sketch,
+                    _ => return false,
+                };
+
+                if let Some(elem) = sketch.elements.get_mut(element_index) {
+                    update_element_point(elem, point_index, new_pos);
+                    self.version += 1;
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Begin a drag operation - saves undo state
+    pub fn begin_sketch_drag(&mut self) {
+        self.save_undo();
+        self.redo_stack.clear();
+    }
+
+    /// Apply constraints solver to the sketch
+    /// Call this after updating element positions during drag
+    pub fn solve_sketch_constraints(
+        &mut self,
+        body_id: &str,
+        feature_id: Option<&str>,
+    ) {
+        if let Some(body) = self.scene.bodies.iter_mut().find(|b| b.id == body_id) {
+            if let Some(idx) = find_sketch_feature_index(body, feature_id) {
+                let sketch = match &mut body.features[idx] {
+                    Feature::Sketch { sketch, .. }
+                    | Feature::BaseExtrude { sketch, .. }
+                    | Feature::BaseRevolve { sketch, .. } => sketch,
+                    _ => return,
+                };
+
+                if !sketch.constraints.is_empty() {
+                    crate::sketch::constraints::solve_constraints(sketch);
+                }
+            }
+        }
+    }
+
+    /// Add a constraint to a sketch
+    pub fn add_sketch_constraint(
+        &mut self,
+        body_id: &str,
+        feature_id: Option<&str>,
+        constraint: shared::SketchConstraint,
+    ) {
+        self.save_undo();
+        self.redo_stack.clear();
+
+        if let Some(body) = self.scene.bodies.iter_mut().find(|b| b.id == body_id) {
+            if let Some(idx) = find_sketch_feature_index(body, feature_id) {
+                let sketch = match &mut body.features[idx] {
+                    Feature::Sketch { sketch, .. }
+                    | Feature::BaseExtrude { sketch, .. }
+                    | Feature::BaseRevolve { sketch, .. } => sketch,
+                    _ => return,
+                };
+
+                // Check if constraint can be applied
+                if crate::sketch::constraints::can_apply_constraint(sketch, &constraint) {
+                    sketch.constraints.push(constraint);
+                    // Apply constraints immediately
+                    crate::sketch::constraints::solve_constraints(sketch);
+                    self.version += 1;
+                }
+            }
+        }
+    }
+
+    /// Remove a constraint from a sketch by index
+    pub fn remove_sketch_constraint(
+        &mut self,
+        body_id: &str,
+        feature_id: Option<&str>,
+        constraint_index: usize,
+    ) {
+        self.save_undo();
+        self.redo_stack.clear();
+
+        if let Some(body) = self.scene.bodies.iter_mut().find(|b| b.id == body_id) {
+            if let Some(idx) = find_sketch_feature_index(body, feature_id) {
+                let sketch = match &mut body.features[idx] {
+                    Feature::Sketch { sketch, .. }
+                    | Feature::BaseExtrude { sketch, .. }
+                    | Feature::BaseRevolve { sketch, .. } => sketch,
+                    _ => return,
+                };
+
+                if constraint_index < sketch.constraints.len() {
+                    sketch.constraints.remove(constraint_index);
+                    self.version += 1;
+                }
+            }
+        }
+    }
 }
 
 /// Update a control point of a sketch element

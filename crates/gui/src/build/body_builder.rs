@@ -1,6 +1,6 @@
 //! Body mesh building from features
 
-use shared::{Body, Feature, Transform};
+use shared::{Body, BooleanOp, Feature, Transform};
 use vcad::Part;
 
 use crate::extrude::{extrude_mesh, revolve_mesh};
@@ -12,7 +12,8 @@ use super::mesh_extraction::{apply_selection_color, extract_mesh_data};
 use super::primitives::{apply_transform, create_primitive};
 
 /// Build MeshData directly from a body's features
-pub fn build_body_mesh_data(body: &Body, selected: bool) -> Result<Option<MeshData>, String> {
+/// `all_bodies` is needed to resolve BooleanModify references to other bodies
+pub fn build_body_mesh_data(body: &Body, selected: bool, all_bodies: &[Body]) -> Result<Option<MeshData>, String> {
     if body.features.is_empty() {
         return Err("Body has no features".to_string());
     }
@@ -154,8 +155,8 @@ pub fn build_body_mesh_data(body: &Body, selected: bool) -> Result<Option<MeshDa
             Feature::Sketch { .. } => {
                 // Sketches are reference geometry, don't modify the part
             }
-            Feature::BooleanModify { .. } => {
-                // TODO: Implement inter-body boolean
+            Feature::BooleanModify { op, tool_body_id, .. } => {
+                process_boolean_modify(&mut current_part, op, tool_body_id, all_bodies);
             }
             _ => {}
         }
@@ -297,4 +298,144 @@ fn extract_revolve_axis_from_sketch(sketch: &shared::Sketch) -> Option<([f64; 2]
     } else {
         None
     }
+}
+
+/// Process a BooleanModify feature - applies CSG operation with another body
+fn process_boolean_modify(
+    current_part: &mut Option<Part>,
+    op: &BooleanOp,
+    tool_body_id: &str,
+    all_bodies: &[Body],
+) {
+    // Find the tool body
+    let tool_body = all_bodies.iter().find(|b| b.id == tool_body_id);
+
+    if tool_body.is_none() {
+        tracing::warn!("BooleanModify: tool body {} not found", tool_body_id);
+        return;
+    }
+
+    let tool_body = tool_body.unwrap();
+
+    // Build the tool body's Part
+    let tool_part = build_body_part(tool_body, all_bodies);
+
+    if tool_part.is_none() {
+        tracing::warn!("BooleanModify: failed to build tool body {} geometry", tool_body_id);
+        return;
+    }
+
+    let tool_part = tool_part.unwrap();
+
+    // Apply the boolean operation
+    if let Some(base_part) = current_part.take() {
+        let result = match op {
+            BooleanOp::Union => base_part.union(&tool_part),
+            BooleanOp::Difference => base_part.difference(&tool_part),
+            BooleanOp::Intersection => base_part.intersection(&tool_part),
+        };
+        *current_part = Some(result);
+        tracing::debug!("BooleanModify: applied {:?} with body {}", op, tool_body_id);
+    }
+}
+
+/// Build a Part from a body (without converting to MeshData)
+/// Used for BooleanModify to get the tool body's geometry
+fn build_body_part(body: &Body, all_bodies: &[Body]) -> Option<Part> {
+    if body.features.is_empty() {
+        return None;
+    }
+
+    // Find the first base feature
+    let base_feature = body.features.iter().find(|f| {
+        matches!(
+            f,
+            Feature::BasePrimitive { .. }
+                | Feature::BaseExtrude { .. }
+                | Feature::BaseRevolve { .. }
+        )
+    });
+
+    let Some(base_feature) = base_feature else {
+        return None;
+    };
+
+    // Build initial geometry from base feature
+    let mut current_part: Option<Part> = match base_feature {
+        Feature::BasePrimitive {
+            id,
+            primitive,
+            transform,
+        } => {
+            let part = create_primitive(id, primitive);
+            let part = apply_transform(part, transform);
+            Some(part)
+        }
+        Feature::BaseExtrude {
+            id,
+            sketch,
+            sketch_transform,
+            height,
+        } => {
+            create_extrude_part_from_sketch(id, sketch, sketch_transform, *height)
+        }
+        Feature::BaseRevolve {
+            id,
+            sketch,
+            sketch_transform,
+            angle,
+            segments,
+        } => {
+            let axis = extract_revolve_axis_from_sketch(sketch);
+            create_revolve_part_from_sketch_with_axis(id, sketch, sketch_transform, *angle, *segments, axis)
+        }
+        _ => None,
+    };
+
+    // Process modification features
+    for feature in &body.features {
+        if matches!(
+            feature,
+            Feature::BasePrimitive { .. }
+                | Feature::BaseExtrude { .. }
+                | Feature::BaseRevolve { .. }
+        ) {
+            continue;
+        }
+
+        match feature {
+            Feature::Extrude {
+                id: extrude_id,
+                sketch_id,
+                height,
+                height_backward,
+                cut,
+                draft_angle,
+            } => {
+                process_extrude_feature(
+                    body,
+                    &mut current_part,
+                    extrude_id,
+                    sketch_id,
+                    *height,
+                    *height_backward,
+                    *cut,
+                    *draft_angle,
+                );
+            }
+            Feature::Revolve { sketch_id, angle, segments, cut, axis_start, axis_end, .. } => {
+                let axis = match (axis_start, axis_end) {
+                    (Some(start), Some(end)) => Some((*start, *end)),
+                    _ => None,
+                };
+                process_revolve_feature(body, &mut current_part, sketch_id, *angle, *segments, *cut, axis);
+            }
+            Feature::BooleanModify { op, tool_body_id, .. } => {
+                process_boolean_modify(&mut current_part, op, tool_body_id, all_bodies);
+            }
+            _ => {}
+        }
+    }
+
+    current_part
 }

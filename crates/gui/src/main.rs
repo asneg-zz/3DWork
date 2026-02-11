@@ -1,6 +1,5 @@
 mod app;
 pub mod i18n;
-mod sketch;
 mod ui;
 mod viewport;
 
@@ -10,6 +9,7 @@ pub use vcad_gui_lib::build;
 pub use vcad_gui_lib::export;
 pub use vcad_gui_lib::extrude;
 pub use vcad_gui_lib::helpers;
+pub use vcad_gui_lib::sketch;
 pub use vcad_gui_lib::state;
 
 use app::CadApp;

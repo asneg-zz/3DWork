@@ -185,6 +185,27 @@ pub fn t(key: &str) -> &'static str {
         "prop.left" => if ru { "Левый:" } else { "Left:" },
         "prop.right" => if ru { "Правый:" } else { "Right:" },
 
+        // ── Sketch element properties ─────────────────────────────────
+        "prop.geometry" => if ru { "Геометрия" } else { "Geometry" },
+        "prop.start" => if ru { "Начало" } else { "Start" },
+        "prop.end" => if ru { "Конец" } else { "End" },
+        "prop.length" => if ru { "Длина" } else { "Length" },
+        "prop.center" => if ru { "Центр" } else { "Center" },
+        "prop.diameter" => if ru { "Диаметр" } else { "Diameter" },
+        "prop.circumference" => if ru { "Окружность" } else { "Circumference" },
+        "prop.start_angle" => if ru { "Нач. угол" } else { "Start angle" },
+        "prop.end_angle" => if ru { "Кон. угол" } else { "End angle" },
+        "prop.arc_length" => if ru { "Длина дуги" } else { "Arc length" },
+        "prop.corner" => if ru { "Угол" } else { "Corner" },
+        "prop.perimeter" => if ru { "Периметр" } else { "Perimeter" },
+        "prop.points" => if ru { "Точек" } else { "Points" },
+        "prop.control_points" => if ru { "Контр. точек" } else { "Control points" },
+        "prop.from" => if ru { "От" } else { "From" },
+        "prop.to" => if ru { "До" } else { "To" },
+        "prop.value" => if ru { "Значение" } else { "Value" },
+        "prop.selected_elements" => if ru { "Выбрано элементов" } else { "Selected elements" },
+        "prop.more" => if ru { "ещё" } else { "more" },
+
         // ── Face selection ─────────────────────────────────
         "prop.face" => if ru { "Грань" } else { "Face" },
         "prop.face_props" => if ru { "Свойства грани" } else { "Face Properties" },
@@ -343,6 +364,21 @@ pub fn t(key: &str) -> &'static str {
         "sketch.context.delete" => if ru { "Удалить" } else { "Delete" },
         "sketch.context.construction" => if ru { "Вспомогательная геометрия" } else { "Construction geometry" },
         "sketch.context.revolve_axis" => if ru { "Ось вращения" } else { "Rotation axis" },
+        "sketch.context.connect" => if ru { "Соединить" } else { "Connect" },
+        "hint.shift_point" => if ru { "Shift+клик для выбора точки" } else { "Shift+click to select point" },
+
+        // ── Constraints (Ограничения) ────────────────────────────────────
+        "constraints.title" => if ru { "Ограничения" } else { "Constraints" },
+        "constraint.horizontal" => if ru { "Горизонтально" } else { "Horizontal" },
+        "constraint.vertical" => if ru { "Вертикально" } else { "Vertical" },
+        "constraint.parallel" => if ru { "Параллельно" } else { "Parallel" },
+        "constraint.perpendicular" => if ru { "Перпендикулярно" } else { "Perpendicular" },
+        "constraint.coincident" => if ru { "Совместить точки" } else { "Coincident" },
+        "constraint.fixed" => if ru { "Фиксированный" } else { "Fixed" },
+        "constraint.equal" => if ru { "Равные" } else { "Equal" },
+        "constraint.tangent" => if ru { "Касательная" } else { "Tangent" },
+        "constraint.concentric" => if ru { "Концентрические" } else { "Concentric" },
+        "constraint.symmetric" => if ru { "Симметрия" } else { "Symmetric" },
 
         // ── Fallback ────────────────────────────────────────
         _ => "???",

@@ -97,11 +97,16 @@ pub struct ElementHandle {
     pub point_index: Option<usize>,
 }
 
+/// Выбранная точка элемента (element_index, point_index)
+pub type SelectedPoint = (usize, usize);
+
 /// Состояние выбора элементов эскиза
 #[derive(Default)]
 pub struct SketchElementSelection {
     /// Индексы выбранных элементов
     pub selected: Vec<usize>,
+    /// Выбранные точки элементов (element_index, point_index)
+    pub selected_points: Vec<SelectedPoint>,
     /// Элемент под курсором (hover)
     pub hover_element: Option<usize>,
     /// Точка под курсором (element_index, point_index)
@@ -116,6 +121,7 @@ impl SketchElementSelection {
     /// Выбрать один элемент (сбросить предыдущий выбор)
     pub fn select(&mut self, index: usize) {
         self.selected.clear();
+        self.selected_points.clear();
         self.selected.push(index);
     }
 
@@ -133,9 +139,32 @@ impl SketchElementSelection {
         self.selected.contains(&index)
     }
 
+    /// Выбрать одну точку (сбросить предыдущий выбор)
+    pub fn select_point(&mut self, element_index: usize, point_index: usize) {
+        self.selected.clear();
+        self.selected_points.clear();
+        self.selected_points.push((element_index, point_index));
+    }
+
+    /// Добавить/убрать точку из выбора (Ctrl+клик)
+    pub fn toggle_point(&mut self, element_index: usize, point_index: usize) {
+        let point = (element_index, point_index);
+        if let Some(pos) = self.selected_points.iter().position(|&p| p == point) {
+            self.selected_points.remove(pos);
+        } else {
+            self.selected_points.push(point);
+        }
+    }
+
+    /// Проверить, выбрана ли точка
+    pub fn is_point_selected(&self, element_index: usize, point_index: usize) -> bool {
+        self.selected_points.contains(&(element_index, point_index))
+    }
+
     /// Очистить выбор
     pub fn clear(&mut self) {
         self.selected.clear();
+        self.selected_points.clear();
         self.hover_element = None;
         self.hover_point = None;
     }

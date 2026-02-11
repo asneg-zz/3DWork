@@ -71,10 +71,12 @@ fn handle_escape(state: &mut AppState) {
         } else if state.sketch.tool != crate::state::sketch::SketchTool::None {
             // Deselect tool
             state.sketch.set_tool(crate::state::sketch::SketchTool::None);
-        } else {
-            // Exit sketch mode
-            state.sketch.exit_edit();
+        } else if !state.sketch.element_selection.selected.is_empty()
+               || !state.sketch.element_selection.selected_points.is_empty() {
+            // Clear element selection
+            state.sketch.element_selection.clear();
         }
+        // Don't exit sketch mode by Escape - use context menu or "Done" button
     } else {
         state.selection.clear();
     }

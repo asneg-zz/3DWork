@@ -53,10 +53,10 @@ impl ArcBallCamera {
                 self.yaw = 0.0;
                 self.pitch = 0.0;
             }
-            // XZ plane: look from above (along -Y)
+            // XZ plane: look from above (along -Y), exactly perpendicular
             SketchPlane::Xz => {
                 self.yaw = 0.0;
-                self.pitch = 1.5; // ~86 degrees, close to looking straight down
+                self.pitch = std::f32::consts::FRAC_PI_2; // exactly 90 degrees
             }
             // YZ plane: look along -X (from side)
             SketchPlane::Yz => {
@@ -83,7 +83,15 @@ impl ArcBallCamera {
 
     /// View matrix (world -> camera)
     pub fn view_matrix(&self) -> Mat4 {
-        Mat4::look_at_rh(self.eye_position(), self.target, Vec3::Y)
+        // When looking straight down/up (pitch near ±90°), use Z as up vector
+        // to avoid gimbal lock with Y up vector
+        let up = if self.pitch.abs() > 1.5 {
+            // Looking nearly straight down or up - use Z as up
+            if self.pitch > 0.0 { -Vec3::Z } else { Vec3::Z }
+        } else {
+            Vec3::Y
+        };
+        Mat4::look_at_rh(self.eye_position(), self.target, up)
     }
 
     /// Projection matrix (camera -> clip)

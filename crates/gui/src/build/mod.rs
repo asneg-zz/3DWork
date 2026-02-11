@@ -34,7 +34,7 @@ pub fn build_scene_meshes_v2(
 
         let is_selected = selected_ids.contains(&body.id);
 
-        match body_builder::build_body_mesh_data(body, is_selected) {
+        match body_builder::build_body_mesh_data(body, is_selected, &scene.bodies) {
             Ok(Some(mesh_data)) => {
                 meshes.insert(body.id.clone(), mesh_data);
             }

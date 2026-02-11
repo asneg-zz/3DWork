@@ -89,6 +89,45 @@ pub enum SketchElement {
     },
 }
 
+/// Ссылка на точку элемента эскиза
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PointRef {
+    /// Индекс элемента в массиве elements
+    pub element_index: usize,
+    /// Индекс точки внутри элемента (0=start, 1=end для линии, и т.д.)
+    pub point_index: usize,
+}
+
+/// Геометрическое ограничение (constraint) эскиза
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum SketchConstraint {
+    /// Линия горизонтальна (параллельна оси X)
+    Horizontal { element: usize },
+    /// Линия вертикальна (параллельна оси Y)
+    Vertical { element: usize },
+    /// Две линии параллельны
+    Parallel { element1: usize, element2: usize },
+    /// Две линии перпендикулярны
+    Perpendicular { element1: usize, element2: usize },
+    /// Две точки совпадают
+    Coincident { point1: PointRef, point2: PointRef },
+    /// Элемент зафиксирован (не может быть перемещён)
+    Fixed { element: usize },
+    /// Равные длины линий или радиусы окружностей
+    Equal { element1: usize, element2: usize },
+    /// Касательная (линия касается окружности/дуги)
+    Tangent { element1: usize, element2: usize },
+    /// Концентрические окружности (совпадающие центры)
+    Concentric { element1: usize, element2: usize },
+    /// Симметрия относительно линии
+    Symmetric {
+        element1: usize,
+        element2: usize,
+        /// Линия симметрии (ось)
+        axis: usize,
+    },
+}
+
 /// Эскиз — набор 2D-элементов на плоскости
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Sketch {
@@ -106,6 +145,9 @@ pub struct Sketch {
     /// Индекс элемента, помеченного как ось вращения (только один на эскиз)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub revolve_axis: Option<usize>,
+    /// Геометрические ограничения (constraints) эскиза
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub constraints: Vec<SketchConstraint>,
 }
 
 impl Default for Sketch {
@@ -117,6 +159,7 @@ impl Default for Sketch {
             face_normal: None,
             construction: Vec::new(),
             revolve_axis: None,
+            constraints: Vec::new(),
         }
     }
 }

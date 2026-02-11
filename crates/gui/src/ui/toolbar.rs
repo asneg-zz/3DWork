@@ -421,6 +421,7 @@ fn create_sketch_body(state: &mut AppState, name: &str, plane: SketchPlane) {
                 face_normal: None,
                 construction: vec![],
                 revolve_axis: None,
+                constraints: vec![],
             };
             if let Some(feature_id) = state.scene.add_sketch_to_body(
                 &selected_id,
@@ -442,6 +443,7 @@ fn create_sketch_body(state: &mut AppState, name: &str, plane: SketchPlane) {
         face_normal: None,
         construction: vec![],
         revolve_axis: None,
+        constraints: vec![],
     };
     let body_id = state.scene.create_body_with_sketch(
         name.to_string(),

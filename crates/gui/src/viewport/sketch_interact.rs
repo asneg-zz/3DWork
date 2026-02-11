@@ -496,3 +496,134 @@ fn angle_in_arc_range(angle: f64, start_angle: f64, end_angle: f64) -> bool {
     }
 }
 
+// ============================================================================
+// Hit testing for control points (drag endpoints)
+// ============================================================================
+
+/// Result of hit-testing a control point on a sketch element
+#[derive(Debug, Clone)]
+pub struct PointHit {
+    /// Index of the element containing this point
+    pub element_index: usize,
+    /// Index of the point within the element (0=start, 1=end for Line, etc.)
+    pub point_index: usize,
+    /// 2D position of the point
+    pub position: [f64; 2],
+    /// Distance from cursor to this point
+    pub distance: f64,
+}
+
+/// Get all control points for a sketch element that can be dragged
+/// Returns Vec of (point_index, position)
+pub fn get_element_control_points(elem: &SketchElement) -> Vec<(usize, [f64; 2])> {
+    match elem {
+        SketchElement::Line { start, end } => {
+            vec![
+                (0, [start.x, start.y]), // start point
+                (1, [end.x, end.y]),     // end point
+            ]
+        }
+        SketchElement::Circle { center, .. } => {
+            vec![
+                (0, [center.x, center.y]), // center only
+            ]
+        }
+        SketchElement::Arc { center, radius, start_angle, end_angle } => {
+            let start_pt = [
+                center.x + radius * start_angle.cos(),
+                center.y + radius * start_angle.sin(),
+            ];
+            let end_pt = [
+                center.x + radius * end_angle.cos(),
+                center.y + radius * end_angle.sin(),
+            ];
+            vec![
+                (0, [center.x, center.y]), // center
+                (1, start_pt),              // start point on arc
+                (2, end_pt),                // end point on arc
+            ]
+        }
+        SketchElement::Rectangle { corner, width, height } => {
+            vec![
+                (0, [corner.x, corner.y]),                      // bottom-left
+                (1, [corner.x + width, corner.y]),              // bottom-right
+                (2, [corner.x + width, corner.y + height]),     // top-right
+                (3, [corner.x, corner.y + height]),             // top-left
+            ]
+        }
+        SketchElement::Polyline { points } => {
+            points.iter().enumerate()
+                .map(|(i, pt)| (i, [pt.x, pt.y]))
+                .collect()
+        }
+        SketchElement::Spline { points } => {
+            points.iter().enumerate()
+                .map(|(i, pt)| (i, [pt.x, pt.y]))
+                .collect()
+        }
+        SketchElement::Dimension { .. } => {
+            // Dimension points are not draggable
+            vec![]
+        }
+    }
+}
+
+/// Hit-test all control points of all elements and return the closest one within tolerance
+pub fn hit_test_element_points(
+    click_point: [f64; 2],
+    sketch: &Sketch,
+    tolerance: f64,
+) -> Option<PointHit> {
+    let mut best: Option<PointHit> = None;
+
+    for (elem_idx, elem) in sketch.elements.iter().enumerate() {
+        let control_points = get_element_control_points(elem);
+        for (point_idx, pos) in control_points {
+            let dist = distance_2d(click_point, pos);
+            if dist < tolerance {
+                if best.is_none() || dist < best.as_ref().unwrap().distance {
+                    best = Some(PointHit {
+                        element_index: elem_idx,
+                        point_index: point_idx,
+                        position: pos,
+                        distance: dist,
+                    });
+                }
+            }
+        }
+    }
+
+    best
+}
+
+/// Hit-test control points only for specific elements (e.g., selected or hovered)
+pub fn hit_test_element_points_filtered(
+    click_point: [f64; 2],
+    sketch: &Sketch,
+    element_indices: &[usize],
+    tolerance: f64,
+) -> Option<PointHit> {
+    let mut best: Option<PointHit> = None;
+
+    for &elem_idx in element_indices {
+        if let Some(elem) = sketch.elements.get(elem_idx) {
+            let control_points = get_element_control_points(elem);
+            for (point_idx, pos) in control_points {
+                let dist = distance_2d(click_point, pos);
+                if dist < tolerance {
+                    if best.is_none() || dist < best.as_ref().unwrap().distance {
+                        best = Some(PointHit {
+                            element_index: elem_idx,
+                            point_index: point_idx,
+                            position: pos,
+                            distance: dist,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    best
+}
+

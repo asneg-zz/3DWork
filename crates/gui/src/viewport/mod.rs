@@ -8,7 +8,7 @@ pub use vcad_gui_lib::viewport::{mesh, picking};
 mod overlays;
 mod renderer;
 mod sketch_interact;
-mod sketch_utils;
+pub mod sketch_utils;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -166,25 +166,91 @@ impl ViewportPanel {
                     let ray = self.camera.screen_ray(pos, rect);
                     if let Some(point_2d) = sketch_interact::ray_sketch_plane(&ray, &sketch, &transform)
                     {
-                        // Check for snap
-                        if let Some(snap) =
-                            sketch_interact::find_snap_point(point_2d, &sketch, &state.sketch.snap)
-                        {
-                            state.sketch.preview_point = Some(snap.point);
-                            state.sketch.active_snap = Some(snap);
-                        } else {
-                            state.sketch.preview_point = Some(point_2d);
-                            state.sketch.active_snap = None;
-                        }
+                        // Handle dragging control points
+                        if state.sketch.element_selection.dragging.is_some() {
+                            // Apply snap while dragging
+                            let drag_pos = if let Some(snap) =
+                                sketch_interact::find_snap_point(point_2d, &sketch, &state.sketch.snap)
+                            {
+                                state.sketch.active_snap = Some(snap.clone());
+                                snap.point
+                            } else {
+                                state.sketch.active_snap = None;
+                                point_2d
+                            };
 
-                        // Update hover element for selection highlighting
-                        let hit_tolerance = 0.15; // Tolerance in sketch units
-                        if let Some(hit) = sketch_interact::hit_test_elements(point_2d, &sketch, hit_tolerance) {
-                            state.sketch.element_selection.hover_element = Some(hit.element_index);
+                            // Update element point position
+                            if let Some(ref handle) = state.sketch.element_selection.dragging {
+                                if let Some(pt_idx) = handle.point_index {
+                                    state.scene.update_sketch_element_point_ex(
+                                        &bid,
+                                        feature_id.as_deref(),
+                                        handle.element_index,
+                                        pt_idx,
+                                        drag_pos,
+                                    );
+                                    // Apply constraints after position update
+                                    state.scene.solve_sketch_constraints(
+                                        &bid,
+                                        feature_id.as_deref(),
+                                    );
+                                }
+                            }
+                            state.sketch.preview_point = Some(drag_pos);
+                            sketch_consumed = true;
                         } else {
-                            state.sketch.element_selection.hover_element = None;
+                            // Check for snap
+                            if let Some(snap) =
+                                sketch_interact::find_snap_point(point_2d, &sketch, &state.sketch.snap)
+                            {
+                                state.sketch.preview_point = Some(snap.point);
+                                state.sketch.active_snap = Some(snap);
+                            } else {
+                                state.sketch.preview_point = Some(point_2d);
+                                state.sketch.active_snap = None;
+                            }
+
+                            // Check for hover on control points first (higher priority)
+                            let point_tolerance = 0.12; // Tolerance for control points
+                            // Only check control points on selected/hovered elements
+                            let mut check_elements = state.sketch.element_selection.selected.clone();
+                            if let Some(hover_idx) = state.sketch.element_selection.hover_element {
+                                if !check_elements.contains(&hover_idx) {
+                                    check_elements.push(hover_idx);
+                                }
+                            }
+
+                            if !check_elements.is_empty() {
+                                if let Some(point_hit) = sketch_interact::hit_test_element_points_filtered(
+                                    point_2d,
+                                    &sketch,
+                                    &check_elements,
+                                    point_tolerance,
+                                ) {
+                                    state.sketch.element_selection.hover_point =
+                                        Some((point_hit.element_index, point_hit.point_index));
+                                } else {
+                                    state.sketch.element_selection.hover_point = None;
+                                }
+                            } else {
+                                state.sketch.element_selection.hover_point = None;
+                            }
+
+                            // Update hover element for selection highlighting
+                            let hit_tolerance = 0.15; // Tolerance in sketch units
+                            if let Some(hit) = sketch_interact::hit_test_elements(point_2d, &sketch, hit_tolerance) {
+                                state.sketch.element_selection.hover_element = Some(hit.element_index);
+                            } else {
+                                state.sketch.element_selection.hover_element = None;
+                            }
                         }
                     }
+                }
+
+                // Handle drag release
+                if response.drag_stopped() && state.sketch.element_selection.dragging.is_some() {
+                    state.sketch.element_selection.end_drag();
+                    sketch_consumed = true;
                 }
 
                 // Handle left click - add point (only for drawing tools, not modification tools)
@@ -196,15 +262,87 @@ impl ViewportPanel {
                     | crate::state::sketch::SketchTool::Offset
                 );
 
-                // Handle element selection when tool is None
-                if response.clicked() && state.sketch.tool == crate::state::sketch::SketchTool::None {
+                // Handle drag start on control point when tool is None
+                if response.drag_started_by(egui::PointerButton::Primary)
+                    && state.sketch.tool == crate::state::sketch::SketchTool::None
+                    && !ui.input(|i| i.modifiers.alt)
+                {
                     if let Some(pos) = response.interact_pointer_pos() {
                         let ray = self.camera.screen_ray(pos, rect);
                         if let Some(point_2d) = sketch_interact::ray_sketch_plane(&ray, &sketch, &transform) {
+                            // Check for control point hit first
+                            let point_tolerance = 0.12;
+                            let mut check_elements = state.sketch.element_selection.selected.clone();
+                            if let Some(hover_idx) = state.sketch.element_selection.hover_element {
+                                if !check_elements.contains(&hover_idx) {
+                                    check_elements.push(hover_idx);
+                                }
+                            }
+
+                            if !check_elements.is_empty() {
+                                if let Some(point_hit) = sketch_interact::hit_test_element_points_filtered(
+                                    point_2d,
+                                    &sketch,
+                                    &check_elements,
+                                    point_tolerance,
+                                ) {
+                                    // Check if element is fixed - don't allow dragging
+                                    let is_fixed = crate::sketch::constraints::is_element_fixed(
+                                        &sketch,
+                                        point_hit.element_index,
+                                    );
+                                    if !is_fixed {
+                                        // Start dragging control point
+                                        state.scene.begin_sketch_drag();
+                                        let handle = crate::state::sketch::ElementHandle {
+                                            element_index: point_hit.element_index,
+                                            point_index: Some(point_hit.point_index),
+                                        };
+                                        state.sketch.element_selection.start_drag(handle, point_hit.position);
+                                        sketch_consumed = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Handle element/point selection when tool is None (only if not starting a drag)
+                if response.clicked()
+                    && state.sketch.tool == crate::state::sketch::SketchTool::None
+                    && state.sketch.element_selection.dragging.is_none()
+                {
+                    if let Some(pos) = response.interact_pointer_pos() {
+                        let ray = self.camera.screen_ray(pos, rect);
+                        if let Some(point_2d) = sketch_interact::ray_sketch_plane(&ray, &sketch, &transform) {
+                            let point_tolerance = 0.12;
                             let hit_tolerance = 0.15;
-                            if let Some(hit) = sketch_interact::hit_test_elements(point_2d, &sketch, hit_tolerance) {
+                            let ctrl_pressed = ui.input(|i| i.modifiers.command);
+                            let shift_pressed = ui.input(|i| i.modifiers.shift);
+
+                            // First check for point hit (Shift+click for point selection)
+                            if shift_pressed {
+                                if let Some(point_hit) = sketch_interact::hit_test_element_points(
+                                    point_2d,
+                                    &sketch,
+                                    point_tolerance,
+                                ) {
+                                    if ctrl_pressed {
+                                        state.sketch.element_selection.toggle_point(
+                                            point_hit.element_index,
+                                            point_hit.point_index,
+                                        );
+                                    } else {
+                                        state.sketch.element_selection.select_point(
+                                            point_hit.element_index,
+                                            point_hit.point_index,
+                                        );
+                                    }
+                                    sketch_consumed = true;
+                                }
+                            } else if let Some(hit) = sketch_interact::hit_test_elements(point_2d, &sketch, hit_tolerance) {
                                 // Check for Ctrl modifier to toggle selection
-                                if ui.input(|i| i.modifiers.command) {
+                                if ctrl_pressed {
                                     state.sketch.element_selection.toggle(hit.element_index);
                                 } else {
                                     state.sketch.element_selection.select(hit.element_index);
@@ -212,8 +350,8 @@ impl ViewportPanel {
                                 sketch_consumed = true;
                             } else {
                                 // Click on empty space - clear selection
-                                if !ui.input(|i| i.modifiers.command) {
-                                    state.sketch.element_selection.selected.clear();
+                                if !ctrl_pressed {
+                                    state.sketch.element_selection.clear();
                                 }
                             }
                         }
@@ -260,8 +398,10 @@ impl ViewportPanel {
                             );
                         }
                         state.sketch.clear_drawing();
-                    } else if !state.sketch.element_selection.selected.is_empty() {
-                        // Show context menu for selected elements
+                    } else if !state.sketch.element_selection.selected.is_empty()
+                        || !state.sketch.element_selection.selected_points.is_empty()
+                    {
+                        // Show context menu for selected elements or points
                         self.sketch_element_context_menu = true;
                     } else {
                         state.sketch.clear_drawing();
@@ -271,15 +411,7 @@ impl ViewportPanel {
             }
         }
 
-        // Handle ESC to cancel drawing or exit sketch mode
-        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-            if !state.sketch.drawing_points.is_empty() {
-                state.sketch.clear_drawing();
-            } else {
-                state.sketch.exit_edit();
-            }
-            sketch_consumed = true;
-        }
+        // ESC handling is done in keyboard.rs to avoid duplicates
 
         sketch_consumed
     }
@@ -291,7 +423,7 @@ impl ViewportPanel {
         rect: egui::Rect,
         state: &mut AppState,
     ) -> bool {
-        use crate::sketch::operations::{trim_arc, trim_circle, trim_line, TrimResult};
+        use crate::sketch::operations::{trim_arc, trim_circle, trim_line, trim_polyline, trim_rectangle, TrimResult};
         use crate::state::sketch::SketchTool;
 
         // Only process if in sketch edit mode and using a modification tool
@@ -408,7 +540,26 @@ impl ViewportPanel {
                                 &sketch,
                             )
                         }
-                        // Rectangles could be decomposed to lines for trimming (future)
+                        shared::SketchElement::Polyline { points } => {
+                            tracing::info!("Trim tool: trimming POLYLINE with {} points", points.len());
+                            trim_polyline(
+                                hit.element_index,
+                                points,
+                                click_2d,
+                                &sketch,
+                            )
+                        }
+                        shared::SketchElement::Rectangle { corner, width, height } => {
+                            tracing::info!("Trim tool: trimming RECTANGLE at {:?} {}x{}", corner, width, height);
+                            trim_rectangle(
+                                hit.element_index,
+                                [corner.x, corner.y],
+                                *width,
+                                *height,
+                                click_2d,
+                                &sketch,
+                            )
+                        }
                         _ => {
                             tracing::info!("Trim tool: element type not supported for trimming");
                             TrimResult::NoChange
@@ -724,52 +875,86 @@ impl ViewportPanel {
         }
 
         let selected_count = state.sketch.element_selection.selected.len();
-        if selected_count == 0 {
+        let selected_points_count = state.sketch.element_selection.selected_points.len();
+
+        if selected_count == 0 && selected_points_count == 0 {
             self.sketch_element_context_menu = false;
             return;
         }
 
         response.context_menu(|ui| {
-            // Delete option
-            let delete_label = if selected_count == 1 {
-                t("sketch.context.delete").to_string()
-            } else {
-                format!("{} ({})", t("sketch.context.delete"), selected_count)
-            };
-            if ui.button(&delete_label).clicked() {
-                if let (Some(body_id), feature_id) = (
-                    state.sketch.editing_body_id().cloned(),
-                    state.sketch.active_feature_id().cloned(),
-                ) {
-                    let indices = state.sketch.element_selection.get_selected_for_removal();
-                    state.scene.remove_sketch_elements_by_indices(
-                        &body_id,
-                        feature_id.as_deref(),
-                        indices,
-                    );
-                    state.sketch.element_selection.clear();
+            // Connect option - only when exactly 2 points selected
+            if selected_points_count == 2 {
+                if ui.button(t("sketch.context.connect")).clicked() {
+                    if let (Some(body_id), feature_id) = (
+                        state.sketch.editing_body_id().cloned(),
+                        state.sketch.active_feature_id().cloned(),
+                    ) {
+                        let points = state.sketch.element_selection.selected_points.clone();
+                        let point1 = shared::PointRef {
+                            element_index: points[0].0,
+                            point_index: points[0].1,
+                        };
+                        let point2 = shared::PointRef {
+                            element_index: points[1].0,
+                            point_index: points[1].1,
+                        };
+                        state.scene.add_sketch_constraint(
+                            &body_id,
+                            feature_id.as_deref(),
+                            shared::SketchConstraint::Coincident { point1, point2 },
+                        );
+                        state.sketch.element_selection.clear();
+                    }
+                    ui.close_menu();
+                    self.sketch_element_context_menu = false;
                 }
-                ui.close_menu();
-                self.sketch_element_context_menu = false;
+                ui.separator();
             }
 
-            ui.separator();
-
-            // Toggle construction geometry option
-            if ui.button(t("sketch.context.construction")).clicked() {
-                if let (Some(body_id), feature_id) = (
-                    state.sketch.editing_body_id().cloned(),
-                    state.sketch.active_feature_id().cloned(),
-                ) {
-                    let indices: Vec<usize> = state.sketch.element_selection.selected.clone();
-                    state.scene.toggle_construction(
-                        &body_id,
-                        feature_id.as_deref(),
-                        &indices,
-                    );
+            // Show element-based options only if elements are selected
+            if selected_count > 0 {
+                // Delete option
+                let delete_label = if selected_count == 1 {
+                    t("sketch.context.delete").to_string()
+                } else {
+                    format!("{} ({})", t("sketch.context.delete"), selected_count)
+                };
+                if ui.button(&delete_label).clicked() {
+                    if let (Some(body_id), feature_id) = (
+                        state.sketch.editing_body_id().cloned(),
+                        state.sketch.active_feature_id().cloned(),
+                    ) {
+                        let indices = state.sketch.element_selection.get_selected_for_removal();
+                        state.scene.remove_sketch_elements_by_indices(
+                            &body_id,
+                            feature_id.as_deref(),
+                            indices,
+                        );
+                        state.sketch.element_selection.clear();
+                    }
+                    ui.close_menu();
+                    self.sketch_element_context_menu = false;
                 }
-                ui.close_menu();
-                self.sketch_element_context_menu = false;
+
+                ui.separator();
+
+                // Toggle construction geometry option
+                if ui.button(t("sketch.context.construction")).clicked() {
+                    if let (Some(body_id), feature_id) = (
+                        state.sketch.editing_body_id().cloned(),
+                        state.sketch.active_feature_id().cloned(),
+                    ) {
+                        let indices: Vec<usize> = state.sketch.element_selection.selected.clone();
+                        state.scene.toggle_construction(
+                            &body_id,
+                            feature_id.as_deref(),
+                            &indices,
+                        );
+                    }
+                    ui.close_menu();
+                    self.sketch_element_context_menu = false;
+                }
             }
 
             // Rotation axis option - only for single line selection
@@ -820,6 +1005,275 @@ impl ViewportPanel {
                                 &body_id,
                                 feature_id.as_deref(),
                                 selected_idx,
+                            );
+                        }
+                        ui.close_menu();
+                        self.sketch_element_context_menu = false;
+                    }
+                }
+            }
+
+            // Constraints section
+            ui.separator();
+            ui.label(t("constraints.title"));
+
+            // Single line selected - Horizontal/Vertical constraints
+            let selected = &state.sketch.element_selection.selected;
+            if selected.len() == 1 {
+                let elem_idx = selected[0];
+                // Check if it's a line
+                let is_line = if let (Some(body_id), feature_id) = (
+                    state.sketch.editing_body_id(),
+                    state.sketch.active_feature_id(),
+                ) {
+                    sketch_utils::find_sketch_data_ex(&state.scene.scene, body_id, feature_id.map(|s| s.as_str()))
+                        .map(|(sketch, _)| {
+                            sketch.elements.get(elem_idx)
+                                .map(|el| matches!(el, shared::SketchElement::Line { .. }))
+                                .unwrap_or(false)
+                        })
+                        .unwrap_or(false)
+                } else {
+                    false
+                };
+
+                if is_line {
+                    if ui.button(t("constraint.horizontal")).clicked() {
+                        if let (Some(body_id), feature_id) = (
+                            state.sketch.editing_body_id().cloned(),
+                            state.sketch.active_feature_id().cloned(),
+                        ) {
+                            state.scene.add_sketch_constraint(
+                                &body_id,
+                                feature_id.as_deref(),
+                                shared::SketchConstraint::Horizontal { element: elem_idx },
+                            );
+                        }
+                        ui.close_menu();
+                        self.sketch_element_context_menu = false;
+                    }
+                    if ui.button(t("constraint.vertical")).clicked() {
+                        if let (Some(body_id), feature_id) = (
+                            state.sketch.editing_body_id().cloned(),
+                            state.sketch.active_feature_id().cloned(),
+                        ) {
+                            state.scene.add_sketch_constraint(
+                                &body_id,
+                                feature_id.as_deref(),
+                                shared::SketchConstraint::Vertical { element: elem_idx },
+                            );
+                        }
+                        ui.close_menu();
+                        self.sketch_element_context_menu = false;
+                    }
+                }
+
+                // Fixed constraint - available for any element type
+                if ui.button(t("constraint.fixed")).clicked() {
+                    if let (Some(body_id), feature_id) = (
+                        state.sketch.editing_body_id().cloned(),
+                        state.sketch.active_feature_id().cloned(),
+                    ) {
+                        state.scene.add_sketch_constraint(
+                            &body_id,
+                            feature_id.as_deref(),
+                            shared::SketchConstraint::Fixed { element: elem_idx },
+                        );
+                    }
+                    ui.close_menu();
+                    self.sketch_element_context_menu = false;
+                }
+            }
+
+            // Two elements selected - various constraints
+            if selected.len() == 2 {
+                let elem1_idx = selected[0];
+                let elem2_idx = selected[1];
+
+                // Get element types
+                let (is_line1, is_line2, is_circle1, is_circle2) = if let (Some(body_id), feature_id) = (
+                    state.sketch.editing_body_id(),
+                    state.sketch.active_feature_id(),
+                ) {
+                    sketch_utils::find_sketch_data_ex(&state.scene.scene, body_id, feature_id.map(|s| s.as_str()))
+                        .map(|(sketch, _)| {
+                            let el1 = sketch.elements.get(elem1_idx);
+                            let el2 = sketch.elements.get(elem2_idx);
+                            (
+                                el1.map(|el| matches!(el, shared::SketchElement::Line { .. })).unwrap_or(false),
+                                el2.map(|el| matches!(el, shared::SketchElement::Line { .. })).unwrap_or(false),
+                                el1.map(|el| matches!(el, shared::SketchElement::Circle { .. } | shared::SketchElement::Arc { .. })).unwrap_or(false),
+                                el2.map(|el| matches!(el, shared::SketchElement::Circle { .. } | shared::SketchElement::Arc { .. })).unwrap_or(false),
+                            )
+                        })
+                        .unwrap_or((false, false, false, false))
+                } else {
+                    (false, false, false, false)
+                };
+
+                let both_lines = is_line1 && is_line2;
+                let both_circles = is_circle1 && is_circle2;
+                let line_and_circle = (is_line1 && is_circle2) || (is_circle1 && is_line2);
+
+                // Two lines: Parallel, Perpendicular, Equal
+                if both_lines {
+                    if ui.button(t("constraint.parallel")).clicked() {
+                        if let (Some(body_id), feature_id) = (
+                            state.sketch.editing_body_id().cloned(),
+                            state.sketch.active_feature_id().cloned(),
+                        ) {
+                            state.scene.add_sketch_constraint(
+                                &body_id,
+                                feature_id.as_deref(),
+                                shared::SketchConstraint::Parallel {
+                                    element1: elem1_idx,
+                                    element2: elem2_idx,
+                                },
+                            );
+                        }
+                        ui.close_menu();
+                        self.sketch_element_context_menu = false;
+                    }
+                    if ui.button(t("constraint.perpendicular")).clicked() {
+                        if let (Some(body_id), feature_id) = (
+                            state.sketch.editing_body_id().cloned(),
+                            state.sketch.active_feature_id().cloned(),
+                        ) {
+                            state.scene.add_sketch_constraint(
+                                &body_id,
+                                feature_id.as_deref(),
+                                shared::SketchConstraint::Perpendicular {
+                                    element1: elem1_idx,
+                                    element2: elem2_idx,
+                                },
+                            );
+                        }
+                        ui.close_menu();
+                        self.sketch_element_context_menu = false;
+                    }
+                    if ui.button(t("constraint.equal")).clicked() {
+                        if let (Some(body_id), feature_id) = (
+                            state.sketch.editing_body_id().cloned(),
+                            state.sketch.active_feature_id().cloned(),
+                        ) {
+                            state.scene.add_sketch_constraint(
+                                &body_id,
+                                feature_id.as_deref(),
+                                shared::SketchConstraint::Equal {
+                                    element1: elem1_idx,
+                                    element2: elem2_idx,
+                                },
+                            );
+                        }
+                        ui.close_menu();
+                        self.sketch_element_context_menu = false;
+                    }
+                }
+
+                // Two circles/arcs: Concentric, Equal radius
+                if both_circles {
+                    if ui.button(t("constraint.concentric")).clicked() {
+                        if let (Some(body_id), feature_id) = (
+                            state.sketch.editing_body_id().cloned(),
+                            state.sketch.active_feature_id().cloned(),
+                        ) {
+                            state.scene.add_sketch_constraint(
+                                &body_id,
+                                feature_id.as_deref(),
+                                shared::SketchConstraint::Concentric {
+                                    element1: elem1_idx,
+                                    element2: elem2_idx,
+                                },
+                            );
+                        }
+                        ui.close_menu();
+                        self.sketch_element_context_menu = false;
+                    }
+                    if ui.button(t("constraint.equal")).clicked() {
+                        if let (Some(body_id), feature_id) = (
+                            state.sketch.editing_body_id().cloned(),
+                            state.sketch.active_feature_id().cloned(),
+                        ) {
+                            state.scene.add_sketch_constraint(
+                                &body_id,
+                                feature_id.as_deref(),
+                                shared::SketchConstraint::Equal {
+                                    element1: elem1_idx,
+                                    element2: elem2_idx,
+                                },
+                            );
+                        }
+                        ui.close_menu();
+                        self.sketch_element_context_menu = false;
+                    }
+                }
+
+                // Line + Circle/Arc: Tangent
+                if line_and_circle {
+                    if ui.button(t("constraint.tangent")).clicked() {
+                        if let (Some(body_id), feature_id) = (
+                            state.sketch.editing_body_id().cloned(),
+                            state.sketch.active_feature_id().cloned(),
+                        ) {
+                            state.scene.add_sketch_constraint(
+                                &body_id,
+                                feature_id.as_deref(),
+                                shared::SketchConstraint::Tangent {
+                                    element1: elem1_idx,
+                                    element2: elem2_idx,
+                                },
+                            );
+                        }
+                        ui.close_menu();
+                        self.sketch_element_context_menu = false;
+                    }
+                }
+            }
+
+            // Three elements selected - Symmetric (two elements + axis line)
+            if selected.len() == 3 {
+                let elem1_idx = selected[0];
+                let elem2_idx = selected[1];
+                let axis_idx = selected[2];
+
+                // Check if last is a line (axis), and first two are same type
+                let valid_symmetric = if let (Some(body_id), feature_id) = (
+                    state.sketch.editing_body_id(),
+                    state.sketch.active_feature_id(),
+                ) {
+                    sketch_utils::find_sketch_data_ex(&state.scene.scene, body_id, feature_id.map(|s| s.as_str()))
+                        .map(|(sketch, _)| {
+                            let axis_is_line = sketch.elements.get(axis_idx)
+                                .map(|el| matches!(el, shared::SketchElement::Line { .. }))
+                                .unwrap_or(false);
+                            let el1 = sketch.elements.get(elem1_idx);
+                            let el2 = sketch.elements.get(elem2_idx);
+                            let same_type = match (el1, el2) {
+                                (Some(shared::SketchElement::Line { .. }), Some(shared::SketchElement::Line { .. })) => true,
+                                (Some(shared::SketchElement::Circle { .. }), Some(shared::SketchElement::Circle { .. })) => true,
+                                _ => false,
+                            };
+                            axis_is_line && same_type
+                        })
+                        .unwrap_or(false)
+                } else {
+                    false
+                };
+
+                if valid_symmetric {
+                    if ui.button(t("constraint.symmetric")).clicked() {
+                        if let (Some(body_id), feature_id) = (
+                            state.sketch.editing_body_id().cloned(),
+                            state.sketch.active_feature_id().cloned(),
+                        ) {
+                            state.scene.add_sketch_constraint(
+                                &body_id,
+                                feature_id.as_deref(),
+                                shared::SketchConstraint::Symmetric {
+                                    element1: elem1_idx,
+                                    element2: elem2_idx,
+                                    axis: axis_idx,
+                                },
                             );
                         }
                         ui.close_menu();
@@ -1089,7 +1543,9 @@ impl ViewportPanel {
                 let sketch_stroke = egui::Stroke::new(2.0, egui::Color32::from_rgb(255, 200, 50));
                 let display_info = renderer::SketchElementDisplayInfo {
                     selected: state.sketch.element_selection.selected.clone(),
+                    selected_points: state.sketch.element_selection.selected_points.clone(),
                     hover_element: state.sketch.element_selection.hover_element,
+                    hover_point: state.sketch.element_selection.hover_point,
                     construction: sketch.construction.clone(),
                     revolve_axis: sketch.revolve_axis,
                 };
@@ -1102,6 +1558,28 @@ impl ViewportPanel {
                     sketch_stroke,
                     &display_info,
                 );
+
+                // Draw control points for selected/hovered elements
+                renderer::draw_control_points(
+                    painter,
+                    rect,
+                    &self.camera,
+                    sketch,
+                    &combined_transform,
+                    &display_info,
+                );
+
+                // Draw constraint icons for hovered element
+                if let Some(hover_idx) = state.sketch.element_selection.hover_element {
+                    renderer::draw_constraint_icons(
+                        painter,
+                        rect,
+                        &self.camera,
+                        sketch,
+                        &combined_transform,
+                        hover_idx,
+                    );
+                }
             }
         }
 
