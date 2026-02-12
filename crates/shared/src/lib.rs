@@ -1,4 +1,7 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+
+pub mod parameters;
 
 /// Уникальный идентификатор объекта в сцене
 pub type ObjectId = String;
@@ -53,6 +56,19 @@ pub struct Point2D {
     pub y: f64,
 }
 
+/// Тип размера (для dimension)
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum DimensionType {
+    /// Линейный размер (расстояние между двумя точками)
+    #[default]
+    Linear,
+    /// Радиус окружности/дуги
+    Radius,
+    /// Диаметр окружности
+    Diameter,
+}
+
 /// Элемент эскиза
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -86,6 +102,19 @@ pub enum SketchElement {
         from: Point2D,
         to: Point2D,
         value: f64,
+        /// Имя параметра, к которому привязан размер (если есть)
+        parameter_name: Option<String>,
+        /// Позиция размерной линии (точка, через которую проходит размерная линия)
+        /// Если None, размерная линия автоматически смещается
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        dimension_line_pos: Option<Point2D>,
+        /// Индекс целевого элемента (линии, окружности), к которому привязан размер
+        /// Если установлен, изменение размера будет влиять на этот элемент
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        target_element: Option<usize>,
+        /// Тип размера (линейный, радиус, диаметр)
+        #[serde(default)]
+        dimension_type: DimensionType,
     },
 }
 
@@ -145,6 +174,9 @@ pub struct Sketch {
     /// Индекс элемента, помеченного как ось вращения (только один на эскиз)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub revolve_axis: Option<usize>,
+    /// Индекс элемента, помеченного как ось симметрии (только один на эскиз)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub symmetry_axis: Option<usize>,
     /// Геометрические ограничения (constraints) эскиза
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub constraints: Vec<SketchConstraint>,
@@ -159,6 +191,7 @@ impl Default for Sketch {
             face_normal: None,
             construction: Vec::new(),
             revolve_axis: None,
+            symmetry_axis: None,
             constraints: Vec::new(),
         }
     }
@@ -181,7 +214,7 @@ impl Sketch {
 
     /// Получить только не-вспомогательные элементы (для формирования 3D)
     pub fn geometry_elements(&self) -> impl Iterator<Item = (usize, &SketchElement)> {
-        self.elements.iter().enumerate().filter(|(i, _)| !self.is_construction(*i) && self.revolve_axis != Some(*i))
+        self.elements.iter().enumerate().filter(|(i, _)| !self.is_construction(*i) && self.revolve_axis != Some(*i) && self.symmetry_axis != Some(*i))
     }
 
     /// Проверить, является ли элемент осью вращения
@@ -204,6 +237,36 @@ impl Sketch {
     /// Получить ось вращения как элемент (если установлена и это линия)
     pub fn get_revolve_axis_line(&self) -> Option<(usize, &SketchElement)> {
         self.revolve_axis.and_then(|idx| {
+            self.elements.get(idx).and_then(|el| {
+                if matches!(el, SketchElement::Line { .. }) {
+                    Some((idx, el))
+                } else {
+                    None
+                }
+            })
+        })
+    }
+
+    /// Проверить, является ли элемент осью симметрии
+    pub fn is_symmetry_axis(&self, index: usize) -> bool {
+        self.symmetry_axis == Some(index)
+    }
+
+    /// Установить/сбросить элемент как ось симметрии (toggle)
+    /// Возвращает true если ось установлена, false если сброшена
+    pub fn toggle_symmetry_axis(&mut self, index: usize) -> bool {
+        if self.symmetry_axis == Some(index) {
+            self.symmetry_axis = None;
+            false
+        } else {
+            self.symmetry_axis = Some(index);
+            true
+        }
+    }
+
+    /// Получить ось симметрии как элемент (если установлена и это линия)
+    pub fn get_symmetry_axis_line(&self) -> Option<(usize, &SketchElement)> {
+        self.symmetry_axis.and_then(|idx| {
             self.elements.get(idx).and_then(|el| {
                 if matches!(el, SketchElement::Line { .. }) {
                     Some((idx, el))
@@ -305,6 +368,48 @@ pub struct AiChatResponse {
 /// Уникальный идентификатор тела
 pub type BodyId = String;
 
+// ============================================================================
+// Параметризация (Parameters)
+// ============================================================================
+
+/// Ссылка на свойство объекта (для параметрических связей)
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ParameterRef {
+    /// ID тела (опционально)
+    pub body_id: Option<String>,
+    /// ID фичи (опционально)
+    pub feature_id: Option<String>,
+    /// Название свойства (например, "width", "height", "radius")
+    pub property: String,
+}
+
+/// Значение параметра
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ParameterValue {
+    /// Числовое значение
+    Number { value: f64 },
+    /// Формула (например, "width*2", "PI*radius^2")
+    Formula { expression: String },
+    /// Ссылка на другой параметр или свойство
+    Reference { reference: ParameterRef },
+}
+
+/// Параметр — именованное значение с возможностью формул и связей
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Parameter {
+    /// Имя параметра (например, "width", "hole_diameter")
+    pub name: String,
+    /// Значение параметра
+    pub value: ParameterValue,
+    /// Единица измерения (опционально, например "mm", "inch", "deg")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unit: Option<String>,
+    /// Описание параметра (опционально)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
 fn default_true() -> bool {
     true
 }
@@ -329,6 +434,9 @@ pub struct Body {
     /// Видимость тела (false = поглощено булевой операцией)
     #[serde(default = "default_true")]
     pub visible: bool,
+    /// Параметры тела (для параметрического моделирования)
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub parameters: HashMap<String, Parameter>,
 }
 
 /// Фича (Feature) — операция внутри тела
@@ -503,6 +611,7 @@ impl SceneDescriptionV2 {
                             transform: transform.clone(),
                         }],
                         visible: true,
+                        parameters: HashMap::new(),
                     });
                     id_to_body.insert(id.clone(), body_id);
                 }
@@ -526,6 +635,7 @@ impl SceneDescriptionV2 {
                                 height: *height,
                             }],
                             visible: true,
+                            parameters: HashMap::new(),
                         });
                         id_to_body.insert(id.clone(), body_id);
                     }
@@ -545,6 +655,7 @@ impl SceneDescriptionV2 {
                                 segments: *segments,
                             }],
                             visible: true,
+                            parameters: HashMap::new(),
                         });
                         id_to_body.insert(id.clone(), body_id);
                     }
@@ -818,6 +929,10 @@ mod tests {
             from: Point2D { x: 0.0, y: 0.0 },
             to: Point2D { x: 3.0, y: 4.0 },
             value: 5.0,
+            parameter_name: None,
+            dimension_line_pos: None,
+            target_element: None,
+            dimension_type: DimensionType::Linear,
         };
         roundtrip(&e);
     }
@@ -893,6 +1008,8 @@ mod tests {
                 ],
                 face_normal: None,
                 construction: vec![],
+                revolve_axis: None,
+                constraints: vec![],
             },
             transform: Transform::new(),
         };
@@ -973,6 +1090,8 @@ mod tests {
                         ],
                         face_normal: None,
                         construction: vec![],
+                        revolve_axis: None,
+                        constraints: vec![],
                     },
                     transform: Transform::new(),
                 },
@@ -1055,6 +1174,7 @@ mod tests {
                 transform: Transform::new(),
             }],
             visible: true,
+            parameters: HashMap::new(),
         };
         roundtrip(&body);
     }
@@ -1084,6 +1204,8 @@ mod tests {
                 }],
                 face_normal: None,
                 construction: vec![],
+                revolve_axis: None,
+                constraints: vec![],
             },
             sketch_transform: Transform::new(),
             height: 5.0,
@@ -1103,6 +1225,8 @@ mod tests {
                 elements: vec![],
                 face_normal: None,
                 construction: vec![],
+                revolve_axis: None,
+                constraints: vec![],
             },
             transform: Transform::new(),
         };
@@ -1172,6 +1296,7 @@ mod tests {
                         transform: Transform::new(),
                     }],
                     visible: true,
+                    parameters: HashMap::new(),
                 },
             ],
             body_operations: vec![],

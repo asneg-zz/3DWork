@@ -209,6 +209,7 @@ pub enum SketchTool {
     Trim,
     Fillet,
     Offset,
+    Mirror,
 }
 
 impl SketchTool {
@@ -225,13 +226,27 @@ impl SketchTool {
             Self::Trim => "Trim",
             Self::Fillet => "Fillet",
             Self::Offset => "Offset",
+            Self::Mirror => "Mirror",
         }
     }
 
     /// Returns true if this is a modification tool (operates on existing elements)
     pub fn is_modification_tool(&self) -> bool {
-        matches!(self, Self::Trim | Self::Fillet | Self::Offset)
+        matches!(self, Self::Trim | Self::Fillet | Self::Offset | Self::Mirror)
     }
+}
+
+/// Информация о dimension для окружности
+#[derive(Debug, Clone)]
+pub struct DimensionCircleInfo {
+    /// Индекс элемента окружности
+    pub circle_index: usize,
+    /// Тип dimension (Radius или Diameter)
+    pub dimension_type: shared::DimensionType,
+    /// Центр окружности
+    pub center: [f64; 2],
+    /// Радиус окружности
+    pub radius: f64,
 }
 
 /// Sketch editing state
@@ -256,6 +271,8 @@ pub struct SketchState {
     pub fillet_radius: f64,
     /// Offset distance for Offset tool
     pub offset_distance: f64,
+    /// Информация о dimension для окружности (если dimension создаётся для окружности)
+    pub dimension_circle_info: Option<DimensionCircleInfo>,
 }
 
 impl Default for SketchState {
@@ -271,6 +288,7 @@ impl Default for SketchState {
             element_selection: SketchElementSelection::default(),
             fillet_radius: 0.1,
             offset_distance: 0.1,
+            dimension_circle_info: None,
         }
     }
 }
@@ -322,6 +340,7 @@ impl SketchState {
         self.preview_point = None;
         self.active_snap = None;
         self.element_selection.clear();
+        self.dimension_circle_info = None;
     }
 
     /// Set the active drawing tool
@@ -330,6 +349,7 @@ impl SketchState {
         self.drawing_points.clear();
         self.preview_point = None;
         self.active_snap = None;
+        self.dimension_circle_info = None;
         // Не очищаем element_selection при смене инструмента
     }
 
@@ -343,6 +363,7 @@ impl SketchState {
         self.drawing_points.clear();
         self.preview_point = None;
         self.active_snap = None;
+        self.dimension_circle_info = None;
     }
 
     /// How many points the current tool needs. None = variable (polyline/spline).
@@ -353,11 +374,11 @@ impl SketchState {
             SketchTool::Circle => Some(2),
             SketchTool::Rectangle => Some(2),
             SketchTool::Arc => Some(3),
-            SketchTool::Dimension => Some(2),
+            SketchTool::Dimension => Some(3), // from, to, dimension_line_pos
             SketchTool::Polyline | SketchTool::Spline => None,
             SketchTool::None => Some(0),
             // Modification tools work by clicking on elements, not accumulating points
-            SketchTool::Trim | SketchTool::Fillet | SketchTool::Offset => Some(0),
+            SketchTool::Trim | SketchTool::Fillet | SketchTool::Offset | SketchTool::Mirror => Some(0),
         }
     }
 
@@ -407,14 +428,71 @@ impl SketchState {
                 })
             }
             SketchTool::Dimension if pts.len() >= 2 => {
-                let dx = pts[1][0] - pts[0][0];
-                let dy = pts[1][1] - pts[0][1];
-                let value = (dx * dx + dy * dy).sqrt();
-                Some(SketchElement::Dimension {
-                    from: Point2D { x: pts[0][0], y: pts[0][1] },
-                    to: Point2D { x: pts[1][0], y: pts[1][1] },
-                    value,
-                })
+                // Check if we have circle info (radius/diameter dimension)
+                if let Some(ref circle_info) = self.dimension_circle_info {
+                    // For circle dimensions, we only need 2 points (from/to are auto-calculated, last point is dimension_line_pos)
+                    let dim_line_pos = if pts.len() >= 2 {
+                        Some(Point2D { x: pts[1][0], y: pts[1][1] })
+                    } else {
+                        None
+                    };
+
+                    let (from, to, value) = match circle_info.dimension_type {
+                        shared::DimensionType::Radius => {
+                            // Radius: from center to point on circle
+                            let from = Point2D { x: circle_info.center[0], y: circle_info.center[1] };
+                            let to = Point2D {
+                                x: circle_info.center[0] + circle_info.radius,
+                                y: circle_info.center[1]
+                            };
+                            (from, to, circle_info.radius)
+                        }
+                        shared::DimensionType::Diameter => {
+                            // Diameter: from one side to opposite side through center
+                            let from = Point2D {
+                                x: circle_info.center[0] - circle_info.radius,
+                                y: circle_info.center[1]
+                            };
+                            let to = Point2D {
+                                x: circle_info.center[0] + circle_info.radius,
+                                y: circle_info.center[1]
+                            };
+                            (from, to, circle_info.radius * 2.0)
+                        }
+                        shared::DimensionType::Linear => {
+                            // Should not happen, but handle gracefully
+                            let from = Point2D { x: pts[0][0], y: pts[0][1] };
+                            let to = Point2D { x: pts[0][0] + circle_info.radius, y: pts[0][1] };
+                            (from, to, circle_info.radius)
+                        }
+                    };
+
+                    Some(SketchElement::Dimension {
+                        from,
+                        to,
+                        value,
+                        parameter_name: None,
+                        dimension_line_pos: dim_line_pos,
+                        target_element: Some(circle_info.circle_index),
+                        dimension_type: circle_info.dimension_type,
+                    })
+                } else if pts.len() >= 3 {
+                    // Standard linear dimension
+                    let dx = pts[1][0] - pts[0][0];
+                    let dy = pts[1][1] - pts[0][1];
+                    let value = (dx * dx + dy * dy).sqrt();
+                    Some(SketchElement::Dimension {
+                        from: Point2D { x: pts[0][0], y: pts[0][1] },
+                        to: Point2D { x: pts[1][0], y: pts[1][1] },
+                        value,
+                        parameter_name: None,
+                        dimension_line_pos: Some(Point2D { x: pts[2][0], y: pts[2][1] }),
+                        target_element: None, // Will be set after adding to sketch
+                        dimension_type: shared::DimensionType::Linear,
+                    })
+                } else {
+                    None
+                }
             }
             _ => None,
         }

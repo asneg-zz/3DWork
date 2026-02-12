@@ -37,6 +37,10 @@ pub struct ViewportPanel {
     context_target: Option<String>,
     /// Show sketch element context menu
     sketch_element_context_menu: bool,
+    /// Show sketch tools context menu (when no element selected)
+    sketch_tools_context_menu: bool,
+    /// ViewCube state for click detection
+    view_cube_state: Option<overlays::ViewCubeState>,
 }
 
 impl ViewportPanel {
@@ -48,6 +52,8 @@ impl ViewportPanel {
             gizmo_state: GizmoState::default(),
             context_target: None,
             sketch_element_context_menu: false,
+            sketch_tools_context_menu: false,
+            view_cube_state: None,
         }
     }
 
@@ -82,8 +88,15 @@ impl ViewportPanel {
             egui::Sense::click_and_drag(),
         );
 
+        // ── ViewCube click handling ─────────────────────────────
+        let view_cube_consumed = self.handle_view_cube_interaction(&response);
+
         // ── Sketch interaction handling ─────────────────────────────
-        let sketch_consumed = self.handle_sketch_interaction(ui, &response, rect, state);
+        let sketch_consumed = if view_cube_consumed {
+            false
+        } else {
+            self.handle_sketch_interaction(ui, &response, rect, state)
+        };
         let mod_tool_consumed = self.handle_modification_tools(&response, rect, state);
 
         // ── Gizmo and camera controls ─────────────────────────────
@@ -110,6 +123,9 @@ impl ViewportPanel {
 
         // ── Sketch element context menu ──────────────────
         self.show_sketch_element_context_menu(ui, &response, state);
+
+        // ── Sketch tools context menu (empty space) ──────
+        self.show_sketch_tools_context_menu(ui, &response, state);
 
         if !ui.is_rect_visible(rect) {
             return;
@@ -369,8 +385,73 @@ impl ViewportPanel {
                                 point_2d = snap.point;
                             }
 
-                            state.sketch.add_point(point_2d);
-                            sketch_consumed = true;
+                            // Handle Dimension tool for circles
+                            if state.sketch.tool == crate::state::sketch::SketchTool::Dimension
+                                && state.sketch.drawing_points.is_empty()
+                            {
+                                // First click - check if clicking on circle center or circle itself
+                                if let Some(ref snap) = state.sketch.active_snap {
+                                    if let Some(source_idx) = snap.source_element {
+                                        if let Some(elem) = sketch.elements.get(source_idx) {
+                                            if let shared::SketchElement::Circle { center, radius } = elem {
+                                                match snap.snap_type {
+                                                    crate::state::sketch::SnapType::Center => {
+                                                        // Clicked on center - create radius dimension
+                                                        state.sketch.dimension_circle_info = Some(
+                                                            crate::state::sketch::DimensionCircleInfo {
+                                                                circle_index: source_idx,
+                                                                dimension_type: shared::DimensionType::Radius,
+                                                                center: [center.x, center.y],
+                                                                radius: *radius,
+                                                            }
+                                                        );
+                                                        // Add first point (will be used as dimension_line_pos)
+                                                        state.sketch.add_point(point_2d);
+                                                        sketch_consumed = true;
+                                                        // Don't try to finalize yet, need one more click for dimension_line_pos
+                                                    }
+                                                    crate::state::sketch::SnapType::Quadrant => {
+                                                        // Clicked on circle quadrant - create diameter dimension
+                                                        state.sketch.dimension_circle_info = Some(
+                                                            crate::state::sketch::DimensionCircleInfo {
+                                                                circle_index: source_idx,
+                                                                dimension_type: shared::DimensionType::Diameter,
+                                                                center: [center.x, center.y],
+                                                                radius: *radius,
+                                                            }
+                                                        );
+                                                        // Add first point (will be used as dimension_line_pos)
+                                                        state.sketch.add_point(point_2d);
+                                                        sketch_consumed = true;
+                                                        // Don't try to finalize yet, need one more click for dimension_line_pos
+                                                    }
+                                                    _ => {
+                                                        // Other snap types - use standard logic
+                                                        state.sketch.add_point(point_2d);
+                                                        sketch_consumed = true;
+                                                    }
+                                                }
+                                            } else {
+                                                // Not a circle - standard logic
+                                                state.sketch.add_point(point_2d);
+                                                sketch_consumed = true;
+                                            }
+                                        } else {
+                                            state.sketch.add_point(point_2d);
+                                            sketch_consumed = true;
+                                        }
+                                    } else {
+                                        state.sketch.add_point(point_2d);
+                                        sketch_consumed = true;
+                                    }
+                                } else {
+                                    state.sketch.add_point(point_2d);
+                                    sketch_consumed = true;
+                                }
+                            } else {
+                                state.sketch.add_point(point_2d);
+                                sketch_consumed = true;
+                            }
 
                             // Try to finalize fixed-point tools
                             if let Some(element) = state.sketch.try_finalize() {
@@ -404,6 +485,8 @@ impl ViewportPanel {
                         // Show context menu for selected elements or points
                         self.sketch_element_context_menu = true;
                     } else {
+                        // Show context menu with tools when nothing selected
+                        self.sketch_tools_context_menu = true;
                         state.sketch.clear_drawing();
                     }
                     sketch_consumed = true;
@@ -423,8 +506,14 @@ impl ViewportPanel {
         rect: egui::Rect,
         state: &mut AppState,
     ) -> bool {
-        use crate::sketch::operations::{trim_arc, trim_circle, trim_line, trim_polyline, trim_rectangle, TrimResult};
+        use crate::sketch::operations::{trim_arc, trim_circle, trim_line, trim_polyline, trim_rectangle, TrimResult, offset_element, reflect_element_about_line};
         use crate::state::sketch::SketchTool;
+
+        // Helper function for mirror tool
+        fn mirror_element(element: &shared::SketchElement, axis_start: [f64; 2], axis_end: [f64; 2]) -> Option<shared::SketchElement> {
+            let axis = ((axis_start[0], axis_start[1]), (axis_end[0], axis_end[1]));
+            Some(reflect_element_about_line(element, axis))
+        }
 
         // Only process if in sketch edit mode and using a modification tool
         if !state.sketch.is_editing() {
@@ -433,7 +522,7 @@ impl ViewportPanel {
 
         let is_mod_tool = matches!(
             state.sketch.tool,
-            SketchTool::Trim | SketchTool::Fillet | SketchTool::Offset
+            SketchTool::Trim | SketchTool::Fillet | SketchTool::Offset | SketchTool::Mirror
         );
         if !is_mod_tool {
             return false;
@@ -596,12 +685,105 @@ impl ViewportPanel {
                 }
                 true
             }
-            SketchTool::Fillet | SketchTool::Offset => {
-                // Fillet and Offset not implemented yet
+            SketchTool::Offset => {
+                // Get the element that was hit
+                if let Some(element) = sketch.elements.get(hit.element_index) {
+                    tracing::info!("Offset tool: offsetting element {} at {:?}", hit.element_index, click_2d);
+
+                    let distance = state.sketch.offset_distance;
+                    if let Some(new_elements) = offset_element(element, distance, click_2d) {
+                        tracing::info!("Offset tool: created {} new elements", new_elements.len());
+
+                        // Add the new offset elements to the sketch
+                        for new_elem in new_elements {
+                            state.scene.add_element_to_body_sketch_ex(
+                                &bid,
+                                feature_id.as_deref(),
+                                new_elem,
+                            );
+                        }
+                    } else {
+                        tracing::warn!("Offset tool: element type not supported or offset failed");
+                    }
+                }
+                true
+            }
+            SketchTool::Fillet => {
+                // Fillet not implemented yet
                 false
+            }
+            SketchTool::Mirror => {
+                // Mirror tool: click on a line to use as axis, mirror selected elements
+                if let Some(element) = sketch.elements.get(hit.element_index) {
+                    // Only lines can be used as mirror axis
+                    if let shared::SketchElement::Line { start, end } = element {
+                        let selected = state.sketch.element_selection.selected.clone();
+                        if selected.is_empty() {
+                            tracing::info!("Mirror tool: no elements selected");
+                        } else {
+                            tracing::info!("Mirror tool: mirroring {} elements across line {}", selected.len(), hit.element_index);
+
+                            // Mirror each selected element
+                            let axis_start = [start.x, start.y];
+                            let axis_end = [end.x, end.y];
+
+                            for elem_idx in selected {
+                                // Don't mirror the axis line itself
+                                if elem_idx == hit.element_index {
+                                    continue;
+                                }
+
+                                if let Some(src_elem) = sketch.elements.get(elem_idx) {
+                                    if let Some(mirrored) = mirror_element(src_elem, axis_start, axis_end) {
+                                        state.scene.add_element_to_body_sketch_ex(
+                                            &bid,
+                                            feature_id.as_deref(),
+                                            mirrored,
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        tracing::info!("Mirror tool: clicked element is not a line");
+                    }
+                }
+                true
             }
             _ => false,
         }
+    }
+
+    /// Handle ViewCube interaction (click and drag) - returns true if consumed
+    fn handle_view_cube_interaction(&mut self, response: &egui::Response) -> bool {
+        let vc_state = match &self.view_cube_state {
+            Some(state) => state,
+            None => return false,
+        };
+
+        // Check if mouse is over the ViewCube
+        let over_cube = response.hover_pos()
+            .map(|pos| overlays::is_over_view_cube(vc_state, pos))
+            .unwrap_or(false);
+
+        // Handle dragging on ViewCube to rotate camera
+        if over_cube && response.dragged_by(egui::PointerButton::Primary) {
+            let delta = response.drag_delta();
+            self.camera.rotate(delta.x * 0.5, delta.y * 0.5);
+            return true;
+        }
+
+        // Handle click to set standard view
+        if response.clicked() {
+            if let Some(pos) = response.interact_pointer_pos() {
+                if let Some(face) = overlays::hit_test_view_cube(vc_state, pos) {
+                    self.camera.set_standard_view(face.to_standard_view());
+                    return true;
+                }
+            }
+        }
+
+        false
     }
 
     fn handle_gizmo_and_camera(
@@ -1010,6 +1192,68 @@ impl ViewportPanel {
                         ui.close_menu();
                         self.sketch_element_context_menu = false;
                     }
+
+                    // Check if this element is the symmetry axis
+                    let is_sym_axis = if let (Some(body_id), feature_id) = (
+                        state.sketch.editing_body_id(),
+                        state.sketch.active_feature_id(),
+                    ) {
+                        sketch_utils::find_sketch_data_ex(&state.scene.scene, body_id, feature_id.map(|s| s.as_str()))
+                            .map(|(sketch, _)| sketch.is_symmetry_axis(selected_idx))
+                            .unwrap_or(false)
+                    } else {
+                        false
+                    };
+
+                    let sym_label = if is_sym_axis {
+                        format!("{} ✓", t("symmetry.set_axis"))
+                    } else {
+                        t("symmetry.set_axis").to_string()
+                    };
+
+                    if ui.button(sym_label).clicked() {
+                        if let (Some(body_id), feature_id) = (
+                            state.sketch.editing_body_id().cloned(),
+                            state.sketch.active_feature_id().cloned(),
+                        ) {
+                            state.scene.toggle_symmetry_axis(
+                                &body_id,
+                                feature_id.as_deref(),
+                                selected_idx,
+                            );
+                        }
+                        ui.close_menu();
+                        self.sketch_element_context_menu = false;
+                    }
+                }
+            }
+
+            // Mirror operations (if symmetry axis is set and elements are selected)
+            let has_symmetry_axis = if let (Some(body_id), feature_id) = (
+                state.sketch.editing_body_id(),
+                state.sketch.active_feature_id(),
+            ) {
+                sketch_utils::find_sketch_data_ex(&state.scene.scene, body_id, feature_id.map(|s| s.as_str()))
+                    .map(|(sketch, _)| sketch.symmetry_axis.is_some())
+                    .unwrap_or(false)
+            } else {
+                false
+            };
+
+            if has_symmetry_axis && !state.sketch.element_selection.selected.is_empty() {
+                ui.separator();
+                ui.label("Симметрия");
+
+                if ui.button(t("symmetry.mirror_copy")).clicked() {
+                    self.mirror_selected_elements(state, true);
+                    ui.close_menu();
+                    self.sketch_element_context_menu = false;
+                }
+
+                if ui.button(t("symmetry.mirror_move")).clicked() {
+                    self.mirror_selected_elements(state, false);
+                    ui.close_menu();
+                    self.sketch_element_context_menu = false;
                 }
             }
 
@@ -1289,6 +1533,118 @@ impl ViewportPanel {
         }
     }
 
+    fn show_sketch_tools_context_menu(
+        &mut self,
+        ui: &mut Ui,
+        response: &egui::Response,
+        state: &mut AppState,
+    ) {
+        use crate::i18n::t;
+        use crate::state::sketch::SketchTool;
+
+        if !self.sketch_tools_context_menu {
+            return;
+        }
+
+        // Only show in sketch editing mode
+        if !state.sketch.is_editing() {
+            self.sketch_tools_context_menu = false;
+            return;
+        }
+
+        response.context_menu(|ui| {
+            ui.label(t("sketch.tools"));
+            ui.separator();
+
+            // Selection tool
+            if ui.button(t("sketch.tool.select")).clicked() {
+                state.sketch.set_tool(SketchTool::None);
+                ui.close_menu();
+                self.sketch_tools_context_menu = false;
+            }
+
+            ui.separator();
+
+            // Drawing tools
+            if ui.button(t("sketch.tool.line")).clicked() {
+                state.sketch.set_tool(SketchTool::Line);
+                ui.close_menu();
+                self.sketch_tools_context_menu = false;
+            }
+
+            if ui.button(t("sketch.tool.circle")).clicked() {
+                state.sketch.set_tool(SketchTool::Circle);
+                ui.close_menu();
+                self.sketch_tools_context_menu = false;
+            }
+
+            if ui.button(t("sketch.tool.arc")).clicked() {
+                state.sketch.set_tool(SketchTool::Arc);
+                ui.close_menu();
+                self.sketch_tools_context_menu = false;
+            }
+
+            if ui.button(t("sketch.tool.rectangle")).clicked() {
+                state.sketch.set_tool(SketchTool::Rectangle);
+                ui.close_menu();
+                self.sketch_tools_context_menu = false;
+            }
+
+            if ui.button(t("sketch.tool.polyline")).clicked() {
+                state.sketch.set_tool(SketchTool::Polyline);
+                ui.close_menu();
+                self.sketch_tools_context_menu = false;
+            }
+
+            if ui.button(t("sketch.tool.spline")).clicked() {
+                state.sketch.set_tool(SketchTool::Spline);
+                ui.close_menu();
+                self.sketch_tools_context_menu = false;
+            }
+
+            ui.separator();
+
+            // Modification tools
+            if ui.button(t("sketch.tool.trim")).clicked() {
+                state.sketch.set_tool(SketchTool::Trim);
+                ui.close_menu();
+                self.sketch_tools_context_menu = false;
+            }
+
+            if ui.button(t("sketch.tool.fillet")).clicked() {
+                state.sketch.set_tool(SketchTool::Fillet);
+                ui.close_menu();
+                self.sketch_tools_context_menu = false;
+            }
+
+            if ui.button(t("sketch.tool.offset")).clicked() {
+                state.sketch.set_tool(SketchTool::Offset);
+                ui.close_menu();
+                self.sketch_tools_context_menu = false;
+            }
+
+            if ui.button(t("sketch.tool.dimension")).clicked() {
+                state.sketch.set_tool(SketchTool::Dimension);
+                ui.close_menu();
+                self.sketch_tools_context_menu = false;
+            }
+
+            ui.separator();
+
+            // Done - exit sketch editing
+            if ui.button(t("sketch.done")).clicked() {
+                state.sketch.exit_edit();
+                ui.close_menu();
+                self.sketch_tools_context_menu = false;
+            }
+        });
+
+        // Close menu if clicked elsewhere
+        if ui.input(|i| i.pointer.any_click()) && !response.context_menu_opened() {
+            self.sketch_tools_context_menu = false;
+        }
+    }
+
     fn rebuild_csg_if_needed(&mut self, state: &mut AppState) {
         let scene_version = state.scene.version();
         let selected_ids: Vec<String> = state.selection.all().to_vec();
@@ -1398,14 +1754,14 @@ impl ViewportPanel {
         }
     }
 
-    fn draw_overlays(&self, ui: &mut Ui, rect: egui::Rect, state: &AppState) {
+    fn draw_overlays(&mut self, ui: &mut Ui, rect: egui::Rect, state: &AppState) {
         let painter = ui.painter_at(rect);
 
         // Axis labels
         overlays::draw_axis_labels(&painter, rect, &self.camera);
 
-        // Camera info overlay
-        self.draw_camera_info(&painter, rect);
+        // ViewCube (navigation cube)
+        self.view_cube_state = Some(overlays::draw_view_cube(&painter, rect, &self.camera));
 
         // Navigation hint
         if state.scene.scene.bodies.is_empty() {
@@ -1432,6 +1788,7 @@ impl ViewportPanel {
         overlays::draw_revolve_overlay(&painter, rect, &self.camera, state);
     }
 
+    #[allow(dead_code)]
     fn draw_camera_info(&self, painter: &egui::Painter, rect: egui::Rect) {
         let overlay_rect = egui::Rect::from_min_size(
             egui::pos2(rect.right() - 140.0, rect.top() + 4.0),
@@ -1500,6 +1857,8 @@ impl ViewportPanel {
                 let display_info = renderer::SketchElementDisplayInfo {
                     construction: sketch.construction.clone(),
                     revolve_axis: sketch.revolve_axis,
+                    dimension_settings: Some(state.settings.dimensions.clone()),
+                    unit_abbrev: Some(state.settings.units.abbrev()),
                     ..Default::default()
                 };
                 renderer::draw_sketch_elements(
@@ -1548,6 +1907,8 @@ impl ViewportPanel {
                     hover_point: state.sketch.element_selection.hover_point,
                     construction: sketch.construction.clone(),
                     revolve_axis: sketch.revolve_axis,
+                    dimension_settings: Some(state.settings.dimensions.clone()),
+                    unit_abbrev: Some(state.settings.units.abbrev()),
                 };
                 renderer::draw_sketch_elements(
                     painter,
@@ -1614,6 +1975,89 @@ impl ViewportPanel {
                     );
                     renderer::draw_snap_marker(painter, rect, &self.camera, p3d, snap.snap_type);
                 }
+            }
+        }
+    }
+
+    /// Mirror selected elements about the symmetry axis
+    fn mirror_selected_elements(&mut self, state: &mut AppState, create_copy: bool) {
+        use crate::sketch::geometry::reflect_element_about_line;
+
+        let (body_id, feature_id) = match (
+            state.sketch.editing_body_id(),
+            state.sketch.active_feature_id(),
+        ) {
+            (Some(bid), fid) => (bid.clone(), fid.cloned()),
+            _ => return,
+        };
+
+        // Get sketch and symmetry axis
+        let (axis_line, selected_indices) = {
+            let sketch_data = sketch_utils::find_sketch_data_ex(
+                &state.scene.scene,
+                &body_id,
+                feature_id.as_deref(),
+            );
+
+            let (sketch, _) = match sketch_data {
+                Some(data) => data,
+                None => return,
+            };
+
+            // Get symmetry axis
+            let axis_idx = match sketch.symmetry_axis {
+                Some(idx) => idx,
+                None => return, // No symmetry axis set
+            };
+
+            let axis_line = match sketch.elements.get(axis_idx) {
+                Some(shared::SketchElement::Line { start, end }) => {
+                    ((start.x, start.y), (end.x, end.y))
+                }
+                _ => return, // Axis must be a line
+            };
+
+            let selected = state.sketch.element_selection.selected.clone();
+            (axis_line, selected)
+        };
+
+        // Create mirrored elements
+        let mut new_elements = Vec::new();
+
+        for &elem_idx in &selected_indices {
+            let elem = {
+                let sketch_data = sketch_utils::find_sketch_data_ex(
+                    &state.scene.scene,
+                    &body_id,
+                    feature_id.as_deref(),
+                );
+                match sketch_data {
+                    Some((sketch, _)) => sketch.elements.get(elem_idx).cloned(),
+                    None => None,
+                }
+            };
+
+            if let Some(element) = elem {
+                let mirrored = reflect_element_about_line(&element, axis_line);
+                new_elements.push(mirrored);
+            }
+        }
+
+        // Apply changes
+        if create_copy {
+            // Create copies - add new mirrored elements
+            for mirrored in new_elements {
+                state.scene.add_element_to_body_sketch_ex(&body_id, feature_id.as_deref(), mirrored);
+            }
+        } else {
+            // Move - replace original elements with mirrored versions
+            for (idx, mirrored) in selected_indices.iter().zip(new_elements.iter()) {
+                state.scene.replace_sketch_element(
+                    &body_id,
+                    feature_id.as_deref(),
+                    *idx,
+                    vec![mirrored.clone()],
+                );
             }
         }
     }

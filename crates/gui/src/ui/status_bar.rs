@@ -38,11 +38,13 @@ pub fn show(ui: &mut Ui, state: &AppState) {
                 }
                 SketchTool::Dimension => match pts {
                     0 => t("hint.dim_from").to_string(),
-                    _ => t("hint.dim_to").to_string(),
+                    1 => t("hint.dim_to").to_string(),
+                    _ => t("hint.dim_pos").to_string(),
                 },
                 SketchTool::Trim => t("hint.trim").to_string(),
                 SketchTool::Fillet => t("hint.fillet").to_string(),
                 SketchTool::Offset => t("hint.offset").to_string(),
+                SketchTool::Mirror => t("hint.mirror").to_string(),
             };
             let tool_label = match tool {
                 SketchTool::None => t("tool.select"),
@@ -56,6 +58,7 @@ pub fn show(ui: &mut Ui, state: &AppState) {
                 SketchTool::Trim => t("tool.trim"),
                 SketchTool::Fillet => t("tool.fillet"),
                 SketchTool::Offset => t("tool.offset"),
+                SketchTool::Mirror => t("tool.mirror"),
             };
             ui.colored_label(
                 egui::Color32::YELLOW,

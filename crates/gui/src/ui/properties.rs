@@ -283,7 +283,15 @@ fn show_single_element_properties(
                         });
                 });
         }
-        SketchElement::Dimension { from, to, value } => {
+        SketchElement::Dimension { from, to, value, parameter_name, target_element, dimension_type, .. } => {
+            // Show dimension type label
+            let type_label = match dimension_type {
+                shared::DimensionType::Linear => t("prop.linear"),
+                shared::DimensionType::Radius => t("prop.radius"),
+                shared::DimensionType::Diameter => t("prop.diameter"),
+            };
+            let saved_dim_type = *dimension_type;
+
             egui::CollapsingHeader::new(t("prop.geometry"))
                 .id_salt("dimension_geometry")
                 .default_open(true)
@@ -292,6 +300,10 @@ fn show_single_element_properties(
                         .num_columns(2)
                         .spacing([8.0, 4.0])
                         .show(ui, |ui| {
+                            ui.label(format!("{}:", t("prop.type")));
+                            ui.label(type_label);
+                            ui.end_row();
+
                             ui.label(format!("{}:", t("prop.from")));
                             ui.label(format!("({:.3}, {:.3})", from.x, from.y));
                             ui.end_row();
@@ -301,9 +313,354 @@ fn show_single_element_properties(
                             ui.end_row();
 
                             ui.label(format!("{}:", t("prop.value")));
-                            ui.label(format!("{:.4}", value));
+
+                            // Make value editable only if not linked to parameter
+                            let mut new_value = *value;
+                            let is_linked = parameter_name.is_some();
+                            let saved_target = *target_element;
+
+                            let value_response = ui.add_enabled(
+                                !is_linked,
+                                egui::DragValue::new(&mut new_value)
+                                    .speed(0.01)
+                                    .range(0.001..=1000.0)
+                                    .suffix("")
+                            );
+
+                            let value_changed = value_response.changed();
+
+                            if is_linked {
+                                value_response.on_hover_text(t("prop.value_linked_hint"));
+                            }
+
+                            // Apply value change and update geometry
+                            if value_changed && (new_value - value).abs() > 1e-6 {
+                                if let (Some(ref bid), Some(ref fid)) = (&body_id, &feature_id) {
+                                    if let Some(body) = state.scene.scene.bodies.iter_mut().find(|b| &b.id == bid) {
+                                        if let Some(feature) = body.features.iter_mut().find(|f| match f {
+                                            shared::Feature::Sketch { id, .. } => id == fid,
+                                            shared::Feature::BaseExtrude { id, .. } => id == fid,
+                                            shared::Feature::BaseRevolve { id, .. } => id == fid,
+                                            _ => false,
+                                        }) {
+                                            let sketch = match feature {
+                                                shared::Feature::Sketch { sketch, .. } => sketch,
+                                                shared::Feature::BaseExtrude { sketch, .. } => sketch,
+                                                shared::Feature::BaseRevolve { sketch, .. } => sketch,
+                                                _ => return,
+                                            };
+
+                                            // Get dimension data
+                                            let dim_data = if let Some(SketchElement::Dimension {
+                                                from,
+                                                to,
+                                                ..
+                                            }) = sketch.elements.get(elem_idx) {
+                                                let dx = to.x - from.x;
+                                                let dy = to.y - from.y;
+                                                let len = (dx * dx + dy * dy).sqrt();
+                                                if len > 1e-10 {
+                                                    let dir_x = dx / len;
+                                                    let dir_y = dy / len;
+                                                    Some((from.clone(), to.clone(), len, dir_x, dir_y))
+                                                } else {
+                                                    None
+                                                }
+                                            } else {
+                                                None
+                                            };
+
+                                            if let Some((dim_from, original_to, _current_len, dir_x, dir_y)) = dim_data {
+                                                // Calculate new 'to' position
+                                                let new_to_x = dim_from.x + dir_x * new_value;
+                                                let new_to_y = dim_from.y + dir_y * new_value;
+
+                                                // Try to update target line
+                                                let mut target_updated = false;
+                                                let mut found_target_idx: Option<usize> = None;
+
+                                                // If target_element is set, use it directly
+                                                if let Some(target_idx) = saved_target {
+                                                    if target_idx != elem_idx {
+                                                        if let Some(target_elem) = sketch.elements.get_mut(target_idx) {
+                                                            match target_elem {
+                                                                SketchElement::Line { start, end } => {
+                                                                    // Check which end to update
+                                                                    let dist_start_from = ((start.x - dim_from.x).powi(2) + (start.y - dim_from.y).powi(2)).sqrt();
+                                                                    let dist_end_to = ((end.x - original_to.x).powi(2) + (end.y - original_to.y).powi(2)).sqrt();
+                                                                    let dist_start_to = ((start.x - original_to.x).powi(2) + (start.y - original_to.y).powi(2)).sqrt();
+                                                                    let dist_end_from = ((end.x - dim_from.x).powi(2) + (end.y - dim_from.y).powi(2)).sqrt();
+
+                                                                    if dist_start_from < dist_start_to && dist_end_to < dist_end_from {
+                                                                        end.x = new_to_x;
+                                                                        end.y = new_to_y;
+                                                                    } else {
+                                                                        start.x = new_to_x;
+                                                                        start.y = new_to_y;
+                                                                    }
+                                                                    target_updated = true;
+                                                                }
+                                                                SketchElement::Rectangle { corner, width, height } => {
+                                                                    // Determine which edge matches and update width or height
+                                                                    let c0 = (corner.x, corner.y);
+                                                                    let c1 = (corner.x + *width, corner.y);
+                                                                    let c2 = (corner.x + *width, corner.y + *height);
+                                                                    let c3 = (corner.x, corner.y + *height);
+                                                                    let threshold = 0.5;
+                                                                    let dim_from_pt = (dim_from.x, dim_from.y);
+                                                                    let dim_to_pt = (original_to.x, original_to.y);
+
+                                                                    // Bottom or Top edge -> width
+                                                                    if (dist_pts(dim_from_pt, c0) < threshold && dist_pts(dim_to_pt, c1) < threshold) ||
+                                                                       (dist_pts(dim_from_pt, c1) < threshold && dist_pts(dim_to_pt, c0) < threshold) ||
+                                                                       (dist_pts(dim_from_pt, c3) < threshold && dist_pts(dim_to_pt, c2) < threshold) ||
+                                                                       (dist_pts(dim_from_pt, c2) < threshold && dist_pts(dim_to_pt, c3) < threshold) {
+                                                                        *width = new_value;
+                                                                        target_updated = true;
+                                                                    }
+                                                                    // Left or Right edge -> height
+                                                                    else if (dist_pts(dim_from_pt, c0) < threshold && dist_pts(dim_to_pt, c3) < threshold) ||
+                                                                            (dist_pts(dim_from_pt, c3) < threshold && dist_pts(dim_to_pt, c0) < threshold) ||
+                                                                            (dist_pts(dim_from_pt, c1) < threshold && dist_pts(dim_to_pt, c2) < threshold) ||
+                                                                            (dist_pts(dim_from_pt, c2) < threshold && dist_pts(dim_to_pt, c1) < threshold) {
+                                                                        *height = new_value;
+                                                                        target_updated = true;
+                                                                    }
+                                                                }
+                                                                SketchElement::Circle { radius, .. } => {
+                                                                    // Update circle radius based on dimension type
+                                                                    match saved_dim_type {
+                                                                        shared::DimensionType::Radius => {
+                                                                            *radius = new_value;
+                                                                            target_updated = true;
+                                                                        }
+                                                                        shared::DimensionType::Diameter => {
+                                                                            *radius = new_value / 2.0;
+                                                                            target_updated = true;
+                                                                        }
+                                                                        _ => {}
+                                                                    }
+                                                                }
+                                                                _ => {}
+                                                            }
+                                                        }
+                                                    }
+                                                }
+
+                                                // Fallback: search by coordinates if target not set or not found
+                                                if !target_updated {
+                                                    for (idx, other_elem) in sketch.elements.iter_mut().enumerate() {
+                                                        if idx == elem_idx {
+                                                            continue;
+                                                        }
+
+                                                        match other_elem {
+                                                            SketchElement::Line { start, end } => {
+                                                                let dist_start_from = ((start.x - dim_from.x).powi(2) + (start.y - dim_from.y).powi(2)).sqrt();
+                                                                let dist_end_to = ((end.x - original_to.x).powi(2) + (end.y - original_to.y).powi(2)).sqrt();
+                                                                let dist_start_to = ((start.x - original_to.x).powi(2) + (start.y - original_to.y).powi(2)).sqrt();
+                                                                let dist_end_from = ((end.x - dim_from.x).powi(2) + (end.y - dim_from.y).powi(2)).sqrt();
+
+                                                                // Use larger threshold (0.5 units)
+                                                                if dist_start_from < 0.5 && dist_end_to < 0.5 {
+                                                                    end.x = new_to_x;
+                                                                    end.y = new_to_y;
+                                                                    found_target_idx = Some(idx);
+                                                                    break;
+                                                                } else if dist_start_to < 0.5 && dist_end_from < 0.5 {
+                                                                    start.x = new_to_x;
+                                                                    start.y = new_to_y;
+                                                                    found_target_idx = Some(idx);
+                                                                    break;
+                                                                }
+                                                            }
+                                                            SketchElement::Rectangle { corner, width, height } => {
+                                                                // Rectangle corners:
+                                                                // c0 = corner, c1 = corner + (width, 0)
+                                                                // c2 = corner + (width, height), c3 = corner + (0, height)
+                                                                let c0 = (corner.x, corner.y);
+                                                                let c1 = (corner.x + *width, corner.y);
+                                                                let c2 = (corner.x + *width, corner.y + *height);
+                                                                let c3 = (corner.x, corner.y + *height);
+
+                                                                let threshold = 0.5;
+                                                                let dim_from_pt = (dim_from.x, dim_from.y);
+                                                                let dim_to_pt = (original_to.x, original_to.y);
+
+                                                                // Check which edge matches the dimension
+                                                                // Bottom edge (c0 - c1): width
+                                                                if (dist_pts(dim_from_pt, c0) < threshold && dist_pts(dim_to_pt, c1) < threshold) ||
+                                                                   (dist_pts(dim_from_pt, c1) < threshold && dist_pts(dim_to_pt, c0) < threshold) {
+                                                                    *width = new_value;
+                                                                    found_target_idx = Some(idx);
+                                                                    break;
+                                                                }
+                                                                // Top edge (c3 - c2): width
+                                                                if (dist_pts(dim_from_pt, c3) < threshold && dist_pts(dim_to_pt, c2) < threshold) ||
+                                                                   (dist_pts(dim_from_pt, c2) < threshold && dist_pts(dim_to_pt, c3) < threshold) {
+                                                                    *width = new_value;
+                                                                    found_target_idx = Some(idx);
+                                                                    break;
+                                                                }
+                                                                // Left edge (c0 - c3): height
+                                                                if (dist_pts(dim_from_pt, c0) < threshold && dist_pts(dim_to_pt, c3) < threshold) ||
+                                                                   (dist_pts(dim_from_pt, c3) < threshold && dist_pts(dim_to_pt, c0) < threshold) {
+                                                                    *height = new_value;
+                                                                    found_target_idx = Some(idx);
+                                                                    break;
+                                                                }
+                                                                // Right edge (c1 - c2): height
+                                                                if (dist_pts(dim_from_pt, c1) < threshold && dist_pts(dim_to_pt, c2) < threshold) ||
+                                                                   (dist_pts(dim_from_pt, c2) < threshold && dist_pts(dim_to_pt, c1) < threshold) {
+                                                                    *height = new_value;
+                                                                    found_target_idx = Some(idx);
+                                                                    break;
+                                                                }
+                                                            }
+                                                            _ => {}
+                                                        }
+                                                    }
+                                                }
+
+                                                // Update dimension
+                                                if let Some(SketchElement::Dimension {
+                                                    from: dim_from_mut,
+                                                    to: dim_to,
+                                                    value: dim_value,
+                                                    target_element: dim_target,
+                                                    dimension_type: dim_type,
+                                                    ..
+                                                }) = sketch.elements.get_mut(elem_idx) {
+                                                    // For circle dimensions, update from/to based on new radius
+                                                    match dim_type {
+                                                        shared::DimensionType::Radius => {
+                                                            // Radius: from = center, to = center + radius (horizontal)
+                                                            dim_to.x = dim_from_mut.x + new_value;
+                                                            dim_to.y = dim_from_mut.y;
+                                                            *dim_value = new_value;
+                                                        }
+                                                        shared::DimensionType::Diameter => {
+                                                            // Diameter: recalculate from/to based on center and new radius
+                                                            let center_x = (dim_from_mut.x + dim_to.x) / 2.0;
+                                                            let center_y = (dim_from_mut.y + dim_to.y) / 2.0;
+                                                            let new_radius = new_value / 2.0;
+                                                            dim_from_mut.x = center_x - new_radius;
+                                                            dim_from_mut.y = center_y;
+                                                            dim_to.x = center_x + new_radius;
+                                                            dim_to.y = center_y;
+                                                            *dim_value = new_value;
+                                                        }
+                                                        shared::DimensionType::Linear => {
+                                                            dim_to.x = new_to_x;
+                                                            dim_to.y = new_to_y;
+                                                            *dim_value = new_value;
+                                                        }
+                                                    }
+
+                                                    // Save found target for future updates
+                                                    if dim_target.is_none() && found_target_idx.is_some() {
+                                                        *dim_target = found_target_idx;
+                                                    }
+                                                }
+
+                                                state.scene.notify_mutated();
+                                            }
+                                    }
+                                }
+                            }
+                            }
                             ui.end_row();
                         });
+                });
+
+            // Parameter link section
+            egui::CollapsingHeader::new(t("prop.parameter_link"))
+                .id_salt("dimension_parameter")
+                .default_open(true)
+                .show(ui, |ui| {
+                    // Get body parameters
+                    let body_params: Vec<String> = if let Some(ref bid) = body_id {
+                        state.scene.scene.bodies.iter()
+                            .find(|b| &b.id == bid)
+                            .map(|b| b.parameters.keys().cloned().collect())
+                            .unwrap_or_default()
+                    } else {
+                        vec![]
+                    };
+
+                    let mut new_param_name = parameter_name.clone();
+                    let mut changed = false;
+
+                    ui.horizontal(|ui| {
+                        ui.label(format!("{}:", t("prop.linked_parameter")));
+
+                        let current_label = parameter_name.as_ref()
+                            .map(|s| s.as_str())
+                            .unwrap_or(t("prop.none"));
+
+                        egui::ComboBox::from_id_salt("dimension_param_combo")
+                            .selected_text(current_label)
+                            .show_ui(ui, |ui| {
+                                // Option to unlink
+                                if ui.selectable_value(&mut new_param_name, None, t("prop.none")).clicked() {
+                                    changed = true;
+                                }
+
+                                // List all parameters
+                                for param in &body_params {
+                                    if ui.selectable_value(
+                                        &mut new_param_name,
+                                        Some(param.clone()),
+                                        param
+                                    ).clicked() {
+                                        changed = true;
+                                    }
+                                }
+                            });
+                    });
+
+                    // Apply changes if user selected a different parameter
+                    if changed && new_param_name != *parameter_name {
+                        if let (Some(ref bid), Some(ref fid)) = (&body_id, &feature_id) {
+                            // First, evaluate the parameter value (if linking to a parameter)
+                            let new_value: Option<f64> = if let Some(ref param_name) = new_param_name {
+                                state.scene.scene.bodies.iter()
+                                    .find(|b| &b.id == bid)
+                                    .and_then(|b| b.evaluate_parameter(param_name).ok())
+                            } else {
+                                None
+                            };
+
+                            // Now update the dimension's parameter_name
+                            if let Some(body) = state.scene.scene.bodies.iter_mut().find(|b| &b.id == bid) {
+                                // Find the feature
+                                if let Some(feature) = body.features.iter_mut().find(|f| match f {
+                                    shared::Feature::Sketch { id, .. } => id == fid,
+                                    shared::Feature::BaseExtrude { id, .. } => id == fid,
+                                    shared::Feature::BaseRevolve { id, .. } => id == fid,
+                                    _ => false,
+                                }) {
+                                    let sketch = match feature {
+                                        shared::Feature::Sketch { sketch, .. } => sketch,
+                                        shared::Feature::BaseExtrude { sketch, .. } => sketch,
+                                        shared::Feature::BaseRevolve { sketch, .. } => sketch,
+                                        _ => return,
+                                    };
+
+                                    if let Some(SketchElement::Dimension { parameter_name: ref mut pn, value: ref mut v, .. }) = sketch.elements.get_mut(elem_idx) {
+                                        *pn = new_param_name.clone();
+
+                                        // If we evaluated a parameter value, use it
+                                        if let Some(param_value) = new_value {
+                                            *v = param_value;
+                                        }
+                                    }
+                                }
+
+                                state.scene.notify_mutated();
+                            }
+                        }
+                    }
                 });
         }
     }
@@ -427,6 +784,11 @@ fn constraint_icon(constraint: &shared::SketchConstraint) -> &'static str {
         shared::SketchConstraint::Concentric { .. } => "O",
         shared::SketchConstraint::Symmetric { .. } => "S",
     }
+}
+
+/// Calculate distance between two 2D points
+fn dist_pts(a: (f64, f64), b: (f64, f64)) -> f64 {
+    ((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt()
 }
 
 fn show_body_properties(ui: &mut Ui, body: &Body) {

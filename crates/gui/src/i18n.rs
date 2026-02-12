@@ -51,6 +51,7 @@ pub fn t(key: &str) -> &'static str {
         "menu.view" => if ru { "Вид" } else { "View" },
         "menu.scene_tree" => if ru { "Дерево сцены" } else { "Scene tree" },
         "menu.properties" => if ru { "Свойства" } else { "Properties" },
+        "menu.parameters" => if ru { "Параметры" } else { "Parameters" },
         "menu.ai_chat" => if ru { "AI Чат" } else { "AI Chat" },
         "menu.reset_camera" => if ru { "Сбросить камеру" } else { "Reset camera" },
         "menu.language" => if ru { "Язык" } else { "Language" },
@@ -192,6 +193,7 @@ pub fn t(key: &str) -> &'static str {
         "prop.length" => if ru { "Длина" } else { "Length" },
         "prop.center" => if ru { "Центр" } else { "Center" },
         "prop.diameter" => if ru { "Диаметр" } else { "Diameter" },
+        "prop.linear" => if ru { "Линейный" } else { "Linear" },
         "prop.circumference" => if ru { "Окружность" } else { "Circumference" },
         "prop.start_angle" => if ru { "Нач. угол" } else { "Start angle" },
         "prop.end_angle" => if ru { "Кон. угол" } else { "End angle" },
@@ -205,6 +207,10 @@ pub fn t(key: &str) -> &'static str {
         "prop.value" => if ru { "Значение" } else { "Value" },
         "prop.selected_elements" => if ru { "Выбрано элементов" } else { "Selected elements" },
         "prop.more" => if ru { "ещё" } else { "more" },
+        "prop.parameter_link" => if ru { "Привязка к параметру" } else { "Parameter Link" },
+        "prop.linked_parameter" => if ru { "Параметр" } else { "Parameter" },
+        "prop.none" => if ru { "(нет)" } else { "(none)" },
+        "prop.value_linked_hint" => if ru { "Значение определяется параметром. Отвяжите размер, чтобы редактировать." } else { "Value is controlled by parameter. Unlink to edit." },
 
         // ── Face selection ─────────────────────────────────
         "prop.face" => if ru { "Грань" } else { "Face" },
@@ -245,12 +251,28 @@ pub fn t(key: &str) -> &'static str {
         "tool.trim" => if ru { "Обрезка" } else { "Trim" },
         "tool.fillet" => if ru { "Скругление" } else { "Fillet" },
         "tool.offset" => if ru { "Смещение" } else { "Offset" },
+        "tool.mirror" => if ru { "Зеркало" } else { "Mirror" },
         "tool.radius" => if ru { "Радиус:" } else { "Radius:" },
         "tool.distance" => if ru { "Расст.:" } else { "Dist.:" },
 
         // ── Sketch toolbar ──────────────────────────────────
         "stb.sketch" => if ru { "Эскиз:" } else { "Sketch:" },
         "stb.done" => if ru { "Готово" } else { "Done" },
+
+        // ── Sketch context menu ─────────────────────────────
+        "sketch.tools" => if ru { "Инструменты" } else { "Tools" },
+        "sketch.done" => if ru { "✓ Готово" } else { "✓ Done" },
+        "sketch.tool.select" => if ru { "🔲 Выбор" } else { "🔲 Select" },
+        "sketch.tool.line" => if ru { "📏 Линия" } else { "📏 Line" },
+        "sketch.tool.circle" => if ru { "⭕ Окружность" } else { "⭕ Circle" },
+        "sketch.tool.arc" => if ru { "🌙 Дуга" } else { "🌙 Arc" },
+        "sketch.tool.rectangle" => if ru { "▭ Прямоугольник" } else { "▭ Rectangle" },
+        "sketch.tool.polyline" => if ru { "〰️ Полилиния" } else { "〰️ Polyline" },
+        "sketch.tool.spline" => if ru { "🌊 Сплайн" } else { "🌊 Spline" },
+        "sketch.tool.trim" => if ru { "✂️ Обрезка" } else { "✂️ Trim" },
+        "sketch.tool.fillet" => if ru { "🔄 Скругление" } else { "🔄 Fillet" },
+        "sketch.tool.offset" => if ru { "↔️ Смещение" } else { "↔️ Offset" },
+        "sketch.tool.dimension" => if ru { "📐 Размер" } else { "📐 Dimension" },
 
         // ── Chat panel ──────────────────────────────────────
         "chat.title" => if ru { "AI Чат" } else { "AI Chat" },
@@ -289,10 +311,12 @@ pub fn t(key: &str) -> &'static str {
         "hint.arc_end" => if ru { "Кликните для конечного угла" } else { "Click to set end angle" },
         "hint.dim_from" => if ru { "Кликните начальную точку" } else { "Click 'from' point" },
         "hint.dim_to" => if ru { "Кликните конечную точку" } else { "Click 'to' point" },
+        "hint.dim_pos" => if ru { "Кликните позицию размерной линии" } else { "Click dimension line position" },
         "hint.poly_add" => if ru { "Кликните для добавления точки | ПКМ для завершения" } else { "Click to add point | RMB to finish" },
         "hint.trim" => if ru { "Кликните сегмент для обрезки" } else { "Click segment to trim" },
         "hint.fillet" => if ru { "Кликните угол для скругления" } else { "Click corner to fillet" },
         "hint.offset" => if ru { "Кликните элемент для смещения" } else { "Click element to offset" },
+        "hint.mirror" => if ru { "Выберите элементы, затем кликните линию-ось" } else { "Select elements, then click axis line" },
         "hint.esc" => if ru { "Esc для отмены/выхода" } else { "Esc to cancel/exit" },
         "hint.sketch_prefix" => if ru { "ЭСКИЗ" } else { "SKETCH" },
 
@@ -356,6 +380,11 @@ pub fn t(key: &str) -> &'static str {
         "settings.ui" => if ru { "Интерфейс" } else { "Interface" },
         "settings.font_size" => if ru { "Размер шрифта" } else { "Font size" },
 
+        "settings.dimensions" => if ru { "Размерные линии" } else { "Dimensions" },
+        "settings.dim_font_size" => if ru { "Размер шрифта" } else { "Font size" },
+        "settings.dim_precision" => if ru { "Точность (знаков)" } else { "Precision (decimals)" },
+        "settings.dim_show_units" => if ru { "Показывать единицы" } else { "Show units" },
+
         "settings.apply" => if ru { "Применить" } else { "Apply" },
         "settings.reset" => if ru { "Сбросить" } else { "Reset" },
         "settings.close" => if ru { "Закрыть" } else { "Close" },
@@ -379,6 +408,33 @@ pub fn t(key: &str) -> &'static str {
         "constraint.tangent" => if ru { "Касательная" } else { "Tangent" },
         "constraint.concentric" => if ru { "Концентрические" } else { "Concentric" },
         "constraint.symmetric" => if ru { "Симметрия" } else { "Symmetric" },
+        "symmetry.set_axis" => if ru { "Отметить как ось симметрии" } else { "Mark as Symmetry Axis" },
+        "symmetry.unset_axis" => if ru { "Снять отметку оси симметрии" } else { "Unmark Symmetry Axis" },
+        "symmetry.mirror_copy" => if ru { "Отразить (копия)" } else { "Mirror (Copy)" },
+        "symmetry.mirror_move" => if ru { "Отразить (переместить)" } else { "Mirror (Move)" },
+
+        // ── Parameters (Параметры) ────────────────────────────────────
+        "params.title" => if ru { "Параметры" } else { "Parameters" },
+        "params.select_body" => if ru { "Выберите тело для просмотра параметров" } else { "Select a body to view parameters" },
+        "params.body_not_found" => if ru { "Тело не найдено" } else { "Body not found" },
+        "params.add_parameter" => if ru { "Добавить параметр" } else { "Add Parameter" },
+        "params.no_parameters" => if ru { "Нет параметров. Нажмите '+' для добавления." } else { "No parameters. Click '+' to add." },
+        "params.value" => if ru { "Значение:" } else { "Value:" },
+        "params.formula" => if ru { "Формула:" } else { "Formula:" },
+        "params.evaluated" => if ru { "Результат:" } else { "Evaluated:" },
+        "params.error" => if ru { "Ошибка:" } else { "Error:" },
+        "params.unit" => if ru { "Единица:" } else { "Unit:" },
+        "params.description" => if ru { "Описание:" } else { "Description:" },
+        "params.reference_not_supported" => if ru { "Ссылки пока не поддерживаются" } else { "References not supported yet" },
+
+        // ── ViewCube (навигационный куб) ──────────────────
+        "view.front" => if ru { "Перед" } else { "Front" },
+        "view.back" => if ru { "Зад" } else { "Back" },
+        "view.left" => if ru { "Лево" } else { "Left" },
+        "view.right" => if ru { "Право" } else { "Right" },
+        "view.top" => if ru { "Верх" } else { "Top" },
+        "view.bottom" => if ru { "Низ" } else { "Bottom" },
+        "view.iso" => if ru { "Изо" } else { "Iso" },
 
         // ── Fallback ────────────────────────────────────────
         _ => "???",

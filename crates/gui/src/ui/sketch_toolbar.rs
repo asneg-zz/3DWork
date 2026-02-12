@@ -35,6 +35,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState) {
             SketchTool::Trim,
             SketchTool::Fillet,
             SketchTool::Offset,
+            SketchTool::Mirror,
         ];
 
         for tool in mod_tools {
@@ -114,5 +115,6 @@ fn tool_translated_label(tool: SketchTool) -> &'static str {
         SketchTool::Trim => t("tool.trim"),
         SketchTool::Fillet => t("tool.fillet"),
         SketchTool::Offset => t("tool.offset"),
+        SketchTool::Mirror => t("tool.mirror"),
     }
 }

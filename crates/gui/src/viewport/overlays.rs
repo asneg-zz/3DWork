@@ -1,12 +1,15 @@
-//! Viewport overlay drawing (axis labels, sketch preview, etc.)
+//! Viewport overlay drawing (axis labels, sketch preview, ViewCube, etc.)
 
 use egui::Painter;
+use glam::{Mat4, Vec3};
 
+use crate::i18n::t;
+use crate::state::settings::DimensionSettings;
 use crate::state::sketch::SketchTool;
 use crate::state::OperationType;
 use crate::state::AppState;
 
-use super::camera::ArcBallCamera;
+use super::camera::{ArcBallCamera, StandardView};
 use super::renderer;
 use super::sketch_utils::find_sketch_data_ex;
 
@@ -31,6 +34,252 @@ pub fn draw_axis_labels(painter: &Painter, rect: egui::Rect, camera: &ArcBallCam
             }
         }
     }
+}
+
+// ============================================================================
+// ViewCube (навигационный куб)
+// ============================================================================
+
+/// ViewCube face information
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ViewCubeFace {
+    Front,
+    Back,
+    Left,
+    Right,
+    Top,
+    Bottom,
+}
+
+impl ViewCubeFace {
+    pub fn to_standard_view(self) -> StandardView {
+        match self {
+            ViewCubeFace::Front => StandardView::Front,
+            ViewCubeFace::Back => StandardView::Back,
+            ViewCubeFace::Left => StandardView::Left,
+            ViewCubeFace::Right => StandardView::Right,
+            ViewCubeFace::Top => StandardView::Top,
+            ViewCubeFace::Bottom => StandardView::Bottom,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ViewCubeFace::Front => t("view.front"),
+            ViewCubeFace::Back => t("view.back"),
+            ViewCubeFace::Left => t("view.left"),
+            ViewCubeFace::Right => t("view.right"),
+            ViewCubeFace::Top => t("view.top"),
+            ViewCubeFace::Bottom => t("view.bottom"),
+        }
+    }
+
+    fn normal(self) -> Vec3 {
+        match self {
+            ViewCubeFace::Front => Vec3::new(0.0, 0.0, 1.0),
+            ViewCubeFace::Back => Vec3::new(0.0, 0.0, -1.0),
+            ViewCubeFace::Right => Vec3::new(1.0, 0.0, 0.0),
+            ViewCubeFace::Left => Vec3::new(-1.0, 0.0, 0.0),
+            ViewCubeFace::Top => Vec3::new(0.0, 1.0, 0.0),
+            ViewCubeFace::Bottom => Vec3::new(0.0, -1.0, 0.0),
+        }
+    }
+}
+
+/// ViewCube state for rendering and interaction
+pub struct ViewCubeState {
+    /// Position of the cube center in screen coordinates
+    pub center: egui::Pos2,
+    /// Size of the cube in pixels
+    pub size: f32,
+    /// Projected face data for hit testing: (face, screen_points, depth)
+    pub faces: Vec<(ViewCubeFace, [egui::Pos2; 4], f32)>,
+}
+
+/// Draw the ViewCube in the viewport corner
+/// Returns ViewCubeState for interaction handling
+pub fn draw_view_cube(
+    painter: &Painter,
+    rect: egui::Rect,
+    camera: &ArcBallCamera,
+) -> ViewCubeState {
+    // Cube settings - larger size for better visibility
+    let cube_size = 100.0_f32;
+    let margin = 10.0_f32;
+
+    // Position in top-right corner
+    let center = egui::pos2(
+        rect.right() - cube_size * 0.5 - margin,
+        rect.top() + cube_size * 0.5 + margin,
+    );
+
+    // Define cube vertices (half-size = 1.0)
+    let half = 1.0_f32;
+    let vertices = [
+        Vec3::new(-half, -half, -half), // 0: back-bottom-left
+        Vec3::new(half, -half, -half),  // 1: back-bottom-right
+        Vec3::new(half, half, -half),   // 2: back-top-right
+        Vec3::new(-half, half, -half),  // 3: back-top-left
+        Vec3::new(-half, -half, half),  // 4: front-bottom-left
+        Vec3::new(half, -half, half),   // 5: front-bottom-right
+        Vec3::new(half, half, half),    // 6: front-top-right
+        Vec3::new(-half, half, half),   // 7: front-top-left
+    ];
+
+    // Define faces as vertex indices with their ViewCubeFace
+    let face_indices: [(ViewCubeFace, [usize; 4]); 6] = [
+        (ViewCubeFace::Front, [4, 5, 6, 7]),  // +Z
+        (ViewCubeFace::Back, [1, 0, 3, 2]),   // -Z
+        (ViewCubeFace::Right, [5, 1, 2, 6]),  // +X
+        (ViewCubeFace::Left, [0, 4, 7, 3]),   // -X
+        (ViewCubeFace::Top, [7, 6, 2, 3]),    // +Y
+        (ViewCubeFace::Bottom, [0, 1, 5, 4]), // -Y
+    ];
+
+    // Create rotation matrix from camera yaw/pitch (inverted to show orientation)
+    let rotation = Mat4::from_rotation_y(-camera.yaw) * Mat4::from_rotation_x(-camera.pitch);
+
+    // Project cube vertices to screen
+    let scale = cube_size * 0.4;
+    let project_vertex = |v: Vec3| -> (egui::Pos2, f32) {
+        let rotated = rotation.transform_point3(v);
+        // Simple orthographic projection
+        let screen_x = center.x + rotated.x * scale;
+        let screen_y = center.y - rotated.y * scale; // Y flipped for screen coords
+        (egui::pos2(screen_x, screen_y), rotated.z)
+    };
+
+    // Calculate face data with depths
+    let mut face_data: Vec<(ViewCubeFace, [egui::Pos2; 4], f32)> = face_indices
+        .iter()
+        .map(|(face, indices)| {
+            let corners: Vec<_> = indices.iter().map(|&i| project_vertex(vertices[i])).collect();
+            let screen_pts = [corners[0].0, corners[1].0, corners[2].0, corners[3].0];
+            // Average depth for sorting
+            let avg_depth = corners.iter().map(|(_, z)| *z).sum::<f32>() / 4.0;
+            (*face, screen_pts, avg_depth)
+        })
+        .collect();
+
+    // Sort by depth (back to front)
+    face_data.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal));
+
+    // Colors
+    let face_color = egui::Color32::from_rgba_unmultiplied(60, 80, 120, 220);
+    let _face_color_hover = egui::Color32::from_rgba_unmultiplied(80, 110, 160, 240);
+    let edge_color = egui::Color32::from_rgba_unmultiplied(40, 50, 70, 255);
+    let text_color = egui::Color32::from_rgba_unmultiplied(220, 220, 240, 255);
+
+    // Draw faces (front-facing only, sorted by depth)
+    for (face, corners, _depth) in &face_data {
+        // Check if face is front-facing (visible)
+        let rotated_normal = rotation.transform_vector3(face.normal());
+        if rotated_normal.z <= 0.0 {
+            continue; // Back-facing, skip
+        }
+
+        // Brightness based on facing direction
+        let brightness = 0.5 + 0.5 * rotated_normal.z;
+        let color = egui::Color32::from_rgba_unmultiplied(
+            (face_color.r() as f32 * brightness) as u8,
+            (face_color.g() as f32 * brightness) as u8,
+            (face_color.b() as f32 * brightness) as u8,
+            face_color.a(),
+        );
+
+        // Draw filled face
+        let shape = egui::Shape::convex_polygon(
+            corners.to_vec(),
+            color,
+            egui::Stroke::new(1.0, edge_color),
+        );
+        painter.add(shape);
+
+        // Draw face label
+        let center_x = corners.iter().map(|p| p.x).sum::<f32>() / 4.0;
+        let center_y = corners.iter().map(|p| p.y).sum::<f32>() / 4.0;
+        let label_pos = egui::pos2(center_x, center_y);
+
+        // Scale text based on face visibility
+        let font_size = 9.0 + 3.0 * rotated_normal.z;
+        let text_alpha = (180.0 + 75.0 * rotated_normal.z) as u8;
+        let label_color = egui::Color32::from_rgba_unmultiplied(
+            text_color.r(),
+            text_color.g(),
+            text_color.b(),
+            text_alpha,
+        );
+
+        painter.text(
+            label_pos,
+            egui::Align2::CENTER_CENTER,
+            face.label(),
+            egui::FontId::proportional(font_size),
+            label_color,
+        );
+    }
+
+    // Draw outline circle around cube
+    painter.circle_stroke(
+        center,
+        cube_size * 0.55,
+        egui::Stroke::new(1.5, egui::Color32::from_rgba_unmultiplied(100, 120, 150, 150)),
+    );
+
+    ViewCubeState {
+        center,
+        size: cube_size,
+        faces: face_data,
+    }
+}
+
+/// Check if a point is inside a convex polygon (for hit testing)
+fn point_in_polygon(point: egui::Pos2, polygon: &[egui::Pos2; 4]) -> bool {
+    let n = polygon.len();
+    let mut sign = None;
+
+    for i in 0..n {
+        let p1 = polygon[i];
+        let p2 = polygon[(i + 1) % n];
+
+        // Cross product of edge vector and vector to point
+        let cross = (p2.x - p1.x) * (point.y - p1.y) - (p2.y - p1.y) * (point.x - p1.x);
+
+        let current_sign = cross > 0.0;
+        match sign {
+            None => sign = Some(current_sign),
+            Some(s) if s != current_sign => return false,
+            _ => {}
+        }
+    }
+
+    true
+}
+
+/// Check if mouse position is within the ViewCube area (for drag handling)
+pub fn is_over_view_cube(state: &ViewCubeState, mouse_pos: egui::Pos2) -> bool {
+    let dist = ((mouse_pos.x - state.center.x).powi(2) + (mouse_pos.y - state.center.y).powi(2)).sqrt();
+    dist <= state.size * 0.6
+}
+
+/// Handle ViewCube click - returns the clicked face if any
+pub fn hit_test_view_cube(
+    state: &ViewCubeState,
+    mouse_pos: egui::Pos2,
+) -> Option<ViewCubeFace> {
+    // Check if mouse is within cube bounds (rough check)
+    if !is_over_view_cube(state, mouse_pos) {
+        return None;
+    }
+
+    // Check faces in reverse order (front to back)
+    for (face, corners, _depth) in state.faces.iter().rev() {
+        if point_in_polygon(mouse_pos, corners) {
+            return Some(*face);
+        }
+    }
+
+    None
 }
 
 /// Draw sketch preview (in-progress drawing)
@@ -101,11 +350,20 @@ pub fn draw_sketch_preview(
             draw_polyline_preview(pts, preview, to_screen, painter, preview_stroke);
         }
         SketchTool::Dimension => {
-            draw_dimension_preview(pts, preview, to_screen, painter, preview_stroke, preview_color);
+            draw_dimension_preview(
+                pts,
+                preview,
+                to_screen,
+                painter,
+                preview_stroke,
+                preview_color,
+                &state.settings.dimensions,
+                state.settings.units.abbrev(),
+            );
         }
         SketchTool::None => {}
         // Modification tools don't need drawing preview
-        SketchTool::Trim | SketchTool::Fillet | SketchTool::Offset => {}
+        SketchTool::Trim | SketchTool::Fillet | SketchTool::Offset | SketchTool::Mirror => {}
     }
 }
 
@@ -267,10 +525,22 @@ fn draw_dimension_preview<F>(
     painter: &Painter,
     stroke: egui::Stroke,
     text_color: egui::Color32,
+    dim_settings: &DimensionSettings,
+    unit_abbrev: &str,
 ) where
     F: Fn([f64; 2]) -> Option<egui::Pos2>,
 {
+    // Format dimension text using settings
+    let format_dim = |value: f64| -> String {
+        if dim_settings.show_units {
+            format!("{:.prec$} {}", value, unit_abbrev, prec = dim_settings.precision)
+        } else {
+            format!("{:.prec$}", value, prec = dim_settings.precision)
+        }
+    };
+
     if pts.len() == 1 {
+        // Показываем базовую линию от первой точки до курсора
         if let Some(prev) = preview {
             if let (Some(a), Some(b)) = (to_screen(pts[0]), to_screen(prev)) {
                 painter.line_segment([a, b], stroke);
@@ -281,10 +551,53 @@ fn draw_dimension_preview<F>(
                 painter.text(
                     mid,
                     egui::Align2::CENTER_BOTTOM,
-                    format!("{:.2}", dist),
-                    egui::FontId::proportional(11.0),
+                    format_dim(dist),
+                    egui::FontId::proportional(dim_settings.font_size),
                     text_color,
                 );
+            }
+        }
+    } else if pts.len() == 2 {
+        // Показываем размерную линию с выносными линиями
+        if let Some(pos) = preview {
+            let p_from = pts[0];
+            let p_to = pts[1];
+            let dx = p_to[0] - p_from[0];
+            let dy = p_to[1] - p_from[1];
+            let len = (dx * dx + dy * dy).sqrt();
+
+            if len > 1e-10 {
+                let dir = [dx / len, dy / len];
+                let to_pos = [pos[0] - p_from[0], pos[1] - p_from[1]];
+                let proj = to_pos[0] * dir[0] + to_pos[1] * dir[1];
+                let perp = [to_pos[0] - proj * dir[0], to_pos[1] - proj * dir[1]];
+
+                let dim_start = [p_from[0] + perp[0], p_from[1] + perp[1]];
+                let dim_end = [p_to[0] + perp[0], p_to[1] + perp[1]];
+
+                // Выносные линии
+                let thin_stroke = egui::Stroke::new(stroke.width * 0.5, stroke.color);
+                if let (Some(a), Some(b)) = (to_screen(p_from), to_screen(dim_start)) {
+                    painter.line_segment([a, b], thin_stroke);
+                }
+                if let (Some(a), Some(b)) = (to_screen(p_to), to_screen(dim_end)) {
+                    painter.line_segment([a, b], thin_stroke);
+                }
+
+                // Размерная линия
+                if let (Some(a), Some(b)) = (to_screen(dim_start), to_screen(dim_end)) {
+                    painter.line_segment([a, b], stroke);
+
+                    // Текст
+                    let mid = egui::pos2((a.x + b.x) * 0.5, (a.y + b.y) * 0.5 - 12.0);
+                    painter.text(
+                        mid,
+                        egui::Align2::CENTER_BOTTOM,
+                        format_dim(len),
+                        egui::FontId::proportional(dim_settings.font_size),
+                        text_color,
+                    );
+                }
             }
         }
     }

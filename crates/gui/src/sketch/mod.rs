@@ -8,7 +8,7 @@
 //! - Constraints: Geometric constraints solver
 
 mod types;
-mod geometry;
+pub mod geometry;
 mod trim;
 mod fillet;
 mod offset;
@@ -22,6 +22,7 @@ pub mod operations {
     pub use super::types::{TrimResult, FilletResult, SketchValidation};
     pub use super::trim::{trim_line, trim_arc, trim_circle, trim_polyline, trim_rectangle};
     pub use super::fillet::fillet_lines;
-    pub use super::offset::{offset_line, offset_circle, offset_element};
+    pub use super::offset::{offset_line, offset_circle, offset_arc, offset_rectangle, offset_polyline, offset_spline, offset_element};
     pub use super::validation::{validate_sketch_for_extrusion, check_contour_closed, check_self_intersections};
+    pub use super::geometry::reflect_element_about_line;
 }

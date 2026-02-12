@@ -66,6 +66,45 @@ impl ArcBallCamera {
         }
     }
 
+    /// Set camera to a standard view
+    pub fn set_standard_view(&mut self, view: StandardView) {
+        use std::f32::consts::{FRAC_PI_2, FRAC_PI_4, PI};
+        match view {
+            StandardView::Front => {
+                self.yaw = 0.0;
+                self.pitch = 0.0;
+            }
+            StandardView::Back => {
+                self.yaw = PI;
+                self.pitch = 0.0;
+            }
+            StandardView::Left => {
+                self.yaw = -FRAC_PI_2;
+                self.pitch = 0.0;
+            }
+            StandardView::Right => {
+                self.yaw = FRAC_PI_2;
+                self.pitch = 0.0;
+            }
+            StandardView::Top => {
+                self.yaw = 0.0;
+                self.pitch = FRAC_PI_2;
+            }
+            StandardView::Bottom => {
+                self.yaw = 0.0;
+                self.pitch = -FRAC_PI_2;
+            }
+            StandardView::Isometric => {
+                self.yaw = FRAC_PI_4;
+                self.pitch = FRAC_PI_4 * 0.7; // ~31.7 degrees
+            }
+            StandardView::IsometricBack => {
+                self.yaw = PI + FRAC_PI_4;
+                self.pitch = FRAC_PI_4 * 0.7;
+            }
+        }
+    }
+
     /// Camera position in world space
     pub fn eye_position(&self) -> Vec3 {
         let cy = self.yaw.cos();
@@ -157,4 +196,18 @@ impl ArcBallCamera {
             direction,
         }
     }
+}
+
+/// Standard camera views
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+pub enum StandardView {
+    Front,
+    Back,
+    Left,
+    Right,
+    Top,
+    Bottom,
+    Isometric,
+    IsometricBack,
 }
