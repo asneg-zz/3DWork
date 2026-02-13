@@ -115,8 +115,9 @@ impl ViewportPanel {
         // ── Object/Face selection via click ──────────────────────────
         self.handle_selection(&response, ui, rect, state, sketch_consumed, mod_tool_consumed);
 
-        // ── Edge hover for fillet mode ──────────────────────────
-        if state.fillet3d.is_active() && !sketch_consumed && !mod_tool_consumed {
+        // ── Edge hover for fillet/chamfer mode ──────────────────────────
+        let edge_mode_active = state.fillet3d.is_active() || state.chamfer3d.is_active();
+        if edge_mode_active && !sketch_consumed && !mod_tool_consumed {
             self.handle_fillet_hover(&response, rect, state);
         }
 
@@ -926,8 +927,9 @@ impl ViewportPanel {
         let shift_pressed = ui.input(|i| i.modifiers.shift);
         let ctrl_pressed = ui.input(|i| i.modifiers.ctrl);
 
-        // Check if fillet mode is active
-        if state.fillet3d.is_active() {
+        // Check if fillet or chamfer mode is active
+        let edge_mode_active = state.fillet3d.is_active() || state.chamfer3d.is_active();
+        if edge_mode_active {
             self.handle_edge_selection(pos, &ray, rect, state, ctrl_pressed, shift_pressed);
             return;
         }
@@ -977,14 +979,20 @@ impl ViewportPanel {
     ) {
         let meshes = self.csg_cache.meshes_clone();
 
-        // If no body selected for fillet, try to find one by clicking
+        // If no body selected for fillet/chamfer, try to find one by clicking
         let body_id = if let Some(id) = state.fillet3d.body_id.clone() {
+            id
+        } else if let Some(id) = state.chamfer3d.body_id.clone() {
             id
         } else {
             // Try to pick a body first
             if let Some(obj_id) = pick_nearest(ray, self.csg_cache.aabbs()) {
-                // Set this as the fillet target body
-                state.fillet3d.body_id = Some(obj_id.clone());
+                // Set this as the fillet/chamfer target body
+                if state.fillet3d.is_active() {
+                    state.fillet3d.body_id = Some(obj_id.clone());
+                } else if state.chamfer3d.is_active() {
+                    state.chamfer3d.body_id = Some(obj_id.clone());
+                }
                 obj_id
             } else {
                 return;
@@ -1025,7 +1033,7 @@ impl ViewportPanel {
             screen_size,
             pixel_tolerance,
         ) {
-            tracing::info!("Fillet3D: PICKED edge {} at distance {}", hit.edge_index, hit.distance);
+            tracing::info!("Edge selection: PICKED edge {} at distance {}", hit.edge_index, hit.distance);
             let edge = &edges[hit.edge_index];
 
             let edge_selection = crate::state::selection::EdgeSelection {
@@ -1065,7 +1073,7 @@ impl ViewportPanel {
         }
     }
 
-    /// Handle edge hover for visual feedback in fillet mode
+    /// Handle edge hover for visual feedback in fillet/chamfer mode
     fn handle_fillet_hover(
         &self,
         response: &egui::Response,
@@ -1081,8 +1089,10 @@ impl ViewportPanel {
         let ray = self.camera.screen_ray(pos, rect);
         let meshes = self.csg_cache.meshes_clone();
 
-        // Get body ID for fillet
+        // Get body ID for fillet/chamfer
         let body_id = if let Some(id) = state.fillet3d.body_id.clone() {
+            id
+        } else if let Some(id) = state.chamfer3d.body_id.clone() {
             id
         } else {
             // Try to find body under cursor
@@ -1994,8 +2004,9 @@ impl ViewportPanel {
         // Revolve operation overlay (axis and angle arc)
         overlays::draw_revolve_overlay(&painter, rect, &self.camera, state);
 
-        // Draw selected edges when in fillet mode
-        if state.fillet3d.is_active() {
+        // Draw selected edges when in fillet or chamfer mode
+        let edge_mode_active = state.fillet3d.is_active() || state.chamfer3d.is_active();
+        if edge_mode_active {
             self.draw_selected_edges(&painter, rect, state);
         }
     }

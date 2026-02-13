@@ -8,7 +8,7 @@ use eframe::egui;
 
 use crate::state::AppState;
 use crate::ui::operation_dialog::OperationDialogUi;
-use crate::ui::{chat_panel, fillet3d_panel, parameters, properties, scene_tree, sketch_toolbar, status_bar, toolbar};
+use crate::ui::{chamfer3d_panel, chat_panel, fillet3d_panel, parameters, properties, scene_tree, sketch_toolbar, status_bar, toolbar};
 use crate::viewport::ViewportPanel;
 
 /// Main application
@@ -132,6 +132,19 @@ impl eframe::App for CadApp {
                 )
                 .show(ctx, |ui| {
                     fillet3d_panel::show(ui, &mut self.state);
+                });
+        }
+
+        // ── Chamfer3D toolbar (only in chamfer mode) ─────────────
+        if self.state.chamfer3d.is_active() {
+            egui::TopBottomPanel::top("chamfer3d_toolbar")
+                .frame(
+                    egui::Frame::side_top_panel(&ctx.style())
+                        .inner_margin(egui::Margin::symmetric(8, 3))
+                        .fill(egui::Color32::from_rgb(55, 45, 45)),
+                )
+                .show(ctx, |ui| {
+                    chamfer3d_panel::show(ui, &mut self.state);
                 });
         }
 

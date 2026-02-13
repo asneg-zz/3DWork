@@ -52,6 +52,16 @@ pub fn action_fillet3d(state: &mut AppState) {
     tracing::info!("Fillet3D: activated, select edges (body: {:?})", state.fillet3d.body_id);
 }
 
+pub fn action_chamfer3d(state: &mut AppState) {
+    // Get selected body if any, otherwise allow clicking to select
+    let body_id = state.selection.primary().cloned();
+
+    // Activate chamfer tool (body can be selected later by clicking)
+    state.chamfer3d.activate_with_optional_body(body_id);
+    state.selection.clear_edges();
+    tracing::info!("Chamfer3D: activated, select edges (body: {:?})", state.chamfer3d.body_id);
+}
+
 pub fn action_extrude(state: &mut AppState) {
     let ctx = match get_selected_body_context(state) {
         Ok(ctx) => ctx,
@@ -363,10 +373,10 @@ pub fn show(ui: &mut Ui, state: &mut AppState) {
             }
             if ui
                 .add_enabled(can_fillet, egui::Button::new(t("chamfer3d.button")))
-                .on_hover_text(t("chamfer3d.title"))
+                .on_hover_text(t("chamfer3d.hint"))
                 .clicked()
             {
-                // TODO: action_chamfer3d(state);
+                action_chamfer3d(state);
                 ui.close_menu();
             }
         });

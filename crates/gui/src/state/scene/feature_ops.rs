@@ -206,6 +206,51 @@ impl SceneState {
         }
     }
 
+    /// Add a 3D chamfer feature to a body
+    pub fn add_chamfer_to_body(
+        &mut self,
+        body_id: &BodyId,
+        edges: Vec<crate::state::selection::EdgeSelection>,
+        distance: f64,
+    ) -> bool {
+        if !self.scene.bodies.iter().any(|b| &b.id == body_id) {
+            return false;
+        }
+
+        if edges.is_empty() {
+            return false;
+        }
+
+        self.save_undo();
+        self.redo_stack.clear();
+
+        if let Some(body) = self.scene.bodies.iter_mut().find(|b| &b.id == body_id) {
+            let feature_id = uuid::Uuid::new_v4().to_string();
+
+            // Convert EdgeSelection to the serializable format
+            let edge_data: Vec<([f64; 3], [f64; 3], [f64; 3], Option<[f64; 3]>)> = edges
+                .iter()
+                .map(|e| {
+                    let start = [e.start.x as f64, e.start.y as f64, e.start.z as f64];
+                    let end = [e.end.x as f64, e.end.y as f64, e.end.z as f64];
+                    let n1 = [e.normal1.x as f64, e.normal1.y as f64, e.normal1.z as f64];
+                    let n2 = e.normal2.map(|n| [n.x as f64, n.y as f64, n.z as f64]);
+                    (start, end, n1, n2)
+                })
+                .collect();
+
+            body.features.push(Feature::Chamfer3D {
+                id: feature_id,
+                distance,
+                edges: edge_data,
+            });
+            self.version += 1;
+            true
+        } else {
+            false
+        }
+    }
+
     /// Convert a Sketch feature to BaseExtrude
     pub fn convert_sketch_to_base_extrude(
         &mut self,

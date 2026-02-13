@@ -1,3 +1,4 @@
+pub mod chamfer3d;
 pub mod chat;
 pub mod fillet3d;
 pub mod operation_dialog;
@@ -8,6 +9,7 @@ pub mod sketch;
 
 use std::collections::{HashMap, HashSet};
 
+pub use chamfer3d::Chamfer3DState;
 use chat::ChatState;
 pub use fillet3d::Fillet3DState;
 pub use operation_dialog::{ExtrudeParams, OperationDialog, OperationType};
@@ -53,6 +55,8 @@ pub struct AppState {
     pub operation_dialog: OperationDialog,
     /// 3D Fillet tool state
     pub fillet3d: Fillet3DState,
+    /// 3D Chamfer tool state
+    pub chamfer3d: Chamfer3DState,
 }
 
 impl Default for AppState {
@@ -69,6 +73,7 @@ impl Default for AppState {
             show_settings_window: false,
             operation_dialog: OperationDialog::default(),
             fillet3d: Fillet3DState::default(),
+            chamfer3d: Chamfer3DState::default(),
         }
     }
 }

@@ -1,4 +1,6 @@
+pub mod chamfer3d_panel;
 pub mod chat_panel;
+pub mod fillet3d_panel;
 pub mod operation_dialog;
 pub mod parameters;
 pub mod properties;
