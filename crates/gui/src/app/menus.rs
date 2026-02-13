@@ -145,6 +145,7 @@ pub fn view_menu(ui: &mut egui::Ui, state: &mut AppState, viewport: &mut Viewpor
     ui.menu_button(t("menu.view"), |ui| {
         ui.checkbox(&mut state.panels.scene_tree, t("menu.scene_tree"));
         ui.checkbox(&mut state.panels.properties, t("menu.properties"));
+        ui.checkbox(&mut state.panels.parameters, t("menu.parameters"));
         ui.checkbox(&mut state.panels.chat, t("menu.ai_chat"));
         ui.separator();
         if ui.button(t("menu.reset_camera")).clicked() {
@@ -247,6 +248,7 @@ pub fn settings_window(ctx: &egui::Context, state: &mut AppState) {
         .show(ctx, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 show_general_settings(ui, state);
+                show_dimension_settings(ui, state);
                 show_grid_settings(ui, state);
                 show_axes_settings(ui, state);
                 show_viewport_settings(ui, state);
@@ -394,6 +396,32 @@ fn show_ui_settings(ui: &mut egui::Ui, state: &mut AppState) {
                 .suffix(" pt"),
         );
     });
+    ui.add_space(10.0);
+}
+
+fn show_dimension_settings(ui: &mut egui::Ui, state: &mut AppState) {
+    ui.heading(t("settings.dimensions"));
+
+    ui.horizontal(|ui| {
+        ui.label(t("settings.dim_font_size"));
+        ui.add(
+            egui::DragValue::new(&mut state.settings.dimensions.font_size)
+                .speed(0.5)
+                .range(8.0..=32.0)
+                .suffix(" pt"),
+        );
+    });
+
+    ui.horizontal(|ui| {
+        ui.label(t("settings.dim_precision"));
+        ui.add(
+            egui::DragValue::new(&mut state.settings.dimensions.precision)
+                .speed(1.0)
+                .range(0..=6),
+        );
+    });
+
+    ui.checkbox(&mut state.settings.dimensions.show_units, t("settings.dim_show_units"));
     ui.add_space(10.0);
 }
 

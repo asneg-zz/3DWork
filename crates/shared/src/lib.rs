@@ -457,6 +457,10 @@ pub enum Feature {
         sketch: Sketch,
         sketch_transform: Transform,
         height: f64,
+        #[serde(default)]
+        height_backward: f64,
+        #[serde(default)]
+        draft_angle: f64,
     },
     /// Базовое вращение эскиза
     BaseRevolve {
@@ -518,6 +522,24 @@ pub enum Feature {
         /// ID тела-инструмента
         tool_body_id: BodyId,
     },
+    /// 3D скругление рёбер
+    Fillet3D {
+        id: ObjectId,
+        /// Радиус скругления
+        radius: f64,
+        /// Количество сегментов
+        segments: u32,
+        /// Выбранные рёбра (start, end, normal1, normal2)
+        edges: Vec<([f64; 3], [f64; 3], [f64; 3], Option<[f64; 3]>)>,
+    },
+    /// 3D фаска рёбер
+    Chamfer3D {
+        id: ObjectId,
+        /// Расстояние фаски
+        distance: f64,
+        /// Выбранные рёбра (start, end, normal1, normal2)
+        edges: Vec<([f64; 3], [f64; 3], [f64; 3], Option<[f64; 3]>)>,
+    },
 }
 
 impl Feature {
@@ -531,6 +553,8 @@ impl Feature {
             Feature::Extrude { id, .. } => id,
             Feature::Revolve { id, .. } => id,
             Feature::BooleanModify { id, .. } => id,
+            Feature::Fillet3D { id, .. } => id,
+            Feature::Chamfer3D { id, .. } => id,
         }
     }
 }
@@ -633,6 +657,8 @@ impl SceneDescriptionV2 {
                                 sketch: sketch.clone(),
                                 sketch_transform: transform.clone(),
                                 height: *height,
+                                height_backward: 0.0,
+                                draft_angle: 0.0,
                             }],
                             visible: true,
                             parameters: HashMap::new(),
@@ -739,7 +765,7 @@ impl SceneDescriptionV2 {
                             transform: transform.clone(),
                         });
                     }
-                    Feature::BaseExtrude { id, sketch, sketch_transform, height } => {
+                    Feature::BaseExtrude { id, sketch, sketch_transform, height, .. } => {
                         let sketch_id = format!("{}_sketch", id);
                         operations.push(SceneOperation::CreateSketch {
                             id: sketch_id.clone(),

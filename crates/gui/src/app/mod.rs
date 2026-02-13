@@ -8,7 +8,7 @@ use eframe::egui;
 
 use crate::state::AppState;
 use crate::ui::operation_dialog::OperationDialogUi;
-use crate::ui::{chat_panel, properties, scene_tree, sketch_toolbar, status_bar, toolbar};
+use crate::ui::{chat_panel, fillet3d_panel, parameters, properties, scene_tree, sketch_toolbar, status_bar, toolbar};
 use crate::viewport::ViewportPanel;
 
 /// Main application
@@ -122,6 +122,19 @@ impl eframe::App for CadApp {
                 });
         }
 
+        // ── Fillet3D toolbar (only in fillet mode) ─────────────
+        if self.state.fillet3d.is_active() {
+            egui::TopBottomPanel::top("fillet3d_toolbar")
+                .frame(
+                    egui::Frame::side_top_panel(&ctx.style())
+                        .inner_margin(egui::Margin::symmetric(8, 3))
+                        .fill(egui::Color32::from_rgb(55, 45, 45)),
+                )
+                .show(ctx, |ui| {
+                    fillet3d_panel::show(ui, &mut self.state);
+                });
+        }
+
         // ── Status bar ───────────────────────────────────────
         egui::TopBottomPanel::bottom("status_bar")
             .exact_height(22.0)
@@ -196,7 +209,7 @@ impl CadApp {
     }
 
     fn show_right_panel(&mut self, ctx: &egui::Context) {
-        let show_right = self.state.panels.properties || self.state.panels.chat;
+        let show_right = self.state.panels.properties || self.state.panels.parameters || self.state.panels.chat;
         if !show_right {
             return;
         }
@@ -210,33 +223,60 @@ impl CadApp {
             )
             .show(ctx, |ui| {
                 let show_props = self.state.panels.properties;
+                let show_params = self.state.panels.parameters;
                 let show_chat = self.state.panels.chat;
 
-                if show_props && show_chat {
-                    // Both panels: split with a scrollable properties area
+                let panels_count = show_props as u8 + show_params as u8 + show_chat as u8;
+
+                if panels_count >= 2 {
+                    // Multiple panels: split with scrollable areas
                     let total = ui.available_height();
-                    let props_height = (total * 0.50).max(100.0);
+                    let panel_height = (total / panels_count as f32).max(100.0);
 
-                    egui::ScrollArea::vertical()
-                        .id_salt("props_scroll")
-                        .max_height(props_height)
-                        .show(ui, |ui| {
-                            properties::show(ui, &mut self.state);
-                        });
+                    if show_props {
+                        egui::ScrollArea::vertical()
+                            .id_salt("props_scroll")
+                            .max_height(panel_height)
+                            .show(ui, |ui| {
+                                properties::show(ui, &mut self.state);
+                            });
+                        ui.add_space(2.0);
+                        ui.separator();
+                        ui.add_space(2.0);
+                    }
 
-                    ui.add_space(2.0);
-                    ui.separator();
-                    ui.add_space(2.0);
+                    if show_params {
+                        egui::ScrollArea::vertical()
+                            .id_salt("params_scroll")
+                            .max_height(panel_height)
+                            .show(ui, |ui| {
+                                parameters::show(ui, &mut self.state);
+                            });
+                        ui.add_space(2.0);
+                        ui.separator();
+                        ui.add_space(2.0);
+                    }
 
-                    chat_panel::show(ui, &mut self.state);
-                } else if show_props {
-                    egui::ScrollArea::vertical()
-                        .id_salt("props_scroll_full")
-                        .show(ui, |ui| {
-                            properties::show(ui, &mut self.state);
-                        });
-                } else if show_chat {
-                    chat_panel::show(ui, &mut self.state);
+                    if show_chat {
+                        chat_panel::show(ui, &mut self.state);
+                    }
+                } else {
+                    // Single panel: full height
+                    if show_props {
+                        egui::ScrollArea::vertical()
+                            .id_salt("props_scroll_full")
+                            .show(ui, |ui| {
+                                properties::show(ui, &mut self.state);
+                            });
+                    } else if show_params {
+                        egui::ScrollArea::vertical()
+                            .id_salt("params_scroll_full")
+                            .show(ui, |ui| {
+                                parameters::show(ui, &mut self.state);
+                            });
+                    } else if show_chat {
+                        chat_panel::show(ui, &mut self.state);
+                    }
                 }
             });
     }

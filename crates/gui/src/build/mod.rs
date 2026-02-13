@@ -5,6 +5,7 @@
 mod body_builder;
 mod cache;
 mod extrude_builder;
+mod fillet_builder;
 mod mesh_extraction;
 mod primitives;
 mod sketch_geometry;
@@ -80,6 +81,7 @@ mod tests {
                     transform: Transform::new(),
                 }],
                 visible: true,
+                parameters: HashMap::new(),
             }],
             body_operations: vec![],
         }

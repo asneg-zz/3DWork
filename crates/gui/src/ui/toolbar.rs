@@ -6,8 +6,8 @@ use egui::Ui;
 use shared::{BooleanOp, BooleanResult, Primitive, Sketch, SketchPlane, Transform};
 
 use crate::helpers::{
-    can_perform_cut, can_perform_extrude, find_body_with_base, get_selected_body_context,
-    has_base_geometry,
+    can_perform_cut, can_perform_extrude, can_perform_fillet, find_body_with_base,
+    get_selected_body_context, has_base_geometry,
 };
 use crate::i18n::t;
 use crate::state::AppState;
@@ -40,6 +40,16 @@ pub fn action_create_sketch_xz(state: &mut AppState) {
 
 pub fn action_create_sketch_yz(state: &mut AppState) {
     create_sketch_body(state, "Sketch YZ", SketchPlane::Yz);
+}
+
+pub fn action_fillet3d(state: &mut AppState) {
+    // Get selected body if any, otherwise allow clicking to select
+    let body_id = state.selection.primary().cloned();
+
+    // Activate fillet tool (body can be selected later by clicking)
+    state.fillet3d.activate_with_optional_body(body_id);
+    state.selection.clear_edges();
+    tracing::info!("Fillet3D: activated, select edges (body: {:?})", state.fillet3d.body_id);
 }
 
 pub fn action_extrude(state: &mut AppState) {
@@ -84,7 +94,7 @@ pub fn apply_extrude(state: &mut AppState) {
         tracing::info!("Added extrude feature to body {}", body_id);
     } else {
         // Body has only sketch (no base): convert Sketch to BaseExtrude
-        state.scene.convert_sketch_to_base_extrude(&body_id, &sketch_id, params.height);
+        state.scene.convert_sketch_to_base_extrude(&body_id, &sketch_id, params.height, params.height_backward, params.draft_angle);
         tracing::info!("Converted sketch to base extrude in body {}", body_id);
     }
 
@@ -338,6 +348,27 @@ pub fn show(ui: &mut Ui, state: &mut AppState) {
                 action_cut_revolve(state);
                 ui.close_menu();
             }
+
+            ui.separator();
+
+            // Fillet/Chamfer operations (require selected body with geometry)
+            let can_fillet = can_perform_fillet(state);
+            if ui
+                .add_enabled(can_fillet, egui::Button::new(t("fillet3d.button")))
+                .on_hover_text(t("fillet3d.hint"))
+                .clicked()
+            {
+                action_fillet3d(state);
+                ui.close_menu();
+            }
+            if ui
+                .add_enabled(can_fillet, egui::Button::new(t("chamfer3d.button")))
+                .on_hover_text(t("chamfer3d.title"))
+                .clicked()
+            {
+                // TODO: action_chamfer3d(state);
+                ui.close_menu();
+            }
         });
 
         // ── Boolean dropdown ──
@@ -421,6 +452,7 @@ fn create_sketch_body(state: &mut AppState, name: &str, plane: SketchPlane) {
                 face_normal: None,
                 construction: vec![],
                 revolve_axis: None,
+                symmetry_axis: None,
                 constraints: vec![],
             };
             if let Some(feature_id) = state.scene.add_sketch_to_body(
@@ -443,6 +475,7 @@ fn create_sketch_body(state: &mut AppState, name: &str, plane: SketchPlane) {
         face_normal: None,
         construction: vec![],
         revolve_axis: None,
+        symmetry_axis: None,
         constraints: vec![],
     };
     let body_id = state.scene.create_body_with_sketch(

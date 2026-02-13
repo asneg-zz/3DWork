@@ -1,4 +1,5 @@
 use shared::ObjectId;
+use glam::Vec3;
 
 /// Represents a selected face (group of coplanar triangles) on an object
 #[derive(Clone, Debug)]
@@ -12,6 +13,39 @@ pub struct FaceSelection {
     pub area: f32,
 }
 
+/// Represents a selected edge on an object
+#[derive(Clone, Debug)]
+pub struct EdgeSelection {
+    pub object_id: ObjectId,
+    /// Edge start point
+    pub start: Vec3,
+    /// Edge end point
+    pub end: Vec3,
+    /// Normal of first adjacent face
+    pub normal1: Vec3,
+    /// Normal of second adjacent face (if exists)
+    pub normal2: Option<Vec3>,
+    /// Index of this edge in the extracted edges list
+    pub edge_index: usize,
+}
+
+impl EdgeSelection {
+    /// Get edge length
+    pub fn length(&self) -> f32 {
+        (self.end - self.start).length()
+    }
+
+    /// Get edge direction (normalized)
+    pub fn direction(&self) -> Vec3 {
+        (self.end - self.start).normalize()
+    }
+
+    /// Get edge midpoint
+    pub fn midpoint(&self) -> Vec3 {
+        (self.start + self.end) * 0.5
+    }
+}
+
 /// Object selection state (supports multi-select)
 #[derive(Default)]
 pub struct SelectionState {
@@ -23,6 +57,12 @@ pub struct SelectionState {
     pub selected_face: Option<FaceSelection>,
     /// Version counter for face selection changes (for cache invalidation)
     pub face_selection_version: u64,
+    /// Selected edges on objects (for fillet/chamfer operations)
+    pub selected_edges: Vec<EdgeSelection>,
+    /// Version counter for edge selection changes
+    pub edge_selection_version: u64,
+    /// Currently hovered edge (for visual feedback)
+    pub hovered_edge: Option<EdgeSelection>,
 }
 
 impl SelectionState {
@@ -97,6 +137,55 @@ impl SelectionState {
             .as_ref()
             .map(|f| f.object_id == object_id)
             .unwrap_or(false)
+    }
+
+    /// Add an edge to selection (supports multi-select with Ctrl)
+    pub fn add_edge(&mut self, edge: EdgeSelection) {
+        // Check if already selected (by edge_index and object_id)
+        let already_selected = self.selected_edges.iter()
+            .any(|e| e.object_id == edge.object_id && e.edge_index == edge.edge_index);
+
+        if !already_selected {
+            self.selected_edges.push(edge);
+            self.edge_selection_version += 1;
+        }
+    }
+
+    /// Toggle edge selection
+    pub fn toggle_edge(&mut self, edge: EdgeSelection) {
+        if let Some(pos) = self.selected_edges.iter()
+            .position(|e| e.object_id == edge.object_id && e.edge_index == edge.edge_index)
+        {
+            self.selected_edges.remove(pos);
+        } else {
+            self.selected_edges.push(edge);
+        }
+        self.edge_selection_version += 1;
+    }
+
+    /// Select a single edge (clears previous edge selection)
+    pub fn select_edge(&mut self, edge: EdgeSelection) {
+        self.selected_edges.clear();
+        self.selected_edges.push(edge);
+        self.edge_selection_version += 1;
+    }
+
+    /// Clear edge selection
+    pub fn clear_edges(&mut self) {
+        if !self.selected_edges.is_empty() {
+            self.selected_edges.clear();
+            self.edge_selection_version += 1;
+        }
+    }
+
+    /// Check if any edges are selected
+    pub fn has_edges(&self) -> bool {
+        !self.selected_edges.is_empty()
+    }
+
+    /// Get selected edges count
+    pub fn edge_count(&self) -> usize {
+        self.selected_edges.len()
     }
 }
 

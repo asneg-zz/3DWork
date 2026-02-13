@@ -7,7 +7,8 @@ use crate::extrude::{extrude_mesh, revolve_mesh};
 use crate::helpers::{combine_transforms, get_body_base_transform};
 use crate::viewport::mesh::MeshData;
 
-use super::extrude_builder::{create_extrude_part_from_sketch, create_extrude_part_full, create_revolve_part_from_sketch_with_axis};
+use super::extrude_builder::{create_extrude_part_full, create_revolve_part_from_sketch_with_axis};
+use super::fillet_builder::{apply_chamfer, apply_rounded_fillet, FilletEdge};
 use super::mesh_extraction::{apply_selection_color, extract_mesh_data};
 use super::primitives::{apply_transform, create_primitive};
 
@@ -60,9 +61,11 @@ pub fn build_body_mesh_data(body: &Body, selected: bool, all_bodies: &[Body]) ->
             sketch,
             sketch_transform,
             height,
+            height_backward,
+            draft_angle,
         } => {
-            // If no modifications, return mesh directly
-            if !has_modifications {
+            // If no modifications and no draft angle, return mesh directly (faster)
+            if !has_modifications && draft_angle.abs() < 0.01 {
                 let mut mesh = extrude_mesh(sketch, sketch_transform, *height)?;
                 if selected {
                     apply_selection_color(&mut mesh);
@@ -70,8 +73,8 @@ pub fn build_body_mesh_data(body: &Body, selected: bool, all_bodies: &[Body]) ->
                 return Ok(Some(mesh));
             }
 
-            // Has modifications - need to create a CSG Part from the sketch bounds
-            create_extrude_part_from_sketch(id, sketch, sketch_transform, *height)
+            // Has modifications or draft angle - need to create a CSG Part from the sketch
+            create_extrude_part_full(id, sketch, sketch_transform, *height, *height_backward, false, *draft_angle)
         }
         Feature::BaseRevolve {
             id,
@@ -157,6 +160,12 @@ pub fn build_body_mesh_data(body: &Body, selected: bool, all_bodies: &[Body]) ->
             }
             Feature::BooleanModify { op, tool_body_id, .. } => {
                 process_boolean_modify(&mut current_part, op, tool_body_id, all_bodies);
+            }
+            Feature::Fillet3D { radius, segments, edges, .. } => {
+                process_fillet_feature(&mut current_part, *radius, *segments, edges);
+            }
+            Feature::Chamfer3D { distance, edges, .. } => {
+                process_chamfer_feature(&mut current_part, *distance, edges);
             }
             _ => {}
         }
@@ -376,8 +385,10 @@ fn build_body_part(body: &Body, all_bodies: &[Body]) -> Option<Part> {
             sketch,
             sketch_transform,
             height,
+            height_backward,
+            draft_angle,
         } => {
-            create_extrude_part_from_sketch(id, sketch, sketch_transform, *height)
+            create_extrude_part_full(id, sketch, sketch_transform, *height, *height_backward, false, *draft_angle)
         }
         Feature::BaseRevolve {
             id,
@@ -433,9 +444,84 @@ fn build_body_part(body: &Body, all_bodies: &[Body]) -> Option<Part> {
             Feature::BooleanModify { op, tool_body_id, .. } => {
                 process_boolean_modify(&mut current_part, op, tool_body_id, all_bodies);
             }
+            Feature::Fillet3D { radius, segments, edges, .. } => {
+                process_fillet_feature(&mut current_part, *radius, *segments, edges);
+            }
+            Feature::Chamfer3D { distance, edges, .. } => {
+                process_chamfer_feature(&mut current_part, *distance, edges);
+            }
             _ => {}
         }
     }
 
     current_part
+}
+
+/// Process a Fillet3D feature (rounded) and update the current part
+fn process_fillet_feature(
+    current_part: &mut Option<Part>,
+    radius: f64,
+    segments: u32,
+    edges: &[([f64; 3], [f64; 3], [f64; 3], Option<[f64; 3]>)],
+) {
+    if edges.is_empty() {
+        tracing::warn!("Fillet3D: no edges specified");
+        return;
+    }
+
+    // Convert edge data to FilletEdge format
+    let fillet_edges: Vec<FilletEdge> = edges
+        .iter()
+        .map(|(start, end, normal1, normal2)| FilletEdge {
+            start: *start,
+            end: *end,
+            normal1: *normal1,
+            normal2: *normal2,
+        })
+        .collect();
+
+    if let Some(base_part) = current_part.take() {
+        // Use rounded fillet (with arc profile)
+        if let Some(result) = apply_rounded_fillet(&base_part, &fillet_edges, radius, segments) {
+            *current_part = Some(result);
+            tracing::debug!("Fillet3D: applied rounded fillet with radius {} to {} edges", radius, edges.len());
+        } else {
+            tracing::warn!("Fillet3D: failed to create rounded fillet geometry");
+            *current_part = Some(base_part);
+        }
+    }
+}
+
+/// Process a Chamfer3D feature (flat bevel) and update the current part
+fn process_chamfer_feature(
+    current_part: &mut Option<Part>,
+    distance: f64,
+    edges: &[([f64; 3], [f64; 3], [f64; 3], Option<[f64; 3]>)],
+) {
+    if edges.is_empty() {
+        tracing::warn!("Chamfer3D: no edges specified");
+        return;
+    }
+
+    // Convert edge data to FilletEdge format
+    let fillet_edges: Vec<FilletEdge> = edges
+        .iter()
+        .map(|(start, end, normal1, normal2)| FilletEdge {
+            start: *start,
+            end: *end,
+            normal1: *normal1,
+            normal2: *normal2,
+        })
+        .collect();
+
+    if let Some(base_part) = current_part.take() {
+        // Use chamfer (triangular prism - flat bevel at 45°)
+        if let Some(result) = apply_chamfer(&base_part, &fillet_edges, distance, 1) {
+            *current_part = Some(result);
+            tracing::debug!("Chamfer3D: applied chamfer with distance {} to {} edges", distance, edges.len());
+        } else {
+            tracing::warn!("Chamfer3D: failed to create chamfer geometry");
+            *current_part = Some(base_part);
+        }
+    }
 }

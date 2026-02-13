@@ -364,6 +364,155 @@ pub fn draw_sketch_preview(
         SketchTool::None => {}
         // Modification tools don't need drawing preview
         SketchTool::Trim | SketchTool::Fillet | SketchTool::Offset | SketchTool::Mirror => {}
+        SketchTool::Pattern => {
+            // Pattern preview is handled separately
+            draw_pattern_preview(
+                painter,
+                &sketch,
+                &combined_transform,
+                &state.sketch,
+                camera,
+                rect,
+            );
+        }
+    }
+}
+
+/// Draw pattern preview (ghost elements showing where pattern copies will be)
+fn draw_pattern_preview(
+    painter: &Painter,
+    sketch: &shared::Sketch,
+    transform: &shared::Transform,
+    sketch_state: &crate::state::sketch::SketchState,
+    camera: &ArcBallCamera,
+    rect: egui::Rect,
+) {
+    use crate::sketch::pattern::{linear_pattern, circular_pattern};
+    use crate::state::sketch::PatternType;
+
+    let selected = &sketch_state.element_selection.selected;
+    if selected.is_empty() {
+        return;
+    }
+
+    let params = &sketch_state.pattern_params;
+    let ghost_color = egui::Color32::from_rgba_unmultiplied(100, 200, 255, 100);
+    let ghost_stroke = egui::Stroke::new(1.0, ghost_color);
+
+    let to_screen = |p: [f64; 2]| -> Option<egui::Pos2> {
+        let p3d = renderer::sketch_point_to_3d(p[0], p[1], sketch, transform);
+        camera.project(p3d, rect)
+    };
+
+    // Generate preview copies for each selected element
+    for &idx in selected {
+        if let Some(element) = sketch.elements.get(idx) {
+            let copies = match params.pattern_type {
+                PatternType::Linear => {
+                    linear_pattern(element, params.count, params.spacing, params.direction)
+                }
+                PatternType::Circular => {
+                    if let Some(center) = params.center {
+                        circular_pattern(element, params.count, params.total_angle, center)
+                    } else {
+                        continue;
+                    }
+                }
+            };
+
+            // Draw each copy as ghost
+            for copy in &copies {
+                draw_element_ghost(painter, copy, &to_screen, ghost_stroke);
+            }
+        }
+    }
+
+    // Draw center marker for circular pattern
+    if params.pattern_type == PatternType::Circular {
+        if let Some(center) = params.center {
+            if let Some(screen_center) = to_screen(center) {
+                let marker_color = egui::Color32::from_rgb(255, 150, 50);
+                painter.circle_stroke(screen_center, 6.0, egui::Stroke::new(2.0, marker_color));
+                painter.line_segment(
+                    [egui::pos2(screen_center.x - 8.0, screen_center.y), egui::pos2(screen_center.x + 8.0, screen_center.y)],
+                    egui::Stroke::new(1.5, marker_color),
+                );
+                painter.line_segment(
+                    [egui::pos2(screen_center.x, screen_center.y - 8.0), egui::pos2(screen_center.x, screen_center.y + 8.0)],
+                    egui::Stroke::new(1.5, marker_color),
+                );
+            }
+        }
+    }
+}
+
+/// Draw a sketch element as a ghost (preview)
+fn draw_element_ghost<F>(
+    painter: &Painter,
+    element: &shared::SketchElement,
+    to_screen: &F,
+    stroke: egui::Stroke,
+) where
+    F: Fn([f64; 2]) -> Option<egui::Pos2>,
+{
+    match element {
+        shared::SketchElement::Line { start, end } => {
+            if let (Some(a), Some(b)) = (to_screen([start.x, start.y]), to_screen([end.x, end.y])) {
+                painter.line_segment([a, b], stroke);
+            }
+        }
+        shared::SketchElement::Circle { center, radius } => {
+            let segments = 32;
+            let screen_pts: Vec<_> = (0..=segments)
+                .filter_map(|i| {
+                    let angle = (i as f64) * std::f64::consts::TAU / (segments as f64);
+                    let px = center.x + radius * angle.cos();
+                    let py = center.y + radius * angle.sin();
+                    to_screen([px, py])
+                })
+                .collect();
+            for w in screen_pts.windows(2) {
+                painter.line_segment([w[0], w[1]], stroke);
+            }
+        }
+        shared::SketchElement::Arc { center, radius, start_angle, end_angle } => {
+            let segments = 24;
+            let angle_span = end_angle - start_angle;
+            let screen_pts: Vec<_> = (0..=segments)
+                .filter_map(|i| {
+                    let t = i as f64 / segments as f64;
+                    let angle = start_angle + t * angle_span;
+                    let px = center.x + radius * angle.cos();
+                    let py = center.y + radius * angle.sin();
+                    to_screen([px, py])
+                })
+                .collect();
+            for w in screen_pts.windows(2) {
+                painter.line_segment([w[0], w[1]], stroke);
+            }
+        }
+        shared::SketchElement::Rectangle { corner, width, height } => {
+            let corners = [
+                [corner.x, corner.y],
+                [corner.x + width, corner.y],
+                [corner.x + width, corner.y + height],
+                [corner.x, corner.y + height],
+            ];
+            let screen_corners: Vec<_> = corners.iter().filter_map(|c| to_screen(*c)).collect();
+            if screen_corners.len() == 4 {
+                for i in 0..4 {
+                    let j = (i + 1) % 4;
+                    painter.line_segment([screen_corners[i], screen_corners[j]], stroke);
+                }
+            }
+        }
+        shared::SketchElement::Polyline { points } | shared::SketchElement::Spline { points } => {
+            let screen_pts: Vec<_> = points.iter().filter_map(|p| to_screen([p.x, p.y])).collect();
+            for w in screen_pts.windows(2) {
+                painter.line_segment([w[0], w[1]], stroke);
+            }
+        }
+        shared::SketchElement::Dimension { .. } => {} // Don't draw dimensions as ghost
     }
 }
 

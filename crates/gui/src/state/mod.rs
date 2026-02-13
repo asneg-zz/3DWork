@@ -1,4 +1,5 @@
 pub mod chat;
+pub mod fillet3d;
 pub mod operation_dialog;
 pub mod scene;
 pub mod selection;
@@ -8,16 +9,18 @@ pub mod sketch;
 use std::collections::{HashMap, HashSet};
 
 use chat::ChatState;
+pub use fillet3d::Fillet3DState;
 pub use operation_dialog::{ExtrudeParams, OperationDialog, OperationType};
 pub use scene::{body_display_name, feature_display_name, feature_icon, short_id, SceneState};
 use selection::SelectionState;
-pub use settings::{AppSettings, Units};
+pub use settings::{AppSettings, DimensionSettings, Units};
 use sketch::SketchState;
 
 /// Panel visibility flags
 pub struct PanelVisibility {
     pub scene_tree: bool,
     pub properties: bool,
+    pub parameters: bool,
     pub chat: bool,
 }
 
@@ -26,6 +29,7 @@ impl Default for PanelVisibility {
         Self {
             scene_tree: true,
             properties: true,
+            parameters: false,
             chat: true,
         }
     }
@@ -47,6 +51,8 @@ pub struct AppState {
     pub show_settings_window: bool,
     /// Operation dialog state
     pub operation_dialog: OperationDialog,
+    /// 3D Fillet tool state
+    pub fillet3d: Fillet3DState,
 }
 
 impl Default for AppState {
@@ -62,6 +68,7 @@ impl Default for AppState {
             csg_errors: HashMap::new(),
             show_settings_window: false,
             operation_dialog: OperationDialog::default(),
+            fillet3d: Fillet3DState::default(),
         }
     }
 }

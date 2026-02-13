@@ -2,6 +2,7 @@
 
 mod camera;
 mod context_menu;
+pub mod edge;
 mod gizmo;
 mod gl_renderer;
 pub use vcad_gui_lib::viewport::{mesh, picking};
@@ -113,6 +114,11 @@ impl ViewportPanel {
 
         // ── Object/Face selection via click ──────────────────────────
         self.handle_selection(&response, ui, rect, state, sketch_consumed, mod_tool_consumed);
+
+        // ── Edge hover for fillet mode ──────────────────────────
+        if state.fillet3d.is_active() && !sketch_consumed && !mod_tool_consumed {
+            self.handle_fillet_hover(&response, rect, state);
+        }
 
         // ── Right-click context menu on object ──────────────────
         self.handle_right_click(&response, rect, sketch_consumed, mod_tool_consumed);
@@ -522,7 +528,7 @@ impl ViewportPanel {
 
         let is_mod_tool = matches!(
             state.sketch.tool,
-            SketchTool::Trim | SketchTool::Fillet | SketchTool::Offset | SketchTool::Mirror
+            SketchTool::Trim | SketchTool::Fillet | SketchTool::Offset | SketchTool::Mirror | SketchTool::Pattern
         );
         if !is_mod_tool {
             return false;
@@ -578,7 +584,25 @@ impl ViewportPanel {
 
         // Hit test to find which element was clicked
         let hit_tolerance = 0.5; // Tolerance in sketch units
-        let hit = match sketch_interact::hit_test_elements(click_2d, &sketch, hit_tolerance) {
+        let hit = sketch_interact::hit_test_elements(click_2d, &sketch, hit_tolerance);
+
+        // For Pattern tool with Circular mode, allow clicks anywhere to set center
+        use crate::state::sketch::PatternType;
+        if state.sketch.tool == SketchTool::Pattern
+            && state.sketch.pattern_params.pattern_type == PatternType::Circular
+        {
+            // Use snap point if available, otherwise use click position
+            let center = if let Some(ref snap) = state.sketch.active_snap {
+                snap.point
+            } else {
+                click_2d
+            };
+            state.sketch.pattern_params.center = Some(center);
+            return true;
+        }
+
+        // For other tools, require hitting an element
+        let hit = match hit {
             Some(h) => h,
             None => return false,
         };
@@ -900,6 +924,13 @@ impl ViewportPanel {
         }
 
         let shift_pressed = ui.input(|i| i.modifiers.shift);
+        let ctrl_pressed = ui.input(|i| i.modifiers.ctrl);
+
+        // Check if fillet mode is active
+        if state.fillet3d.is_active() {
+            self.handle_edge_selection(pos, &ray, rect, state, ctrl_pressed, shift_pressed);
+            return;
+        }
 
         if shift_pressed {
             // Shift+Click = face selection
@@ -932,6 +963,182 @@ impl ViewportPanel {
             }
         } else {
             state.selection.clear_face();
+        }
+    }
+
+    fn handle_edge_selection(
+        &self,
+        cursor_pos: egui::Pos2,
+        ray: &picking::Ray,
+        rect: egui::Rect,
+        state: &mut AppState,
+        ctrl_pressed: bool,
+        shift_pressed: bool,
+    ) {
+        let meshes = self.csg_cache.meshes_clone();
+
+        // If no body selected for fillet, try to find one by clicking
+        let body_id = if let Some(id) = state.fillet3d.body_id.clone() {
+            id
+        } else {
+            // Try to pick a body first
+            if let Some(obj_id) = pick_nearest(ray, self.csg_cache.aabbs()) {
+                // Set this as the fillet target body
+                state.fillet3d.body_id = Some(obj_id.clone());
+                obj_id
+            } else {
+                return;
+            }
+        };
+
+        let Some(mesh) = meshes.get(&body_id) else {
+            return;
+        };
+
+        // Extract sharp edges from mesh
+        let edges = edge::extract_sharp_edges(mesh, 10.0); // 10 degree threshold
+
+        if edges.is_empty() {
+            return;
+        }
+
+        // Convert cursor position to screen coordinates relative to viewport
+        let cursor_screen = [
+            cursor_pos.x - rect.min.x,
+            cursor_pos.y - rect.min.y,
+        ];
+        let screen_size = [rect.width(), rect.height()];
+
+        // Get view-projection matrix
+        let aspect = rect.width() / rect.height();
+        let view_proj = self.camera.view_projection(aspect);
+
+        // Pixel tolerance for edge picking (15 pixels)
+        let pixel_tolerance = 15.0;
+
+        // Try to pick an edge using 2D screen-space algorithm
+        if let Some(hit) = edge::pick_edge_2d(
+            cursor_screen,
+            &edges,
+            self.camera.eye_position(),
+            &view_proj,
+            screen_size,
+            pixel_tolerance,
+        ) {
+            tracing::info!("Fillet3D: PICKED edge {} at distance {}", hit.edge_index, hit.distance);
+            let edge = &edges[hit.edge_index];
+
+            let edge_selection = crate::state::selection::EdgeSelection {
+                object_id: body_id.clone(),
+                start: edge.start,
+                end: edge.end,
+                normal1: edge.normal1,
+                normal2: edge.normal2,
+                edge_index: hit.edge_index,
+            };
+
+            if shift_pressed {
+                // Shift+click: select edge chain (connected sharp edges)
+                let chain_indices = edge::find_edge_chain(&edges, hit.edge_index, 10.0);
+                state.selection.clear_edges();
+                for idx in chain_indices {
+                    let e = &edges[idx];
+                    state.selection.add_edge(crate::state::selection::EdgeSelection {
+                        object_id: body_id.clone(),
+                        start: e.start,
+                        end: e.end,
+                        normal1: e.normal1,
+                        normal2: e.normal2,
+                        edge_index: idx,
+                    });
+                }
+            } else if ctrl_pressed {
+                // Ctrl+click: toggle edge in selection
+                state.selection.toggle_edge(edge_selection);
+            } else {
+                // Regular click: select single edge
+                state.selection.select_edge(edge_selection);
+            }
+        } else if !ctrl_pressed && !shift_pressed {
+            // Click on empty space: clear selection
+            state.selection.clear_edges();
+        }
+    }
+
+    /// Handle edge hover for visual feedback in fillet mode
+    fn handle_fillet_hover(
+        &self,
+        response: &egui::Response,
+        rect: egui::Rect,
+        state: &mut AppState,
+    ) {
+        // Only update hover on mouse move (not click)
+        let Some(pos) = response.hover_pos() else {
+            state.selection.hovered_edge = None;
+            return;
+        };
+
+        let ray = self.camera.screen_ray(pos, rect);
+        let meshes = self.csg_cache.meshes_clone();
+
+        // Get body ID for fillet
+        let body_id = if let Some(id) = state.fillet3d.body_id.clone() {
+            id
+        } else {
+            // Try to find body under cursor
+            if let Some(obj_id) = pick_nearest(&ray, self.csg_cache.aabbs()) {
+                obj_id
+            } else {
+                state.selection.hovered_edge = None;
+                return;
+            }
+        };
+
+        let Some(mesh) = meshes.get(&body_id) else {
+            state.selection.hovered_edge = None;
+            return;
+        };
+
+        // Extract sharp edges
+        let edges = edge::extract_sharp_edges(mesh, 10.0);
+        if edges.is_empty() {
+            state.selection.hovered_edge = None;
+            return;
+        }
+
+        // Convert cursor position to screen coordinates relative to viewport
+        let cursor_screen = [
+            pos.x - rect.min.x,
+            pos.y - rect.min.y,
+        ];
+        let screen_size = [rect.width(), rect.height()];
+
+        // Get view-projection matrix
+        let aspect = rect.width() / rect.height();
+        let view_proj = self.camera.view_projection(aspect);
+
+        // Pixel tolerance for edge picking (15 pixels)
+        let pixel_tolerance = 15.0;
+
+        if let Some(hit) = edge::pick_edge_2d(
+            cursor_screen,
+            &edges,
+            self.camera.eye_position(),
+            &view_proj,
+            screen_size,
+            pixel_tolerance,
+        ) {
+            let e = &edges[hit.edge_index];
+            state.selection.hovered_edge = Some(crate::state::selection::EdgeSelection {
+                object_id: body_id,
+                start: e.start,
+                end: e.end,
+                normal1: e.normal1,
+                normal2: e.normal2,
+                edge_index: hit.edge_index,
+            });
+        } else {
+            state.selection.hovered_edge = None;
         }
     }
 
@@ -1786,6 +1993,143 @@ impl ViewportPanel {
 
         // Revolve operation overlay (axis and angle arc)
         overlays::draw_revolve_overlay(&painter, rect, &self.camera, state);
+
+        // Draw selected edges when in fillet mode
+        if state.fillet3d.is_active() {
+            self.draw_selected_edges(&painter, rect, state);
+        }
+    }
+
+    fn draw_selected_edges(&self, painter: &egui::Painter, rect: egui::Rect, state: &AppState) {
+        // Draw hovered edge first (so selected edges draw on top)
+        if let Some(ref hovered) = state.selection.hovered_edge {
+            // Check if this edge is already selected
+            let is_selected = state.selection.selected_edges.iter()
+                .any(|e| e.object_id == hovered.object_id && e.edge_index == hovered.edge_index);
+
+            if !is_selected {
+                let hover_color = egui::Color32::from_rgb(100, 200, 255); // Light blue
+                let hover_stroke = egui::Stroke::new(2.5, hover_color);
+
+                let start_arr = [hovered.start.x, hovered.start.y, hovered.start.z];
+                let end_arr = [hovered.end.x, hovered.end.y, hovered.end.z];
+
+                if let (Some(start_screen), Some(end_screen)) = (
+                    self.camera.project(start_arr, rect),
+                    self.camera.project(end_arr, rect),
+                ) {
+                    painter.line_segment([start_screen, end_screen], hover_stroke);
+                    painter.circle_filled(start_screen, 3.0, hover_color);
+                    painter.circle_filled(end_screen, 3.0, hover_color);
+                }
+            }
+        }
+
+        // Draw selected edges with bright color
+        let edge_color = egui::Color32::from_rgb(255, 180, 50); // Orange
+        let stroke = egui::Stroke::new(3.0, edge_color);
+
+        for edge in &state.selection.selected_edges {
+            // Project edge start and end to screen
+            let start_arr = [edge.start.x, edge.start.y, edge.start.z];
+            let end_arr = [edge.end.x, edge.end.y, edge.end.z];
+
+            let Some(start_screen) = self.camera.project(start_arr, rect) else { continue };
+            let Some(end_screen) = self.camera.project(end_arr, rect) else { continue };
+
+            // Draw the edge
+            painter.line_segment([start_screen, end_screen], stroke);
+
+            // Draw small circles at edge endpoints
+            painter.circle_filled(start_screen, 4.0, edge_color);
+            painter.circle_filled(end_screen, 4.0, edge_color);
+
+            // Draw chamfer triangle preview at edge midpoint
+            self.draw_chamfer_triangle(painter, rect, edge, state.fillet3d.radius as f32);
+        }
+    }
+
+    /// Draw chamfer prism preview along the entire edge
+    fn draw_chamfer_triangle(
+        &self,
+        painter: &egui::Painter,
+        rect: egui::Rect,
+        edge: &crate::state::selection::EdgeSelection,
+        radius: f32,
+    ) {
+        let Some(n2) = edge.normal2 else { return };
+        let n1 = edge.normal1;
+
+        // Triangle vertices at START of edge
+        let start = edge.start;
+        let s0 = start;                      // On edge
+        let s1 = start - n1 * radius;        // Into body along -n1
+        let s2 = start - n2 * radius;        // Into body along -n2
+
+        // Triangle vertices at END of edge
+        let end = edge.end;
+        let e0 = end;                        // On edge
+        let e1 = end - n1 * radius;          // Into body along -n1
+        let e2 = end - n2 * radius;          // Into body along -n2
+
+        // Project all points to screen
+        let proj = |p: glam::Vec3| -> Option<egui::Pos2> {
+            self.camera.project([p.x, p.y, p.z], rect)
+        };
+
+        let Some(ss0) = proj(s0) else { return };
+        let Some(ss1) = proj(s1) else { return };
+        let Some(ss2) = proj(s2) else { return };
+        let Some(se0) = proj(e0) else { return };
+        let Some(se1) = proj(e1) else { return };
+        let Some(se2) = proj(e2) else { return };
+
+        let fill_color = egui::Color32::from_rgba_unmultiplied(255, 100, 100, 60);
+        let outline_color = egui::Color32::from_rgb(255, 50, 50);
+        let outline_stroke = egui::Stroke::new(2.0, outline_color);
+
+        // Draw the 3 faces of the triangular prism:
+        // 1. Start triangle (s0, s1, s2)
+        painter.add(egui::Shape::convex_polygon(
+            vec![ss0, ss1, ss2],
+            fill_color,
+            egui::Stroke::NONE,
+        ));
+
+        // 2. End triangle (e0, e1, e2)
+        painter.add(egui::Shape::convex_polygon(
+            vec![se0, se1, se2],
+            fill_color,
+            egui::Stroke::NONE,
+        ));
+
+        // 3. Diagonal face (chamfer surface): s1-s2-e2-e1
+        painter.add(egui::Shape::convex_polygon(
+            vec![ss1, ss2, se2, se1],
+            egui::Color32::from_rgba_unmultiplied(100, 255, 100, 80),
+            egui::Stroke::NONE,
+        ));
+
+        // Draw prism outline
+        // Start triangle
+        painter.line_segment([ss0, ss1], outline_stroke);
+        painter.line_segment([ss1, ss2], outline_stroke);
+        painter.line_segment([ss2, ss0], outline_stroke);
+
+        // End triangle
+        painter.line_segment([se0, se1], outline_stroke);
+        painter.line_segment([se1, se2], outline_stroke);
+        painter.line_segment([se2, se0], outline_stroke);
+
+        // Connecting edges along the prism
+        painter.line_segment([ss0, se0], outline_stroke); // Edge on original edge
+        painter.line_segment([ss1, se1], outline_stroke); // Edge on face 1
+        painter.line_segment([ss2, se2], outline_stroke); // Edge on face 2
+
+        // Draw vertex markers at start
+        painter.circle_filled(ss0, 4.0, egui::Color32::from_rgb(255, 255, 0)); // Yellow
+        painter.circle_filled(ss1, 3.0, egui::Color32::from_rgb(0, 255, 0));   // Green
+        painter.circle_filled(ss2, 3.0, egui::Color32::from_rgb(0, 150, 255)); // Blue
     }
 
     #[allow(dead_code)]

@@ -41,6 +41,8 @@ pub fn feature_display_name(feature: &Feature) -> String {
             BooleanOp::Difference => "Subtract Body".to_string(),
             BooleanOp::Intersection => "Intersect Body".to_string(),
         },
+        Feature::Fillet3D { radius, .. } => format!("Fillet R{:.1}", radius),
+        Feature::Chamfer3D { distance, .. } => format!("Chamfer {:.1}", distance),
     }
 }
 
@@ -75,6 +77,8 @@ pub fn feature_icon(feature: &Feature) -> &'static str {
             BooleanOp::Difference => "[-]",
             BooleanOp::Intersection => "[&]",
         },
+        Feature::Fillet3D { .. } => "[F]",
+        Feature::Chamfer3D { .. } => "[C]",
     }
 }
 

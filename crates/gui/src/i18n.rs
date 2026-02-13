@@ -252,8 +252,42 @@ pub fn t(key: &str) -> &'static str {
         "tool.fillet" => if ru { "Скругление" } else { "Fillet" },
         "tool.offset" => if ru { "Смещение" } else { "Offset" },
         "tool.mirror" => if ru { "Зеркало" } else { "Mirror" },
+        "tool.pattern" => if ru { "Массив" } else { "Pattern" },
         "tool.radius" => if ru { "Радиус:" } else { "Radius:" },
         "tool.distance" => if ru { "Расст.:" } else { "Dist.:" },
+
+        // ── Pattern tool ──────────────────────────────────
+        "pattern.type" => if ru { "Тип:" } else { "Type:" },
+        "pattern.linear" => if ru { "Линейный" } else { "Linear" },
+        "pattern.circular" => if ru { "Круговой" } else { "Circular" },
+        "pattern.count" => if ru { "Кол-во:" } else { "Count:" },
+        "pattern.spacing" => if ru { "Шаг:" } else { "Spacing:" },
+        "pattern.direction" => if ru { "Направление:" } else { "Direction:" },
+        "pattern.total_angle" => if ru { "Полный угол:" } else { "Total angle:" },
+        "pattern.center" => if ru { "Центр" } else { "Center" },
+        "pattern.apply" => if ru { "Применить" } else { "Apply" },
+        "pattern.select_center" => if ru { "Выберите центр" } else { "Select center" },
+
+        // ── 3D Fillet tool (Скругление) ──────────────────────────────────
+        "fillet3d.title" => if ru { "Скругление 3D" } else { "Fillet 3D" },
+        "fillet3d.button" => if ru { "Скругление 3D" } else { "Fillet 3D" },
+        "fillet3d.radius" => if ru { "Радиус:" } else { "Radius:" },
+        "fillet3d.segments" => if ru { "Сегменты:" } else { "Segments:" },
+        "fillet3d.select_edges" => if ru { "Выберите рёбра" } else { "Select edges" },
+        "fillet3d.selected_edges" => if ru { "Выбрано рёбер:" } else { "Selected edges:" },
+        "fillet3d.apply" => if ru { "Применить" } else { "Apply" },
+        "fillet3d.cancel" => if ru { "Отмена" } else { "Cancel" },
+        "fillet3d.hint" => if ru { "ЛКМ - выбрать ребро, Ctrl+ЛКМ - добавить, Shift+ЛКМ - цепь" } else { "LMB - select edge, Ctrl+LMB - add, Shift+LMB - chain" },
+
+        // ── 3D Chamfer tool (Фаска) ──────────────────────────────────
+        "chamfer3d.title" => if ru { "Фаска 3D" } else { "Chamfer 3D" },
+        "chamfer3d.button" => if ru { "Фаска 3D" } else { "Chamfer 3D" },
+        "chamfer3d.distance" => if ru { "Размер:" } else { "Size:" },
+        "chamfer3d.select_edges" => if ru { "Выберите рёбра" } else { "Select edges" },
+        "chamfer3d.selected_edges" => if ru { "Выбрано рёбер:" } else { "Selected edges:" },
+        "chamfer3d.apply" => if ru { "Применить" } else { "Apply" },
+        "chamfer3d.cancel" => if ru { "Отмена" } else { "Cancel" },
+        "chamfer3d.hint" => if ru { "ЛКМ - выбрать ребро, Ctrl+ЛКМ - добавить, Shift+ЛКМ - цепь" } else { "LMB - select edge, Ctrl+LMB - add, Shift+LMB - chain" },
 
         // ── Sketch toolbar ──────────────────────────────────
         "stb.sketch" => if ru { "Эскиз:" } else { "Sketch:" },
@@ -317,6 +351,7 @@ pub fn t(key: &str) -> &'static str {
         "hint.fillet" => if ru { "Кликните угол для скругления" } else { "Click corner to fillet" },
         "hint.offset" => if ru { "Кликните элемент для смещения" } else { "Click element to offset" },
         "hint.mirror" => if ru { "Выберите элементы, затем кликните линию-ось" } else { "Select elements, then click axis line" },
+        "hint.pattern" => if ru { "Выберите элементы, настройте параметры, нажмите Применить" } else { "Select elements, set params, click Apply" },
         "hint.esc" => if ru { "Esc для отмены/выхода" } else { "Esc to cancel/exit" },
         "hint.sketch_prefix" => if ru { "ЭСКИЗ" } else { "SKETCH" },
 

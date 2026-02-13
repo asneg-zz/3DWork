@@ -54,24 +54,14 @@ fn should_reverse_cut_direction(plane: &SketchPlane, face_normal: Option<[f64; 3
 
 /// Create an extruded Part from sketch profile, respecting sketch plane orientation
 /// For cuts (negative height or cut flag), the extrusion goes in the opposite direction
+#[cfg(test)]
 pub fn create_extrude_part_from_sketch(
     id: &str,
     sketch: &Sketch,
     transform: &Transform,
     height: f64,
 ) -> Option<Part> {
-    create_extrude_part_from_sketch_ex(id, sketch, transform, height, false)
-}
-
-/// Create an extruded Part from sketch profile, with optional cut direction
-pub fn create_extrude_part_from_sketch_ex(
-    id: &str,
-    sketch: &Sketch,
-    transform: &Transform,
-    height: f64,
-    is_cut: bool,
-) -> Option<Part> {
-    create_extrude_part_full(id, sketch, transform, height, 0.0, is_cut, 0.0)
+    create_extrude_part_full(id, sketch, transform, height, 0.0, false, 0.0)
 }
 
 /// Validate sketch for extrusion and return validation result
@@ -88,7 +78,7 @@ pub fn create_extrude_part_full(
     height: f64,
     height_backward: f64,
     is_cut: bool,
-    _draft_angle: f64, // Not yet implemented
+    draft_angle: f64,
 ) -> Option<Part> {
     if sketch.elements.is_empty() {
         return None;
@@ -113,15 +103,18 @@ pub fn create_extrude_part_full(
     };
 
     // Check if the sketch is a single circle - use cylinder for better CSG
-    if let Some(circle_part) =
-        try_create_cylinder_from_sketch_full(id, sketch, transform, total_height, height_backward, dir)
-    {
-        return Some(circle_part);
+    // Note: cylinder doesn't support draft angle, so skip if draft is non-zero
+    if draft_angle.abs() < 0.01 {
+        if let Some(circle_part) =
+            try_create_cylinder_from_sketch_full(id, sketch, transform, total_height, height_backward, dir)
+        {
+            return Some(circle_part);
+        }
     }
 
     // Try profile extrusion for all planes
     if let Some(part) = try_create_profile_extrusion(
-        id, sketch, transform, total_height, height_backward, is_cut, center_offset,
+        id, sketch, transform, total_height, height_backward, is_cut, center_offset, draft_angle,
     ) {
         return Some(part);
     }
@@ -139,6 +132,7 @@ fn try_create_profile_extrusion(
     height_backward: f64,
     is_cut: bool,
     _center_offset: f64,
+    draft_angle: f64,
 ) -> Option<Part> {
     // Extract 2D profiles from sketch
     let profiles = match extract_2d_profiles(&sketch.elements) {
@@ -194,6 +188,34 @@ fn try_create_profile_extrusion(
     let mut result_manifold: Option<Manifold> = None;
 
     for (pi, profile) in profiles.iter().enumerate() {
+        // Calculate scale factor for draft angle
+        // Draft angle: positive = expands outward, negative = tapers inward
+        // scale = 1 + height * tan(draft_angle) / r_avg
+        let scale_top = if draft_angle.abs() > 0.001 {
+            // Calculate centroid
+            let n = profile.len() as f64;
+            let cx: f64 = profile.iter().map(|p| p[0]).sum::<f64>() / n;
+            let cy: f64 = profile.iter().map(|p| p[1]).sum::<f64>() / n;
+
+            // Calculate average distance from centroid (characteristic radius)
+            let r_avg: f64 = profile.iter()
+                .map(|p| ((p[0] - cx).powi(2) + (p[1] - cy).powi(2)).sqrt())
+                .sum::<f64>() / n;
+
+            if r_avg > 1e-6 {
+                let draft_rad = draft_angle.to_radians();
+                let offset = height.abs() * draft_rad.tan();
+                1.0 + offset / r_avg
+            } else {
+                1.0
+            }
+        } else {
+            1.0
+        };
+
+        // Clamp scale to reasonable range (0.1 to 10.0)
+        let scale_top = scale_top.clamp(0.1, 10.0);
+
         // Convert profile to format for Manifold::extrude
         let polygon_data: Vec<f64> = match sketch.plane {
             SketchPlane::Xy => {
@@ -225,10 +247,10 @@ fn try_create_profile_extrusion(
         let manifold = Manifold::extrude(
             &[polygon_slice],
             height.abs(),
-            1,    // n_divisions
-            0.0,  // twist_degrees
-            1.0,  // scale_top_x
-            1.0,  // scale_top_y
+            1,         // n_divisions
+            0.0,       // twist_degrees
+            scale_top, // scale_top_x
+            scale_top, // scale_top_y
         );
 
         if manifold.is_empty() {

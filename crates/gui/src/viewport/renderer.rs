@@ -6,7 +6,7 @@ use egui::{Color32, Rect, Stroke, Ui};
 use shared::{Feature, Primitive, Transform};
 
 use super::camera::ArcBallCamera;
-use crate::state::settings::{AxisSettings, GridSettings};
+use crate::state::settings::{AxisSettings, DimensionSettings, GridSettings};
 use crate::state::sketch::SnapType;
 use crate::state::AppState;
 
@@ -271,6 +271,10 @@ pub struct SketchElementDisplayInfo {
     pub construction: Vec<bool>,
     /// Index of element designated as revolve axis (only one per sketch)
     pub revolve_axis: Option<usize>,
+    /// Dimension display settings (font size, precision, show units)
+    pub dimension_settings: Option<DimensionSettings>,
+    /// Unit abbreviation for dimension display (e.g. "mm", "in")
+    pub unit_abbrev: Option<&'static str>,
 }
 
 
@@ -399,9 +403,7 @@ pub(crate) fn draw_sketch_elements(
                     }
                 }
             }
-            shared::SketchElement::Dimension { from, to, value } => {
-                let p1 = sketch_point_to_3d(from.x, from.y, sketch, transform);
-                let p2 = sketch_point_to_3d(to.x, to.y, sketch, transform);
+            shared::SketchElement::Dimension { from, to, value, dimension_line_pos, .. } => {
                 let dim_stroke = if is_selected || is_hover {
                     Stroke::new(stroke.width + 1.0, Color32::from_rgb(150, 255, 180))
                 } else {
@@ -412,14 +414,122 @@ pub(crate) fn draw_sketch_elements(
                 } else {
                     Color32::from_rgb(150, 200, 255)
                 };
-                draw_line_3d(painter, rect, camera, p1, p2, dim_stroke);
-                if let (Some(sp1), Some(sp2)) = (camera.project(p1, rect), camera.project(p2, rect)) {
-                    let mid = egui::pos2((sp1.x + sp2.x) * 0.5, (sp1.y + sp2.y) * 0.5 - 10.0);
+
+                // Базовые точки
+                let p_from_2d = [from.x, from.y];
+                let p_to_2d = [to.x, to.y];
+
+                // Вычислить позицию размерной линии
+                let (dim_line_start_2d, dim_line_end_2d) = if let Some(pos) = dimension_line_pos {
+                    // Проецируем from и to на линию, проходящую через pos параллельно базовой линии
+                    let dx = p_to_2d[0] - p_from_2d[0];
+                    let dy = p_to_2d[1] - p_from_2d[1];
+                    let len = (dx * dx + dy * dy).sqrt();
+                    if len < 1e-10 {
+                        (p_from_2d, p_to_2d)
+                    } else {
+                        let dir = [dx / len, dy / len];
+                        // Вектор от from к pos
+                        let to_pos = [pos.x - p_from_2d[0], pos.y - p_from_2d[1]];
+                        // Проекция на направление
+                        let proj = to_pos[0] * dir[0] + to_pos[1] * dir[1];
+                        // Перпендикулярное смещение
+                        let perp = [to_pos[0] - proj * dir[0], to_pos[1] - proj * dir[1]];
+
+                        // Размерная линия идёт параллельно базовой, смещённая на perp
+                        ([p_from_2d[0] + perp[0], p_from_2d[1] + perp[1]],
+                         [p_to_2d[0] + perp[0], p_to_2d[1] + perp[1]])
+                    }
+                } else {
+                    // Автоматическое смещение перпендикулярно на 0.5 единиц
+                    let dx = p_to_2d[0] - p_from_2d[0];
+                    let dy = p_to_2d[1] - p_from_2d[1];
+                    let len = (dx * dx + dy * dy).sqrt();
+                    if len < 1e-10 {
+                        (p_from_2d, p_to_2d)
+                    } else {
+                        let perp = [-dy / len * 0.5, dx / len * 0.5];
+                        ([p_from_2d[0] + perp[0], p_from_2d[1] + perp[1]],
+                         [p_to_2d[0] + perp[0], p_to_2d[1] + perp[1]])
+                    }
+                };
+
+                // Преобразовать в 3D
+                let p_from_3d = sketch_point_to_3d(p_from_2d[0], p_from_2d[1], sketch, transform);
+                let p_to_3d = sketch_point_to_3d(p_to_2d[0], p_to_2d[1], sketch, transform);
+                let dim_start_3d = sketch_point_to_3d(dim_line_start_2d[0], dim_line_start_2d[1], sketch, transform);
+                let dim_end_3d = sketch_point_to_3d(dim_line_end_2d[0], dim_line_end_2d[1], sketch, transform);
+
+                // Нарисовать выносные линии (extension lines)
+                let extension_stroke = Stroke::new(stroke.width * 0.5, dim_stroke.color);
+                draw_line_3d(painter, rect, camera, p_from_3d, dim_start_3d, extension_stroke);
+                draw_line_3d(painter, rect, camera, p_to_3d, dim_end_3d, extension_stroke);
+
+                // Нарисовать размерную линию
+                draw_line_3d(painter, rect, camera, dim_start_3d, dim_end_3d, dim_stroke);
+
+                // Нарисовать стрелки и текст в 2D пространстве экрана
+                if let (Some(sp_start), Some(sp_end)) = (camera.project(dim_start_3d, rect), camera.project(dim_end_3d, rect)) {
+                    // Вектор вдоль размерной линии
+                    let dx = sp_end.x - sp_start.x;
+                    let dy = sp_end.y - sp_start.y;
+                    let len = (dx * dx + dy * dy).sqrt();
+
+                    if len > 1.0 {
+                        let dir_x = dx / len;
+                        let dir_y = dy / len;
+                        let arrow_len = 8.0;
+                        let arrow_angle = 0.4; // радианы
+
+                        // Стрелка в начале (указывает внутрь)
+                        let angle1 = dir_y.atan2(dir_x);
+                        let arrow1_p1 = egui::pos2(
+                            sp_start.x + arrow_len * (angle1 - arrow_angle).cos(),
+                            sp_start.y + arrow_len * (angle1 - arrow_angle).sin(),
+                        );
+                        let arrow1_p2 = egui::pos2(
+                            sp_start.x + arrow_len * (angle1 + arrow_angle).cos(),
+                            sp_start.y + arrow_len * (angle1 + arrow_angle).sin(),
+                        );
+                        painter.line_segment([sp_start, arrow1_p1], dim_stroke);
+                        painter.line_segment([sp_start, arrow1_p2], dim_stroke);
+
+                        // Стрелка в конце (указывает внутрь)
+                        let angle2 = angle1 + std::f32::consts::PI;
+                        let arrow2_p1 = egui::pos2(
+                            sp_end.x + arrow_len * (angle2 - arrow_angle).cos(),
+                            sp_end.y + arrow_len * (angle2 - arrow_angle).sin(),
+                        );
+                        let arrow2_p2 = egui::pos2(
+                            sp_end.x + arrow_len * (angle2 + arrow_angle).cos(),
+                            sp_end.y + arrow_len * (angle2 + arrow_angle).sin(),
+                        );
+                        painter.line_segment([sp_end, arrow2_p1], dim_stroke);
+                        painter.line_segment([sp_end, arrow2_p2], dim_stroke);
+                    }
+
+                    // Текст посередине размерной линии
+                    let mid = egui::pos2((sp_start.x + sp_end.x) * 0.5, (sp_start.y + sp_end.y) * 0.5 - 10.0);
+
+                    // Apply dimension settings if provided
+                    let (font_size, precision, show_units) = if let Some(ref dim_settings) = display_info.dimension_settings {
+                        (dim_settings.font_size, dim_settings.precision, dim_settings.show_units)
+                    } else {
+                        (14.0, 2, false)
+                    };
+
+                    let text = if show_units {
+                        let unit = display_info.unit_abbrev.unwrap_or("");
+                        format!("{:.prec$} {}", value, unit, prec = precision)
+                    } else {
+                        format!("{:.prec$}", value, prec = precision)
+                    };
+
                     painter.text(
                         mid,
                         egui::Align2::CENTER_BOTTOM,
-                        format!("{:.2}", value),
-                        egui::FontId::proportional(10.0),
+                        text,
+                        egui::FontId::proportional(font_size),
                         dim_text_color,
                     );
                 }
@@ -727,20 +837,35 @@ pub fn draw_control_points(
                         normal_color
                     };
 
-                    // Draw filled square marker
-                    let half = marker_size;
-                    let marker_rect = egui::Rect::from_center_size(
-                        screen_pos,
-                        egui::vec2(half * 2.0, half * 2.0),
-                    );
+                    // Check if this is a dimension line position control point
+                    let is_dim_line_pos = matches!(elem, shared::SketchElement::Dimension { .. }) && point_idx == 2;
 
-                    if is_selected {
-                        // Larger, filled marker for selected points
-                        painter.rect_filled(marker_rect, 1.0, color);
-                        painter.rect_stroke(
-                            marker_rect,
-                            1.0,
-                            Stroke::new(2.0, Color32::WHITE),
+                    if is_dim_line_pos {
+                        // Draw circle for dimension line position (special marker)
+                        if is_selected {
+                            painter.circle_filled(screen_pos, marker_size + 1.0, color);
+                            painter.circle_stroke(screen_pos, marker_size + 1.0, Stroke::new(2.0, Color32::WHITE));
+                        } else if is_hover {
+                            painter.circle_filled(screen_pos, marker_size, color);
+                            painter.circle_stroke(screen_pos, marker_size, Stroke::new(1.5, Color32::WHITE));
+                        } else {
+                            painter.circle_stroke(screen_pos, marker_size - 1.0, Stroke::new(1.5, color));
+                        }
+                    } else {
+                        // Draw filled square marker for regular control points
+                        let half = marker_size;
+                        let marker_rect = egui::Rect::from_center_size(
+                            screen_pos,
+                            egui::vec2(half * 2.0, half * 2.0),
+                        );
+
+                        if is_selected {
+                            // Larger, filled marker for selected points
+                            painter.rect_filled(marker_rect, 1.0, color);
+                            painter.rect_stroke(
+                                marker_rect,
+                                1.0,
+                                Stroke::new(2.0, Color32::WHITE),
                             egui::StrokeKind::Outside,
                         );
                     } else if is_hover {
@@ -765,6 +890,7 @@ pub fn draw_control_points(
                             Stroke::new(1.0, color),
                             egui::StrokeKind::Outside,
                         );
+                        }
                     }
                 }
             }
