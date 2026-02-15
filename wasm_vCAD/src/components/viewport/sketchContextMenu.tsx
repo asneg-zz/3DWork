@@ -1,0 +1,100 @@
+/**
+ * Sketch context menu
+ * Context menu items and actions for sketch elements
+ */
+
+import { Trash2, Copy, Move, CornerUpRight, Repeat, RotateCw, Ruler, FlipHorizontal2 } from 'lucide-react'
+import type { ContextMenuItem } from '@/components/ui/ContextMenu'
+import type { SketchElement } from '@/types/scene'
+
+export interface ContextMenuCallbacks {
+  onDuplicate: (elementId: string) => void
+  onOffset: (elementId: string) => void
+  onMirror: (elementId: string) => void
+  onLinearPattern: (elementId: string) => void
+  onCircularPattern: (elementId: string) => void
+  onToggleConstruction: (elementId: string) => void
+  onSetSymmetryAxis: (elementId: string) => void
+  onDelete: () => void
+  isConstruction: (elementId: string) => boolean
+  isSymmetryAxis: (elementId: string) => boolean
+}
+
+export function getContextMenuItems(
+  element: SketchElement,
+  elementId: string,
+  callbacks: ContextMenuCallbacks
+): ContextMenuItem[] {
+  const items: ContextMenuItem[] = [
+    // Header - element type
+    {
+      label: `${element.type.charAt(0).toUpperCase() + element.type.slice(1)}`,
+      onClick: () => {},
+      disabled: true,
+    },
+    { label: '', onClick: () => {}, separator: true },
+
+    // Copy/Duplicate
+    {
+      label: 'Дублировать',
+      icon: <Copy size={16} />,
+      onClick: () => callbacks.onDuplicate(elementId),
+    },
+
+    { label: '', onClick: () => {}, separator: true },
+
+    // Sketch Operations
+    {
+      label: 'Смещение',
+      icon: <Move size={16} />,
+      onClick: () => callbacks.onOffset(elementId),
+    },
+    {
+      label: 'Зеркало',
+      icon: <CornerUpRight size={16} />,
+      onClick: () => callbacks.onMirror(elementId),
+    },
+
+    { label: '', onClick: () => {}, separator: true },
+
+    // Pattern
+    {
+      label: 'Линейный массив',
+      icon: <Repeat size={16} />,
+      onClick: () => callbacks.onLinearPattern(elementId),
+    },
+    {
+      label: 'Круговой массив',
+      icon: <RotateCw size={16} />,
+      onClick: () => callbacks.onCircularPattern(elementId),
+    },
+
+    { label: '', onClick: () => {}, separator: true },
+
+    // Construction geometry toggle
+    {
+      label: callbacks.isConstruction(elementId) ? 'Обычная геометрия' : 'Вспомогательная',
+      icon: <Ruler size={16} />,
+      onClick: () => callbacks.onToggleConstruction(elementId),
+    },
+
+    // Mirror axis (only for lines)
+    ...(element.type === 'line' ? [{
+      label: callbacks.isSymmetryAxis(elementId) ? 'Снять ось зеркала' : 'Установить ось зеркала',
+      icon: <FlipHorizontal2 size={16} />,
+      onClick: () => callbacks.onSetSymmetryAxis(elementId),
+    }] : []),
+
+    { label: '', onClick: () => {}, separator: true },
+
+    // Delete
+    {
+      label: 'Удалить',
+      icon: <Trash2 size={16} />,
+      onClick: () => callbacks.onDelete(),
+      danger: true,
+    },
+  ]
+
+  return items
+}
