@@ -27,6 +27,118 @@ export function findElementAtPoint(
 ): string | null {
   const threshold = 0.2
 
+  // First, check dimension elements manually (WASM doesn't know about them)
+  for (const element of elements) {
+    if (element.type === 'dimension' && element.from && element.to) {
+      const pFrom = element.from
+      const pTo = element.to
+
+      // Calculate actual dimension line position (same logic as rendering)
+      let dimLineStart: Point2D
+      let dimLineEnd: Point2D
+
+      const isRadiusOrDiameter = element.dimension_type === 'radius' || element.dimension_type === 'diameter'
+
+      if (isRadiusOrDiameter) {
+        // For radius/diameter, use direct line from -> to
+        dimLineStart = pFrom
+        dimLineEnd = pTo
+      } else if (element.dimension_line_pos) {
+        // Use dimension_line_pos to calculate actual dimension line
+        const dx = pTo.x - pFrom.x
+        const dy = pTo.y - pFrom.y
+        const len = Math.sqrt(dx * dx + dy * dy)
+
+        if (len < 0.0001) continue
+
+        const dirX = dx / len
+        const dirY = dy / len
+
+        const t1 = ((pFrom.x - element.dimension_line_pos.x) * dirX +
+                    (pFrom.y - element.dimension_line_pos.y) * dirY)
+        const t2 = ((pTo.x - element.dimension_line_pos.x) * dirX +
+                    (pTo.y - element.dimension_line_pos.y) * dirY)
+
+        dimLineStart = {
+          x: element.dimension_line_pos.x + t1 * dirX,
+          y: element.dimension_line_pos.y + t1 * dirY
+        }
+        dimLineEnd = {
+          x: element.dimension_line_pos.x + t2 * dirX,
+          y: element.dimension_line_pos.y + t2 * dirY
+        }
+      } else {
+        // Auto-calculate offset dimension line
+        const dx = pTo.x - pFrom.x
+        const dy = pTo.y - pFrom.y
+        const len = Math.sqrt(dx * dx + dy * dy)
+
+        if (len < 0.0001) continue
+
+        const perpX = -dy / len
+        const perpY = dx / len
+        const offset = 0.5
+
+        dimLineStart = { x: pFrom.x + perpX * offset, y: pFrom.y + perpY * offset }
+        dimLineEnd = { x: pTo.x + perpX * offset, y: pTo.y + perpY * offset }
+      }
+
+      // Check distance to actual dimension line
+      const dx = dimLineEnd.x - dimLineStart.x
+      const dy = dimLineEnd.y - dimLineStart.y
+      const len2 = dx * dx + dy * dy
+
+      if (len2 > 0.0001) {
+        const t = Math.max(0, Math.min(1, ((point.x - dimLineStart.x) * dx + (point.y - dimLineStart.y) * dy) / len2))
+        const projX = dimLineStart.x + t * dx
+        const projY = dimLineStart.y + t * dy
+        const dist = Math.sqrt((point.x - projX) ** 2 + (point.y - projY) ** 2)
+
+        if (dist < threshold) {
+          return element.id
+        }
+      }
+
+      // Also check extension lines (more tolerance) - only for linear dimensions
+      if (!isRadiusOrDiameter) {
+        const extThreshold = threshold * 1.5
+
+        // Extension line 1: from → dimLineStart
+        const checkExtLine = (p1: Point2D, p2: Point2D) => {
+          const dx = p2.x - p1.x
+          const dy = p2.y - p1.y
+          const len2 = dx * dx + dy * dy
+          if (len2 > 0.0001) {
+            const t = Math.max(0, Math.min(1, ((point.x - p1.x) * dx + (point.y - p1.y) * dy) / len2))
+            const projX = p1.x + t * dx
+            const projY = p1.y + t * dy
+            return Math.sqrt((point.x - projX) ** 2 + (point.y - projY) ** 2) < extThreshold
+          }
+          return false
+        }
+
+        if (checkExtLine(pFrom, dimLineStart) || checkExtLine(pTo, dimLineEnd)) {
+          return element.id
+        }
+      }
+    }
+  }
+
+  // Check if point is inside a circle or arc (for dimension tool)
+  for (const element of elements) {
+    if ((element.type === 'circle' || element.type === 'arc') && element.center && element.radius !== undefined) {
+      const dx = point.x - element.center.x
+      const dy = point.y - element.center.y
+      const distToCenter = Math.sqrt(dx * dx + dy * dy)
+
+      // If point is inside the circle/arc
+      if (distToCenter <= element.radius) {
+        return element.id
+      }
+    }
+  }
+
+  // Then try WASM for other element types (lines, edges, etc.)
   try {
     const sketch: Sketch = {
       id: crypto.randomUUID(),
@@ -162,7 +274,7 @@ export function getElementControlPoints(element: SketchElement): ControlPoint[] 
 
     case 'arc':
       if (element.center && element.radius !== undefined &&
-          element.startAngle !== undefined && element.endAngle !== undefined) {
+          element.start_angle !== undefined && element.end_angle !== undefined) {
         // Центр дуги
         points.push({
           elementId: element.id,
@@ -175,8 +287,8 @@ export function getElementControlPoints(element: SketchElement): ControlPoint[] 
           elementId: element.id,
           pointIndex: 1,
           position: {
-            x: element.center.x + element.radius * Math.cos(element.startAngle),
-            y: element.center.y + element.radius * Math.sin(element.startAngle)
+            x: element.center.x + element.radius * Math.cos(element.start_angle),
+            y: element.center.y + element.radius * Math.sin(element.start_angle)
           },
           type: 'start'
         })
@@ -185,8 +297,8 @@ export function getElementControlPoints(element: SketchElement): ControlPoint[] 
           elementId: element.id,
           pointIndex: 2,
           position: {
-            x: element.center.x + element.radius * Math.cos(element.endAngle),
-            y: element.center.y + element.radius * Math.sin(element.endAngle)
+            x: element.center.x + element.radius * Math.cos(element.end_angle),
+            y: element.center.y + element.radius * Math.sin(element.end_angle)
           },
           type: 'end'
         })
@@ -234,6 +346,63 @@ export function getElementControlPoints(element: SketchElement): ControlPoint[] 
             type: 'point'
           })
         })
+      }
+      break
+
+    case 'dimension':
+      if (element.from && element.to) {
+        const isRadiusOrDiameter = element.dimension_type === 'radius' || element.dimension_type === 'diameter'
+
+        if (isRadiusOrDiameter) {
+          // For radius/diameter: only midpoint to move the entire dimension
+          points.push({
+            elementId: element.id,
+            pointIndex: 2,
+            position: {
+              x: (element.from.x + element.to.x) / 2,
+              y: (element.from.y + element.to.y) / 2
+            },
+            type: 'midpoint'
+          })
+        } else {
+          // For linear dimensions: start, end, and dimension line position
+          points.push({
+            elementId: element.id,
+            pointIndex: 0,
+            position: element.from,
+            type: 'start'
+          })
+          points.push({
+            elementId: element.id,
+            pointIndex: 1,
+            position: element.to,
+            type: 'end'
+          })
+
+          // Dimension line position control point
+          let dimLinePos = element.dimension_line_pos
+          if (!dimLinePos) {
+            const dx = element.to.x - element.from.x
+            const dy = element.to.y - element.from.y
+            const len = Math.sqrt(dx * dx + dy * dy)
+            const perpX = len > 0.0001 ? -dy / len : 0
+            const perpY = len > 0.0001 ? dx / len : 1
+            const offset = 0.5
+            const midX = (element.from.x + element.to.x) / 2
+            const midY = (element.from.y + element.to.y) / 2
+            dimLinePos = {
+              x: midX + perpX * offset,
+              y: midY + perpY * offset
+            }
+          }
+
+          points.push({
+            elementId: element.id,
+            pointIndex: 2,
+            position: dimLinePos,
+            type: 'center'  // Use 'center' type for special rendering
+          })
+        }
       }
       break
   }
@@ -318,17 +487,17 @@ export function updateElementPoint(
       if (pointIndex === 0 && updated.center) {
         // Перемещение центра
         updated.center = { ...newPosition }
-      } else if (pointIndex === 1 && updated.center && updated.radius !== undefined && updated.startAngle !== undefined) {
+      } else if (pointIndex === 1 && updated.center && updated.radius !== undefined && updated.start_angle !== undefined) {
         // Изменение начальной точки дуги
         const dx = newPosition.x - updated.center.x
         const dy = newPosition.y - updated.center.y
-        updated.startAngle = Math.atan2(dy, dx)
+        updated.start_angle = Math.atan2(dy, dx)
         updated.radius = Math.sqrt(dx * dx + dy * dy)
-      } else if (pointIndex === 2 && updated.center && updated.radius !== undefined && updated.endAngle !== undefined) {
+      } else if (pointIndex === 2 && updated.center && updated.radius !== undefined && updated.end_angle !== undefined) {
         // Изменение конечной точки дуги
         const dx = newPosition.x - updated.center.x
         const dy = newPosition.y - updated.center.y
-        updated.endAngle = Math.atan2(dy, dx)
+        updated.end_angle = Math.atan2(dy, dx)
         updated.radius = Math.sqrt(dx * dx + dy * dy)
       }
       break
@@ -365,6 +534,44 @@ export function updateElementPoint(
       if (updated.points && pointIndex >= 0 && pointIndex < updated.points.length) {
         updated.points = [...updated.points]
         updated.points[pointIndex] = { ...newPosition }
+      }
+      break
+
+    case 'dimension':
+      const isRadiusOrDiameter = updated.dimension_type === 'radius' || updated.dimension_type === 'diameter'
+
+      if (pointIndex === 0 && updated.from && !isRadiusOrDiameter) {
+        // Move from point (only for linear dimensions)
+        updated.from = { ...newPosition }
+        // Recalculate value
+        if (updated.to) {
+          const dx = updated.to.x - newPosition.x
+          const dy = updated.to.y - newPosition.y
+          updated.value = Math.sqrt(dx * dx + dy * dy)
+        }
+      } else if (pointIndex === 1 && updated.to && !isRadiusOrDiameter) {
+        // Move to point (only for linear dimensions)
+        updated.to = { ...newPosition }
+        // Recalculate value
+        if (updated.from) {
+          const dx = newPosition.x - updated.from.x
+          const dy = newPosition.y - updated.from.y
+          updated.value = Math.sqrt(dx * dx + dy * dy)
+        }
+      } else if (pointIndex === 2) {
+        if (isRadiusOrDiameter && updated.from && updated.to) {
+          // Move midpoint - translate entire dimension line
+          const currentMidX = (updated.from.x + updated.to.x) / 2
+          const currentMidY = (updated.from.y + updated.to.y) / 2
+          const dx = newPosition.x - currentMidX
+          const dy = newPosition.y - currentMidY
+
+          updated.from = { x: updated.from.x + dx, y: updated.from.y + dy }
+          updated.to = { x: updated.to.x + dx, y: updated.to.y + dy }
+        } else {
+          // Linear dimension - move dimension line position
+          updated.dimension_line_pos = { ...newPosition }
+        }
       }
       break
   }

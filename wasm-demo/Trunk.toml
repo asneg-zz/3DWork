@@ -1,0 +1,16 @@
+[[hooks]]
+stage = "pre_build"
+command = "echo"
+command_arguments = ["Building vCAD WASM demo..."]
+
+[build]
+target = "index.html"
+release = false
+
+[watch]
+ignore = ["target/"]
+
+[serve]
+address = "127.0.0.1"
+port = 8080
+open = true

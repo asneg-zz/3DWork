@@ -1,0 +1,54 @@
+[package]
+name = "vcad-engine"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Shared types from main project
+# shared = { path = "../../../crates/shared" }
+
+# CAD kernel (DISABLED - vcad doesn't compile to WASM due to C++ dependencies)
+# vcad = { version = "0.1", features = ["gltf"] }
+
+# WASM bindings
+wasm-bindgen = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde-wasm-bindgen = "0.6"
+
+# JS interop
+js-sys = "0.3"
+web-sys = { version = "0.3", features = ["console"] }
+
+# Error handling
+console_error_panic_hook = "0.1"
+
+# Logging
+tracing = "0.1"
+tracing-wasm = "0.2"
+
+# CAD Kernel - truck (pure Rust, WASM compatible)
+truck-modeling = "0.6"
+truck-polymesh = "0.6"
+truck-meshalgo = "0.4"
+
+# Geometry library for sketch operations
+kurbo = "0.11"
+
+# Shared types from main project
+shared = { path = "../../../crates/shared" }
+
+# UUID
+uuid = { version = "1", features = ["v4", "js"] }
+
+[features]
+default = []
+# manifold = ["manifold-rs"]
+
+[profile.release]
+opt-level = "z"     # Optimize for size
+lto = true          # Link-time optimization
+codegen-units = 1   # Better optimization

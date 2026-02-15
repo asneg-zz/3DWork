@@ -195,6 +195,11 @@ export class VcadEngine {
     return wasmModule.sketch_get_snap_points(sketchJson, cursorX, cursorY, settingsJson)
   }
 
+  solveConstraints(sketchJson: string): string {
+    this.ensureReady()
+    return wasmModule.sketch_solve_constraints(sketchJson)
+  }
+
   // ========== Mesh Generation (WASM) ==========
 
   generateCubeMesh(width: number, height: number, depth: number): MeshData {

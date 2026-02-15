@@ -7,10 +7,9 @@ import { engine } from '@/wasm/engine'
 
 export function BooleanPanel() {
   const { active, operation, selectedBodies } = useBooleanStore()
-  const { startBoolean, cancel, clearSelection } = useBooleanStore()
+  const { startBoolean, cancel } = useBooleanStore()
   const bodies = useSceneStore((s) => s.scene.bodies)
   const addBody = useSceneStore((s) => s.addBody)
-  const removeBody = useSceneStore((s) => s.removeBody)
 
   if (!active) {
     return (

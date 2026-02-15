@@ -1,6 +1,7 @@
-import { MousePointer, Minus, Circle, Square, Move, Check, X, Undo, Redo, Spline, Scissors, CornerUpRight, CopyPlus, FlipHorizontal, GitBranch, Waves } from 'lucide-react'
+import { MousePointer, Minus, Circle, Square, Check, X, Undo, Redo, Spline, Scissors, CornerUpRight, CopyPlus, FlipHorizontal, GitBranch, Waves, Pencil, Ruler } from 'lucide-react'
 import { useSketchStore } from '@/stores/sketchStore'
 import { useSketchSave } from '@/hooks/useSketchSave'
+import { ToolDropdown } from './ToolDropdown'
 
 export function SketchToolbar() {
   const { active, tool } = useSketchStore()
@@ -12,81 +13,75 @@ export function SketchToolbar() {
   if (!active) return null
 
   const drawTools = [
-    { id: 'select', icon: MousePointer, label: 'Select' },
     { id: 'line', icon: Minus, label: 'Line' },
     { id: 'circle', icon: Circle, label: 'Circle' },
     { id: 'rectangle', icon: Square, label: 'Rectangle' },
     { id: 'arc', icon: Spline, label: 'Arc (3-point)' },
     { id: 'polyline', icon: GitBranch, label: 'Polyline' },
     { id: 'spline', icon: Waves, label: 'Spline' },
-  ] as const
+  ]
 
-  const editTools = [
+  const modifyTools = [
     { id: 'trim', icon: Scissors, label: 'Trim' },
     { id: 'fillet', icon: CornerUpRight, label: 'Fillet' },
     { id: 'offset', icon: CopyPlus, label: 'Offset' },
     { id: 'mirror', icon: FlipHorizontal, label: 'Mirror' },
-  ] as const
+  ]
+
+  const dimensionTools = [
+    { id: 'dimension', icon: Ruler, label: 'Linear Dimension' },
+  ]
 
   return (
     <div className="absolute top-14 left-56 right-64 h-12 bg-cad-accent/20 border-b border-cad-accent px-4 flex items-center gap-2 z-10">
-      <span className="text-sm text-cad-accent font-semibold mr-4">
+      <span className="text-sm text-cad-accent font-semibold mr-2">
         Sketch Mode
       </span>
 
-      {/* Draw Tools */}
-      <div className="flex gap-1">
-        {drawTools.map((t) => {
-          const Icon = t.icon
-          const isActive = tool === t.id
-
-          return (
-            <button
-              key={t.id}
-              onClick={() => setTool(t.id as any)}
-              className={`
-                px-3 py-1.5 rounded flex items-center gap-2 transition-colors
-                ${isActive
-                  ? 'bg-cad-accent text-white'
-                  : 'bg-cad-hover hover:bg-cad-accent/30'
-                }
-              `}
-              title={t.label}
-            >
-              <Icon size={16} />
-              <span className="text-sm">{t.label}</span>
-            </button>
-          )
-        })}
-      </div>
+      {/* Select Tool - always visible */}
+      <button
+        onClick={() => setTool('select')}
+        className={`
+          px-3 py-1.5 rounded flex items-center gap-2 transition-colors
+          ${tool === 'select'
+            ? 'bg-cad-accent text-white'
+            : 'bg-cad-hover hover:bg-cad-accent/30'
+          }
+        `}
+        title="Select"
+      >
+        <MousePointer size={16} />
+        <span className="text-sm">Select</span>
+      </button>
 
       <div className="w-px h-6 bg-cad-border mx-2"></div>
 
-      {/* Edit Tools */}
-      <div className="flex gap-1">
-        {editTools.map((t) => {
-          const Icon = t.icon
-          const isActive = tool === t.id
+      {/* Draw Tools Dropdown */}
+      <ToolDropdown
+        label="Draw"
+        icon={Pencil}
+        tools={drawTools}
+        currentTool={tool}
+        onSelectTool={(id) => setTool(id as any)}
+      />
 
-          return (
-            <button
-              key={t.id}
-              onClick={() => setTool(t.id as any)}
-              className={`
-                px-3 py-1.5 rounded flex items-center gap-2 transition-colors
-                ${isActive
-                  ? 'bg-cad-accent text-white'
-                  : 'bg-cad-hover hover:bg-cad-accent/30'
-                }
-              `}
-              title={t.label}
-            >
-              <Icon size={16} />
-              <span className="text-sm">{t.label}</span>
-            </button>
-          )
-        })}
-      </div>
+      {/* Modify Tools Dropdown */}
+      <ToolDropdown
+        label="Modify"
+        icon={Scissors}
+        tools={modifyTools}
+        currentTool={tool}
+        onSelectTool={(id) => setTool(id as any)}
+      />
+
+      {/* Dimension Tools Dropdown */}
+      <ToolDropdown
+        label="Dimension"
+        icon={Ruler}
+        tools={dimensionTools}
+        currentTool={tool}
+        onSelectTool={(id) => setTool(id as any)}
+      />
 
       <div className="w-px h-6 bg-cad-border mx-2"></div>
 

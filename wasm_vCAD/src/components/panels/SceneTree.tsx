@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { useSceneStore } from '@/stores/sceneStore'
 import { useBooleanStore } from '@/stores/booleanStore'
 import { useSketchStore } from '@/stores/sketchStore'
-import { ContextMenu, type ContextMenuItem } from '@/components/ui/ContextMenu'
+import { ContextMenu } from '@/components/ui/ContextMenu'
 import type { Feature } from '@/types/scene'
 
 export function SceneTree() {

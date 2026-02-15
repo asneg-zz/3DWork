@@ -2,7 +2,7 @@ import { Box, Circle, CircleDot, Square } from 'lucide-react'
 import { useSceneStore } from '@/stores/sceneStore'
 import { useSketchStore } from '@/stores/sketchStore'
 import { engine } from '@/wasm/engine'
-import type { Body, Feature } from '@/types/scene'
+import type { Body } from '@/types/scene'
 
 export function Toolbar() {
   const addBody = useSceneStore((s) => s.addBody)

@@ -26,7 +26,7 @@ interface SketchState {
   constraints: SketchConstraint[]
 
   // Current tool
-  tool: 'select' | 'line' | 'circle' | 'rectangle' | 'arc' | 'polyline' | 'spline' | 'trim' | 'fillet' | 'offset' | 'mirror' | null
+  tool: 'select' | 'line' | 'circle' | 'rectangle' | 'arc' | 'polyline' | 'spline' | 'trim' | 'fillet' | 'offset' | 'mirror' | 'dimension' | null
 
   // Drawing state
   isDrawing: boolean
@@ -69,7 +69,7 @@ interface SketchState {
   addElement: (element: SketchElement) => void
   removeElement: (elementId: string) => void
   clearElements: () => void
-  setElements: (elements: SketchElement[]) => void
+  setElements: (elements: SketchElement[], preserveSelection?: boolean) => void
 
   // Selection
   selectElement: (elementId: string) => void
@@ -89,6 +89,7 @@ interface SketchState {
   // Undo/Redo
   undo: () => void
   redo: () => void
+  saveToHistory: () => void
 
   // Construction geometry
   toggleConstruction: (elementId: string) => void
@@ -106,6 +107,10 @@ interface SketchState {
 
 interface HistoryState {
   elements: SketchElement[]
+  construction: boolean[]
+  constraints: SketchConstraint[]
+  revolveAxis: number | null
+  symmetryAxis: number | null
 }
 
 export const useSketchStore = create<SketchState>()(
@@ -115,7 +120,13 @@ export const useSketchStore = create<SketchState>()(
 
     const saveHistory = () => {
       const state = get()
-      const snapshot = { elements: [...state.elements] }
+      const snapshot = {
+        elements: [...state.elements],
+        construction: [...state.construction],
+        constraints: [...state.constraints],
+        revolveAxis: state.revolveAxis,
+        symmetryAxis: state.symmetryAxis,
+      }
 
       // Remove any future history
       history = history.slice(0, historyIndex + 1)
@@ -329,11 +340,47 @@ export const useSketchStore = create<SketchState>()(
             }
             break
           }
+
+          case 'dimension': {
+            // Dimension: from -> to (2 clicks)
+            const dx = currentPoint.x - startPoint.x
+            const dy = currentPoint.y - startPoint.y
+            const distance = Math.sqrt(dx * dx + dy * dy)
+
+            // Calculate automatic dimension line position (perpendicular offset)
+            const len = Math.sqrt(dx * dx + dy * dy)
+            const perpX = len > 0.0001 ? -dy / len : 0
+            const perpY = len > 0.0001 ? dx / len : 1
+            const offset = 0.5 // offset in world units
+
+            const midX = (startPoint.x + currentPoint.x) / 2
+            const midY = (startPoint.y + currentPoint.y) / 2
+
+            element = {
+              id: crypto.randomUUID(),
+              type: 'dimension',
+              from: startPoint,
+              to: currentPoint,
+              value: distance,
+              dimension_type: 'linear',
+              dimension_line_pos: {
+                x: midX + perpX * offset,
+                y: midY + perpY * offset
+              }
+            }
+            break
+          }
         }
 
         if (element) {
           state.elements.push(element)
           saveHistory()
+
+          // Auto-select dimension element and switch to select tool for immediate editing
+          if (tool === 'dimension') {
+            state.selectedElementIds = [element.id]
+            state.tool = 'select'
+          }
         }
 
         state.isDrawing = false
@@ -412,11 +459,14 @@ export const useSketchStore = create<SketchState>()(
         saveHistory()
       }),
 
-    setElements: (elements) =>
+    setElements: (elements, preserveSelection = false) =>
       set((state) => {
         state.elements = elements
-        state.selectedElementIds = []
-        saveHistory()
+        if (!preserveSelection) {
+          state.selectedElementIds = []
+          saveHistory()
+        }
+        // When preserving selection, caller should save history
       }),
 
     // Selection
@@ -490,6 +540,10 @@ export const useSketchStore = create<SketchState>()(
           historyIndex--
           const snapshot = history[historyIndex]
           state.elements = [...snapshot.elements]
+          state.construction = [...snapshot.construction]
+          state.constraints = [...snapshot.constraints]
+          state.revolveAxis = snapshot.revolveAxis
+          state.symmetryAxis = snapshot.symmetryAxis
           state.selectedElementIds = []
         }
       }),
@@ -500,9 +554,17 @@ export const useSketchStore = create<SketchState>()(
           historyIndex++
           const snapshot = history[historyIndex]
           state.elements = [...snapshot.elements]
+          state.construction = [...snapshot.construction]
+          state.constraints = [...snapshot.constraints]
+          state.revolveAxis = snapshot.revolveAxis
+          state.symmetryAxis = snapshot.symmetryAxis
           state.selectedElementIds = []
         }
       }),
+
+    saveToHistory: () => {
+      saveHistory()
+    },
 
     // Construction geometry
     toggleConstruction: (elementId) =>
@@ -517,6 +579,7 @@ export const useSketchStore = create<SketchState>()(
 
         // Toggle the flag
         state.construction[index] = !state.construction[index]
+        saveHistory()
       }),
 
     isConstruction: (elementId) => {
@@ -541,6 +604,7 @@ export const useSketchStore = create<SketchState>()(
         } else {
           state.symmetryAxis = index
         }
+        saveHistory()
       }),
 
     clearSymmetryAxis: () =>
@@ -559,6 +623,7 @@ export const useSketchStore = create<SketchState>()(
     addConstraint: (constraint) =>
       set((state) => {
         state.constraints.push(constraint)
+        saveHistory()
       }),
 
     removeConstraint: (index) =>
@@ -566,6 +631,7 @@ export const useSketchStore = create<SketchState>()(
         if (index >= 0 && index < state.constraints.length) {
           state.constraints.splice(index, 1)
         }
+        saveHistory()
       }),
 
     clearConstraints: () =>

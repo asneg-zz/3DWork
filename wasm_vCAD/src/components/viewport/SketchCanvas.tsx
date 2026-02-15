@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSketchStore } from '@/stores/sketchStore'
-import type { Point2D, SketchElement, SnapPoint } from '@/types/scene'
+import type { Point2D, SnapPoint, Sketch, SketchElement } from '@/types/scene'
 import { ContextMenu } from '@/components/ui/ContextMenu'
 import { OffsetDialog } from '@/components/dialogs/OffsetDialog'
 import { MirrorDialog } from '@/components/dialogs/MirrorDialog'
@@ -60,6 +60,7 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
   const deleteSelected = useSketchStore((s) => s.deleteSelected)
   const undo = useSketchStore((s) => s.undo)
   const redo = useSketchStore((s) => s.redo)
+  const saveToHistory = useSketchStore((s) => s.saveToHistory)
   const setElements = useSketchStore((s) => s.setElements)
   const sketchPlane = useSketchStore((s) => s.plane)
   const toggleConstruction = useSketchStore((s) => s.toggleConstruction)
@@ -82,6 +83,7 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
   const [isDraggingPoint, setIsDraggingPoint] = useState(false)
   const [draggedPoint, setDraggedPoint] = useState<{ elementId: string; pointIndex: number } | null>(null)
   const [hoveredControlPoint, setHoveredControlPoint] = useState<{ elementId: string; pointIndex: number } | null>(null)
+  const [highlightedCircleCenter, setHighlightedCircleCenter] = useState<Point2D | null>(null)
 
   // Dialog states
   const [offsetDialog, setOffsetDialog] = useState<{ isOpen: boolean; elementId: string | null }>({ isOpen: false, elementId: null })
@@ -173,7 +175,7 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
 
     // Draw elements using extracted rendering module
     elements.forEach((element, index) => {
-      drawElement(ctx, element, index, selectedElementIds, construction, symmetryAxis, zoom)
+      drawElement(ctx, element, index, selectedElementIds, construction, symmetryAxis, zoom, elements)
     })
 
     // Draw constraint icons on elements
@@ -425,7 +427,78 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
           }
           break
         }
+
+        case 'dimension': {
+          // Draw dimension preview
+          if (startPoint && currentPoint) {
+            const dx = currentPoint.x - startPoint.x
+            const dy = currentPoint.y - startPoint.y
+            const distance = Math.sqrt(dx * dx + dy * dy)
+
+            ctx.strokeStyle = '#96d4f6'
+            ctx.fillStyle = '#96d4f6'
+            ctx.lineWidth = 2 / zoom
+            ctx.setLineDash([])
+
+            // Draw preview line
+            ctx.beginPath()
+            ctx.moveTo(startPoint.x, startPoint.y)
+            ctx.lineTo(currentPoint.x, currentPoint.y)
+            ctx.stroke()
+
+            // Draw start point
+            ctx.beginPath()
+            ctx.arc(startPoint.x, startPoint.y, 4 / zoom, 0, Math.PI * 2)
+            ctx.fillStyle = '#22c55e'
+            ctx.fill()
+
+            // Draw end point
+            ctx.beginPath()
+            ctx.arc(currentPoint.x, currentPoint.y, 4 / zoom, 0, Math.PI * 2)
+            ctx.fillStyle = '#fbbf24'
+            ctx.fill()
+
+            // Draw distance text
+            ctx.save()
+            ctx.scale(1, -1)
+            ctx.fillStyle = '#96d4f6'
+            ctx.font = `${14 / zoom}px sans-serif`
+            ctx.textAlign = 'center'
+            ctx.textBaseline = 'middle'
+            const midX = (startPoint.x + currentPoint.x) / 2
+            const midY = (startPoint.y + currentPoint.y) / 2
+            ctx.fillText(distance.toFixed(2), midX, -midY - 12 / zoom)
+            ctx.restore()
+          }
+          break
+        }
       }
+    }
+
+    // Draw highlighted circle center if cursor is inside a circle
+    if (highlightedCircleCenter && !isDrawing) {
+      const size = 12 / zoom
+      const crossSize = 16 / zoom
+
+      ctx.save()
+      ctx.strokeStyle = '#ef4444' // Red
+      ctx.fillStyle = '#ef4444'
+      ctx.lineWidth = 3 / zoom
+
+      // Draw cross for center
+      ctx.beginPath()
+      ctx.moveTo(highlightedCircleCenter.x - crossSize, highlightedCircleCenter.y)
+      ctx.lineTo(highlightedCircleCenter.x + crossSize, highlightedCircleCenter.y)
+      ctx.moveTo(highlightedCircleCenter.x, highlightedCircleCenter.y - crossSize)
+      ctx.lineTo(highlightedCircleCenter.x, highlightedCircleCenter.y + crossSize)
+      ctx.stroke()
+
+      // Draw circle in the middle
+      ctx.beginPath()
+      ctx.arc(highlightedCircleCenter.x, highlightedCircleCenter.y, size / 2, 0, Math.PI * 2)
+      ctx.fill()
+
+      ctx.restore()
     }
 
     // Draw snap points
@@ -497,7 +570,7 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
     }
 
     ctx.restore()
-  }, [elements, construction, symmetryAxis, isDrawing, startPoint, currentPoint, arcMidPoint, polylinePoints, tool, width, height, gridSize, snapToGrid, zoom, panX, panY, selectedElementIds, snapPoints])
+  }, [elements, construction, symmetryAxis, isDrawing, startPoint, currentPoint, arcMidPoint, polylinePoints, tool, width, height, gridSize, snapToGrid, zoom, panX, panY, selectedElementIds, snapPoints, hoveredControlPoint, highlightedCircleCenter, constraints])
 
   // Keyboard events
   useEffect(() => {
@@ -517,23 +590,10 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
         circularPatternDialog.isOpen ||
         constraintDialog.isOpen
 
-      // Log all key presses for debugging
-      console.log('Key pressed:', {
-        key: e.key,
-        code: e.code,
-        ctrlKey: e.ctrlKey,
-        shiftKey: e.shiftKey,
-        altKey: e.altKey,
-        metaKey: e.metaKey,
-        isInputFocused,
-        isDialogOpen
-      })
-
       // Delete or Backspace to delete selected elements
       // BUT only if not in input field and no dialog is open
       if (e.key === 'Delete' || e.key === 'Backspace') {
         if (!isInputFocused && !isDialogOpen && selectedElementIds.length > 0) {
-          console.log('Deleting', selectedElementIds.length, 'selected elements')
           e.preventDefault()
           deleteSelected()
         }
@@ -541,28 +601,24 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
 
       // Ctrl+Z to undo
       if (e.ctrlKey && e.key === 'z' && !e.shiftKey) {
-        console.log('Undo')
         e.preventDefault()
         undo()
       }
 
       // Ctrl+Shift+Z or Ctrl+Y to redo
       if ((e.ctrlKey && e.shiftKey && e.key === 'Z') || (e.ctrlKey && e.key === 'y')) {
-        console.log('Redo')
         e.preventDefault()
         redo()
       }
 
       // Escape to cancel drawing (including polyline)
       if (e.key === 'Escape' && isDrawing) {
-        console.log('Cancel drawing')
         e.preventDefault()
         cancelDrawing()
       }
 
       // Enter to finish polyline/spline
       if (e.key === 'Enter' && isDrawing && (tool === 'polyline' || tool === 'spline')) {
-        console.log('Finish polyline/spline')
         e.preventDefault()
         finishPolyline()
       }
@@ -570,11 +626,10 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [selectedElementIds, deleteSelected, undo, redo, isDrawing, tool, cancelDrawing, finishPolyline, offsetDialog, mirrorDialog, linearPatternDialog, circularPatternDialog])
+  }, [selectedElementIds, deleteSelected, undo, redo, isDrawing, tool, cancelDrawing, finishPolyline, offsetDialog, mirrorDialog, linearPatternDialog, circularPatternDialog, constraintDialog])
 
   // Mouse events
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    console.log('handleMouseDown called, button:', e.button, 'tool:', tool)
     const worldPoint = screenToWorld(e.clientX, e.clientY)
 
     // Right click is handled in handleContextMenu
@@ -643,9 +698,102 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
 
             // Update elements
             setElements(elementsWithIds)
-            console.log('Trim successful')
           } catch (error) {
             console.error('Trim failed:', error)
+          }
+        }
+      }
+      return
+    }
+
+    // Dimension tool - smart auto-detection
+    if (tool === 'dimension') {
+      const elementId = findElementAtPoint(worldPoint)
+      if (elementId) {
+        const element = elements.find(el => el.id === elementId)
+        if (element) {
+          const elementIndex = elements.findIndex(el => el.id === elementId)
+
+          // Create appropriate dimension based on element type
+          if (element.type === 'line' && element.start && element.end) {
+            // Linear dimension for line
+            const dx = element.end.x - element.start.x
+            const dy = element.end.y - element.start.y
+            const distance = Math.sqrt(dx * dx + dy * dy)
+
+            // Calculate perpendicular offset for dimension line
+            const len = Math.sqrt(dx * dx + dy * dy)
+            const perpX = len > 0.0001 ? -dy / len : 0
+            const perpY = len > 0.0001 ? dx / len : 1
+            const offset = 0.5
+            const midX = (element.start.x + element.end.x) / 2
+            const midY = (element.start.y + element.end.y) / 2
+
+            const newDimension: SketchElement = {
+              id: crypto.randomUUID(),
+              type: 'dimension',
+              from: element.start,
+              to: element.end,
+              value: distance,
+              dimension_type: 'linear',
+              dimension_line_pos: {
+                x: midX + perpX * offset,
+                y: midY + perpY * offset
+              },
+              target_element: elementIndex
+            }
+
+            setElements([...elements, newDimension])
+            toggleElementSelection(newDimension.id)
+            setTool('select')
+            saveToHistory()
+          } else if ((element.type === 'circle' || element.type === 'arc') && element.center && element.radius !== undefined) {
+            // Check if clicked near center or on circle/arc
+            const distToCenter = Math.sqrt(
+              (worldPoint.x - element.center.x) ** 2 +
+              (worldPoint.y - element.center.y) ** 2
+            )
+
+            const isNearCenter = distToCenter < 0.3 // threshold for center
+            const dimensionType = isNearCenter ? 'radius' : 'diameter'
+            const value = isNearCenter ? element.radius : element.radius * 2
+
+            // For radius: from center to point on circle
+            // For diameter: across the circle through center
+            let from: Point2D
+            let to: Point2D
+
+            if (isNearCenter) {
+              // Radius: from center to right side
+              from = element.center
+              to = { x: element.center.x + element.radius, y: element.center.y }
+            } else {
+              // Diameter: across circle through click point
+              const angle = Math.atan2(worldPoint.y - element.center.y, worldPoint.x - element.center.x)
+              from = {
+                x: element.center.x - element.radius * Math.cos(angle),
+                y: element.center.y - element.radius * Math.sin(angle)
+              }
+              to = {
+                x: element.center.x + element.radius * Math.cos(angle),
+                y: element.center.y + element.radius * Math.sin(angle)
+              }
+            }
+
+            const newDimension: SketchElement = {
+              id: crypto.randomUUID(),
+              type: 'dimension',
+              from,
+              to,
+              value,
+              dimension_type: dimensionType,
+              target_element: elementIndex
+            }
+
+            setElements([...elements, newDimension])
+            toggleElementSelection(newDimension.id)
+            setTool('select')
+            saveToHistory()
           }
         }
       }
@@ -660,7 +808,8 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
     }
 
     // Standard drawing tools (single click and drag)
-    if (tool && tool !== 'select' && tool !== 'trim' && tool !== 'polyline' && tool !== 'spline') {
+    const standardTools = ['line', 'circle', 'rectangle', 'arc'] as const
+    if (tool && standardTools.includes(tool as any)) {
       // For arc tool: only start drawing if we haven't set arcMidPoint yet
       // If arcMidPoint is already set, we're waiting for the 3rd point (handled in finishDrawing)
       if (tool === 'arc' && arcMidPoint) {
@@ -711,6 +860,25 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
       }
     }
 
+    // Check if cursor is inside a circle/arc and highlight its center
+    let foundCircleCenter: Point2D | null = null
+    for (const element of elements) {
+      if (element.type === 'circle' || element.type === 'arc') {
+        if (element.center && element.radius !== undefined) {
+          const dx = worldPoint.x - element.center.x
+          const dy = worldPoint.y - element.center.y
+          const distToCenter = Math.sqrt(dx * dx + dy * dy)
+
+          // If cursor is inside the circle/arc
+          if (distToCenter < element.radius) {
+            foundCircleCenter = element.center
+            break
+          }
+        }
+      }
+    }
+    setHighlightedCircleCenter(foundCircleCenter)
+
     // Dragging control point
     if (isDraggingPoint && draggedPoint) {
       // Use snap point if available
@@ -722,7 +890,8 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
         const updatedElement = updateElementPoint(elements[elementIndex], draggedPoint.pointIndex, snappedPoint)
         const newElements = [...elements]
         newElements[elementIndex] = updatedElement
-        setElements(newElements)
+        // Preserve selection while dragging
+        setElements(newElements, true)
       }
       return
     }
@@ -756,6 +925,36 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
 
   const handleMouseUp = () => {
     if (isDraggingPoint) {
+      // Apply constraint solver after dragging a control point (via WASM)
+      if (constraints.length > 0) {
+        try {
+          const sketch: Sketch = {
+            id: crypto.randomUUID(),
+            plane: sketchPlane,
+            offset: 0.0,
+            elements: elements,
+            constraints: constraints
+          }
+          const sketchJson = JSON.stringify(sketch)
+          const resultJson = engine.solveConstraints(sketchJson)
+          const resultSketch: Sketch = JSON.parse(resultJson)
+
+          // CRITICAL: Preserve original IDs when updating from WASM
+          // WASM returns elements without id field, so we need to restore them
+          const elementsWithIds = resultSketch.elements.map((elem, index) => ({
+            ...elem,
+            id: elements[index]?.id || crypto.randomUUID()
+          }))
+          // Preserve selection when updating from constraint solver
+          setElements(elementsWithIds, true)
+        } catch (error) {
+          console.error('Constraint solving failed:', error)
+        }
+      }
+
+      // Save to history after dragging control point
+      saveToHistory()
+
       setIsDraggingPoint(false)
       setDraggedPoint(null)
       return
@@ -774,7 +973,6 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
 
   const handleContextMenu = (e: React.MouseEvent<HTMLCanvasElement>) => {
     e.preventDefault()
-    console.log('handleContextMenu called, tool:', tool)
 
     // For polyline/spline in drawing mode, finish drawing on right click
     if ((tool === 'polyline' || tool === 'spline') && isDrawing && polylinePoints.length > 0) {
@@ -784,9 +982,7 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
 
     // For all other tools (including mirror, select, etc), show context menu if clicking on an element
     const worldPoint = screenToWorld(e.clientX, e.clientY)
-    console.log('Right click at:', worldPoint)
     const elementId = findElementAtPoint(worldPoint)
-    console.log('Found element:', elementId)
 
     if (elementId) {
       // Select element if not already selected
@@ -795,7 +991,6 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
         toggleElementSelection(elementId)
       }
       // Show context menu
-      console.log('Showing context menu at:', e.clientX, e.clientY)
       setContextMenu({
         x: e.clientX,
         y: e.clientY,
@@ -803,7 +998,6 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
       })
     } else {
       // Show tools context menu on empty space
-      console.log('Showing tools context menu at:', e.clientX, e.clientY)
       setToolsContextMenu({
         x: e.clientX,
         y: e.clientY
@@ -898,6 +1092,39 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
           break
       }
     }
+
+    // Apply constraint solver after adding/removing constraint (via WASM)
+    // Use setTimeout to let the state update first
+    setTimeout(() => {
+      const currentConstraints = useSketchStore.getState().constraints
+      const currentElements = useSketchStore.getState().elements
+
+      if (currentConstraints.length > 0) {
+        try {
+          const sketch: Sketch = {
+            id: crypto.randomUUID(),
+            plane: sketchPlane,
+            offset: 0.0,
+            elements: currentElements,
+            constraints: currentConstraints
+          }
+          const sketchJson = JSON.stringify(sketch)
+          const resultJson = engine.solveConstraints(sketchJson)
+          const resultSketch: Sketch = JSON.parse(resultJson)
+
+          // CRITICAL: Preserve original IDs when updating from WASM
+          // WASM returns elements without id field, so we need to restore them
+          const elementsWithIds = resultSketch.elements.map((elem, index) => ({
+            ...elem,
+            id: currentElements[index]?.id || crypto.randomUUID()
+          }))
+          // Preserve selection when updating from constraint solver
+          setElements(elementsWithIds, true)
+        } catch (error) {
+          console.error('Constraint solving failed:', error)
+        }
+      }
+    }, 0)
   }
 
   // Check if element has constraint

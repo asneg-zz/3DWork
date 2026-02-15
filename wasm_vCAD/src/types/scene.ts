@@ -43,7 +43,9 @@ export interface Primitive {
   radius?: number
 }
 
-export type SketchElementType = 'line' | 'circle' | 'arc' | 'rectangle' | 'polyline' | 'spline'
+export type SketchElementType = 'line' | 'circle' | 'arc' | 'rectangle' | 'polyline' | 'spline' | 'dimension'
+
+export type DimensionType = 'linear' | 'radius' | 'diameter'
 
 export interface SketchElement {
   id: string
@@ -63,6 +65,14 @@ export interface SketchElement {
   height?: number
   // Polyline/Spline
   points?: Point2D[]
+  // Dimension
+  from?: Point2D
+  to?: Point2D
+  value?: number
+  parameter_name?: string
+  dimension_line_pos?: Point2D
+  target_element?: number
+  dimension_type?: DimensionType
 }
 
 // Constraint types

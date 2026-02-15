@@ -13,8 +13,8 @@ export interface RenderStyle {
 }
 
 export function getRenderStyle(
-  element: SketchElement,
-  index: number,
+  _element: SketchElement,
+  _index: number,
   isSelected: boolean,
   isConstruction: boolean,
   isSymmetryAxis: boolean,
@@ -48,7 +48,7 @@ export function applyRenderStyle(ctx: CanvasRenderingContext2D, style: RenderSty
   }
 }
 
-export function drawLine(
+function drawLine(
   ctx: CanvasRenderingContext2D,
   element: SketchElement
 ) {
@@ -60,7 +60,7 @@ export function drawLine(
   }
 }
 
-export function drawCircle(
+function drawCircle(
   ctx: CanvasRenderingContext2D,
   element: SketchElement
 ) {
@@ -71,7 +71,7 @@ export function drawCircle(
   }
 }
 
-export function drawArc(
+function drawArc(
   ctx: CanvasRenderingContext2D,
   element: SketchElement
 ) {
@@ -88,7 +88,7 @@ export function drawArc(
   }
 }
 
-export function drawRectangle(
+function drawRectangle(
   ctx: CanvasRenderingContext2D,
   element: SketchElement
 ) {
@@ -99,7 +99,7 @@ export function drawRectangle(
   }
 }
 
-export function drawPolyline(
+function drawPolyline(
   ctx: CanvasRenderingContext2D,
   element: SketchElement
 ) {
@@ -113,7 +113,7 @@ export function drawPolyline(
   }
 }
 
-export function drawSpline(
+function drawSpline(
   ctx: CanvasRenderingContext2D,
   element: SketchElement
 ) {
@@ -160,7 +160,8 @@ export function drawElement(
   selectedElementIds: string[],
   construction: boolean[],
   symmetryAxis: number | null,
-  zoom: number
+  zoom: number,
+  elements?: SketchElement[]
 ) {
   const isSelected = selectedElementIds.includes(element.id)
   const isConstruction = construction[index] || false
@@ -187,6 +188,9 @@ export function drawElement(
       break
     case 'spline':
       drawSpline(ctx, element)
+      break
+    case 'dimension':
+      drawDimension(ctx, element, zoom, isSelected, elements)
       break
   }
 }
@@ -218,7 +222,7 @@ export function drawControlPoint(
 /**
  * Нарисовать контрольную точку центра (для окружностей и дуг)
  */
-export function drawCenterPoint(
+function drawCenterPoint(
   ctx: CanvasRenderingContext2D,
   point: Point2D,
   zoom: number,
@@ -251,7 +255,7 @@ export function drawCenterPoint(
 /**
  * Нарисовать контрольную точку середины линии (треугольник)
  */
-export function drawMidpoint(
+function drawMidpoint(
   ctx: CanvasRenderingContext2D,
   point: Point2D,
   zoom: number,
@@ -343,7 +347,6 @@ export function drawConstraintIcon(
   zoom: number
 ) {
   const size = 16 / zoom
-  const padding = 4 / zoom
   const fontSize = 12 / zoom
 
   ctx.save()
@@ -453,4 +456,271 @@ export function drawElementConstraints(
     const position = getConstraintIconPosition(element, index, zoom)
     drawConstraintIcon(ctx, position, icon, zoom)
   })
+}
+
+// ============================================================================
+// Dimension (размеры)
+// ============================================================================
+
+/**
+ * Нарисовать размерную линию
+ */
+export function drawDimension(
+  ctx: CanvasRenderingContext2D,
+  element: SketchElement,
+  zoom: number,
+  isSelected: boolean,
+  elements?: SketchElement[]
+) {
+  if (!element.from || !element.to) return
+
+  const dimColor = isSelected ? '#96f6b4' : '#96d4f6'
+  const arrowSize = 8 / zoom
+  const textOffset = 12 / zoom
+
+  ctx.save()
+  ctx.strokeStyle = dimColor
+  ctx.fillStyle = dimColor
+  ctx.lineWidth = (isSelected ? 2.5 : 2) / zoom
+  ctx.setLineDash([])
+
+  // Базовые точки
+  const pFrom = element.from
+  const pTo = element.to
+
+  const isRadiusOrDiameter = element.dimension_type === 'radius' || element.dimension_type === 'diameter'
+
+  // Вычислить позицию размерной линии
+  let dimLineStart: Point2D
+  let dimLineEnd: Point2D
+
+  // For radius/diameter, draw directly without offset
+  if (isRadiusOrDiameter) {
+    dimLineStart = pFrom
+    dimLineEnd = pTo
+  } else if (element.dimension_line_pos) {
+    // Если задана позиция размерной линии, проецируем точки
+    const dx = pTo.x - pFrom.x
+    const dy = pTo.y - pFrom.y
+    const len = Math.sqrt(dx * dx + dy * dy)
+
+    if (len < 0.0001) {
+      ctx.restore()
+      return
+    }
+
+    // Нормализованное направление базовой линии
+    const dirX = dx / len
+    const dirY = dy / len
+
+    // Проекция dimension_line_pos на базовую линию
+    const t1 = ((pFrom.x - element.dimension_line_pos.x) * dirX +
+                (pFrom.y - element.dimension_line_pos.y) * dirY)
+    const t2 = ((pTo.x - element.dimension_line_pos.x) * dirX +
+                (pTo.y - element.dimension_line_pos.y) * dirY)
+
+    dimLineStart = {
+      x: element.dimension_line_pos.x + t1 * dirX,
+      y: element.dimension_line_pos.y + t1 * dirY
+    }
+    dimLineEnd = {
+      x: element.dimension_line_pos.x + t2 * dirX,
+      y: element.dimension_line_pos.y + t2 * dirY
+    }
+  } else {
+    // Автоматическое смещение размерной линии
+    const dx = pTo.x - pFrom.x
+    const dy = pTo.y - pFrom.y
+    const len = Math.sqrt(dx * dx + dy * dy)
+
+    if (len < 0.0001) {
+      ctx.restore()
+      return
+    }
+
+    // Перпендикулярное направление (вверх от линии)
+    const perpX = -dy / len
+    const perpY = dx / len
+    const offset = 0.5 // offset in world units
+
+    dimLineStart = { x: pFrom.x + perpX * offset, y: pFrom.y + perpY * offset }
+    dimLineEnd = { x: pTo.x + perpX * offset, y: pTo.y + perpY * offset }
+  }
+
+  // Рисуем выносные линии (extension lines)
+  if (!isRadiusOrDiameter) {
+    // Linear dimensions - standard extension lines
+    ctx.setLineDash([3 / zoom, 3 / zoom])
+    ctx.beginPath()
+    ctx.moveTo(pFrom.x, pFrom.y)
+    ctx.lineTo(dimLineStart.x + (dimLineStart.x - pFrom.x) * 0.1, dimLineStart.y + (dimLineStart.y - pFrom.y) * 0.1)
+    ctx.moveTo(pTo.x, pTo.y)
+    ctx.lineTo(dimLineEnd.x + (dimLineEnd.x - pTo.x) * 0.1, dimLineEnd.y + (dimLineEnd.y - pTo.y) * 0.1)
+    ctx.stroke()
+    ctx.setLineDash([])
+  } else if (elements && element.target_element !== undefined) {
+    // Radius/diameter - extension lines if dimension has been moved
+    const targetElement = elements[element.target_element]
+
+    if (targetElement && (targetElement.type === 'circle' || targetElement.type === 'arc')) {
+      const center = targetElement.center
+      const radius = targetElement.radius
+
+      if (center && radius !== undefined) {
+        // Calculate original dimension line positions
+        let originalFrom: Point2D
+        let originalTo: Point2D
+
+        if (element.dimension_type === 'radius') {
+          // Radius: from center to a point on circumference
+          const dx = pTo.x - pFrom.x
+          const dy = pTo.y - pFrom.y
+          const dist = Math.sqrt(dx * dx + dy * dy)
+
+          if (dist > 0.0001) {
+            originalFrom = center
+            originalTo = {
+              x: center.x + (dx / dist) * radius,
+              y: center.y + (dy / dist) * radius
+            }
+          } else {
+            originalFrom = center
+            originalTo = { x: center.x + radius, y: center.y }
+          }
+        } else {
+          // Diameter: through center
+          const dx = pTo.x - pFrom.x
+          const dy = pTo.y - pFrom.y
+          const dist = Math.sqrt(dx * dx + dy * dy)
+
+          if (dist > 0.0001) {
+            originalFrom = {
+              x: center.x - (dx / dist) * radius,
+              y: center.y - (dy / dist) * radius
+            }
+            originalTo = {
+              x: center.x + (dx / dist) * radius,
+              y: center.y + (dy / dist) * radius
+            }
+          } else {
+            originalFrom = { x: center.x - radius, y: center.y }
+            originalTo = { x: center.x + radius, y: center.y }
+          }
+        }
+
+        // Check if dimension has been moved from original position
+        const fromMoved = Math.sqrt(
+          (pFrom.x - originalFrom.x) ** 2 + (pFrom.y - originalFrom.y) ** 2
+        ) > 0.01
+        const toMoved = Math.sqrt(
+          (pTo.x - originalTo.x) ** 2 + (pTo.y - originalTo.y) ** 2
+        ) > 0.01
+
+        // Draw extension lines if moved
+        if (fromMoved || toMoved) {
+          ctx.setLineDash([3 / zoom, 3 / zoom])
+          ctx.beginPath()
+
+          if (fromMoved) {
+            ctx.moveTo(originalFrom.x, originalFrom.y)
+            ctx.lineTo(pFrom.x, pFrom.y)
+          }
+
+          if (toMoved) {
+            ctx.moveTo(originalTo.x, originalTo.y)
+            ctx.lineTo(pTo.x, pTo.y)
+          }
+
+          ctx.stroke()
+          ctx.setLineDash([])
+        }
+      }
+    }
+  }
+
+  // Рисуем размерную линию
+  ctx.beginPath()
+  ctx.moveTo(dimLineStart.x, dimLineStart.y)
+  ctx.lineTo(dimLineEnd.x, dimLineEnd.y)
+  ctx.stroke()
+
+  // Рисуем стрелки
+  const dimDx = dimLineEnd.x - dimLineStart.x
+  const dimDy = dimLineEnd.y - dimLineStart.y
+  const dimLen = Math.sqrt(dimDx * dimDx + dimDy * dimDy)
+
+  if (dimLen > 0.0001) {
+    const dimDirX = dimDx / dimLen
+    const dimDirY = dimDy / dimLen
+
+    if (element.dimension_type === 'radius') {
+      // Radius: only arrow at end
+      drawArrow(ctx, dimLineEnd, { x: -dimDirX, y: -dimDirY }, arrowSize)
+    } else {
+      // Linear and Diameter: arrows at both ends
+      drawArrow(ctx, dimLineStart, { x: dimDirX, y: dimDirY }, arrowSize)
+      drawArrow(ctx, dimLineEnd, { x: -dimDirX, y: -dimDirY }, arrowSize)
+    }
+  }
+
+  // Рисуем текст значения
+  const value = element.value || 0
+  const midX = (dimLineStart.x + dimLineEnd.x) / 2
+  const midY = (dimLineStart.y + dimLineEnd.y) / 2
+
+  // Calculate angle of dimension line for text rotation (reuse dimDx, dimDy from above)
+  let angle = Math.atan2(dimDy, dimDx)
+
+  // Keep text readable - flip if upside down
+  if (angle > Math.PI / 2) {
+    angle -= Math.PI
+  } else if (angle < -Math.PI / 2) {
+    angle += Math.PI
+  }
+
+  // Add prefix for radius/diameter
+  let displayText = value.toFixed(2)
+  if (element.dimension_type === 'radius') {
+    displayText = 'R' + displayText
+  } else if (element.dimension_type === 'diameter') {
+    displayText = 'Ø' + displayText
+  }
+
+  ctx.save()
+  ctx.translate(midX, midY)
+  ctx.rotate(angle)
+  ctx.scale(1, -1) // Flip text back to readable
+  ctx.fillStyle = dimColor
+  ctx.font = `bold ${14 / zoom}px sans-serif`
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'bottom'
+  ctx.fillText(displayText, 0, -textOffset)
+  ctx.restore()
+
+  ctx.restore()
+}
+
+/**
+ * Нарисовать стрелку для размерной линии
+ */
+function drawArrow(
+  ctx: CanvasRenderingContext2D,
+  point: Point2D,
+  direction: Point2D,
+  size: number
+) {
+  const angle = 25 * (Math.PI / 180) // 25 degrees
+
+  const perpX1 = direction.x * Math.cos(angle) - direction.y * Math.sin(angle)
+  const perpY1 = direction.x * Math.sin(angle) + direction.y * Math.cos(angle)
+
+  const perpX2 = direction.x * Math.cos(-angle) - direction.y * Math.sin(-angle)
+  const perpY2 = direction.x * Math.sin(-angle) + direction.y * Math.cos(-angle)
+
+  ctx.beginPath()
+  ctx.moveTo(point.x, point.y)
+  ctx.lineTo(point.x + perpX1 * size, point.y + perpY1 * size)
+  ctx.moveTo(point.x, point.y)
+  ctx.lineTo(point.x + perpX2 * size, point.y + perpY2 * size)
+  ctx.stroke()
 }
