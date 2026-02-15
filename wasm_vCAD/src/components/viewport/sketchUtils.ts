@@ -5,6 +5,7 @@
 
 import type { Point2D, SketchElement, Sketch } from '@/types/scene'
 import { engine } from '@/wasm/engine'
+import { distance2D } from '@/utils/mathUtils'
 
 export function screenToWorld(
   screenX: number,
@@ -127,9 +128,7 @@ export function findElementAtPoint(
   // Check if point is inside a circle or arc (for dimension tool)
   for (const element of elements) {
     if ((element.type === 'circle' || element.type === 'arc') && element.center && element.radius !== undefined) {
-      const dx = point.x - element.center.x
-      const dy = point.y - element.center.y
-      const distToCenter = Math.sqrt(dx * dx + dy * dy)
+      const distToCenter = distance2D(point, element.center)
 
       // If point is inside the circle/arc
       if (distToCenter <= element.radius) {
@@ -492,13 +491,13 @@ export function updateElementPoint(
         const dx = newPosition.x - updated.center.x
         const dy = newPosition.y - updated.center.y
         updated.start_angle = Math.atan2(dy, dx)
-        updated.radius = Math.sqrt(dx * dx + dy * dy)
+        updated.radius = distance2D(newPosition, updated.center)
       } else if (pointIndex === 2 && updated.center && updated.radius !== undefined && updated.end_angle !== undefined) {
         // Изменение конечной точки дуги
         const dx = newPosition.x - updated.center.x
         const dy = newPosition.y - updated.center.y
         updated.end_angle = Math.atan2(dy, dx)
-        updated.radius = Math.sqrt(dx * dx + dy * dy)
+        updated.radius = distance2D(newPosition, updated.center)
       }
       break
 
@@ -577,10 +576,4 @@ export function updateElementPoint(
   }
 
   return updated
-}
-
-function distance2D(a: Point2D, b: Point2D): number {
-  const dx = b.x - a.x
-  const dy = b.y - a.y
-  return Math.sqrt(dx * dx + dy * dy)
 }
