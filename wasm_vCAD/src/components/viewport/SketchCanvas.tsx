@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSketchStore } from '@/stores/sketchStore'
-import type { Point2D, SnapPoint, Sketch, SketchElement } from '@/types/scene'
+import type { Point2D, SnapPoint, SketchElement } from '@/types/scene'
 import { ContextMenu } from '@/components/ui/ContextMenu'
 import { OffsetDialog } from '@/components/dialogs/OffsetDialog'
 import { MirrorDialog } from '@/components/dialogs/MirrorDialog'
@@ -14,7 +14,9 @@ import {
   duplicateElement,
   getElementControlPoints,
   hitTestControlPoints,
-  updateElementPoint
+  updateElementPoint,
+  createSketchForWasm,
+  processWasmResult
 } from './sketchUtils'
 import * as SketchOps from './sketchOperations'
 import { getContextMenuItems, type ContextMenuCallbacks } from './sketchContextMenu'
@@ -678,23 +680,9 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
         if (elementIndex >= 0) {
           try {
             // Create sketch object for WASM
-            const sketch: Sketch = {
-              id: crypto.randomUUID(),
-              plane: sketchPlane,
-              offset: 0.0,
-              elements: elements
-            }
-
-            const sketchJson = JSON.stringify(sketch)
-            const resultJson = engine.trimElement(sketchJson, elementIndex, worldPoint.x, worldPoint.y)
-            const resultSketch: Sketch = JSON.parse(resultJson)
-
-            // IMPORTANT: WASM returns elements WITHOUT id field
-            // Generate new IDs for all elements from WASM
-            const elementsWithIds = resultSketch.elements.map(elem => ({
-              ...elem,
-              id: elem.id || crypto.randomUUID() // Add ID if missing
-            }))
+            const sketch = createSketchForWasm(elements, sketchPlane)
+            const resultJson = engine.trimElement(JSON.stringify(sketch), elementIndex, worldPoint.x, worldPoint.y)
+            const elementsWithIds = processWasmResult(resultJson)
 
             // Update elements
             setElements(elementsWithIds)
@@ -830,12 +818,7 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
     // Get snap points from WASM
     if (!isPanning && elements.length > 0) {
       try {
-        const sketch: Sketch = {
-          id: crypto.randomUUID(),
-          plane: sketchPlane,
-          offset: 0.0,
-          elements: elements
-        }
+        const sketch = createSketchForWasm(elements, sketchPlane)
         const sketchJson = JSON.stringify(sketch)
         const settingsJson = JSON.stringify({
           enabled: true,
@@ -928,23 +911,10 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
       // Apply constraint solver after dragging a control point (via WASM)
       if (constraints.length > 0) {
         try {
-          const sketch: Sketch = {
-            id: crypto.randomUUID(),
-            plane: sketchPlane,
-            offset: 0.0,
-            elements: elements,
-            constraints: constraints
-          }
-          const sketchJson = JSON.stringify(sketch)
-          const resultJson = engine.solveConstraints(sketchJson)
-          const resultSketch: Sketch = JSON.parse(resultJson)
-
+          const sketch = createSketchForWasm(elements, sketchPlane, constraints)
+          const resultJson = engine.solveConstraints(JSON.stringify(sketch))
           // CRITICAL: Preserve original IDs when updating from WASM
-          // WASM returns elements without id field, so we need to restore them
-          const elementsWithIds = resultSketch.elements.map((elem, index) => ({
-            ...elem,
-            id: elements[index]?.id || crypto.randomUUID()
-          }))
+          const elementsWithIds = processWasmResult(resultJson, elements)
           // Preserve selection when updating from constraint solver
           setElements(elementsWithIds, true)
         } catch (error) {
@@ -1101,23 +1071,10 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
 
       if (currentConstraints.length > 0) {
         try {
-          const sketch: Sketch = {
-            id: crypto.randomUUID(),
-            plane: sketchPlane,
-            offset: 0.0,
-            elements: currentElements,
-            constraints: currentConstraints
-          }
-          const sketchJson = JSON.stringify(sketch)
-          const resultJson = engine.solveConstraints(sketchJson)
-          const resultSketch: Sketch = JSON.parse(resultJson)
-
+          const sketch = createSketchForWasm(currentElements, sketchPlane, currentConstraints)
+          const resultJson = engine.solveConstraints(JSON.stringify(sketch))
           // CRITICAL: Preserve original IDs when updating from WASM
-          // WASM returns elements without id field, so we need to restore them
-          const elementsWithIds = resultSketch.elements.map((elem, index) => ({
-            ...elem,
-            id: currentElements[index]?.id || crypto.randomUUID()
-          }))
+          const elementsWithIds = processWasmResult(resultJson, currentElements)
           // Preserve selection when updating from constraint solver
           setElements(elementsWithIds, true)
         } catch (error) {

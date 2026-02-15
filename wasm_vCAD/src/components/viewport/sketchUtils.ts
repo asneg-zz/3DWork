@@ -3,7 +3,7 @@
  * Coordinate transformations and element operations
  */
 
-import type { Point2D, SketchElement, Sketch } from '@/types/scene'
+import type { Point2D, SketchElement, Sketch, SketchConstraint } from '@/types/scene'
 import { engine } from '@/wasm/engine'
 import { distance2D } from '@/utils/mathUtils'
 
@@ -576,4 +576,42 @@ export function updateElementPoint(
   }
 
   return updated
+}
+
+// ============================================================================
+// WASM Helpers (хелперы для работы с WASM)
+// ============================================================================
+
+/**
+ * Создать объект Sketch для WASM операций
+ * Обеспечивает единообразную структуру и генерацию ID
+ */
+export function createSketchForWasm(
+  elements: SketchElement[],
+  plane: 'XY' | 'XZ' | 'YZ',
+  constraints?: SketchConstraint[]
+): Sketch {
+  return {
+    id: crypto.randomUUID(),
+    plane,
+    offset: 0.0,
+    elements,
+    ...(constraints && constraints.length > 0 ? { constraints } : {})
+  }
+}
+
+/**
+ * Обработать результат WASM с сохранением ID элементов
+ * Сохраняет оригинальные ID там, где возможно
+ */
+export function processWasmResult(
+  resultJson: string,
+  originalElements?: SketchElement[]
+): SketchElement[] {
+  const resultSketch: Sketch = JSON.parse(resultJson)
+
+  return resultSketch.elements.map((elem, index) => ({
+    ...elem,
+    id: elem.id || originalElements?.[index]?.id || crypto.randomUUID()
+  }))
 }
