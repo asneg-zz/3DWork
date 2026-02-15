@@ -724,3 +724,44 @@ function drawArrow(
   ctx.lineTo(point.x + perpX2 * size, point.y + perpY2 * size)
   ctx.stroke()
 }
+
+// ============================================================================
+// Text Rendering Helper (хелпер для рендеринга текста)
+// ============================================================================
+
+/**
+ * Отрисовать текст с правильной трансформацией (перевернутая Y-ось)
+ * Обрабатывает стандартный паттерн save/scale/fillText/restore
+ */
+export function renderTransformedText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+  options: {
+    fontSize?: number
+    color?: string
+    align?: CanvasTextAlign
+    baseline?: CanvasTextBaseline
+    bold?: boolean
+    zoom: number
+  }
+): void {
+  const {
+    fontSize = 14,
+    color = '#ffffff',
+    align = 'center',
+    baseline = 'middle',
+    bold = false,
+    zoom
+  } = options
+
+  ctx.save()
+  ctx.scale(1, -1)  // Flip text back to readable orientation
+  ctx.fillStyle = color
+  ctx.font = `${bold ? 'bold ' : ''}${fontSize / zoom}px sans-serif`
+  ctx.textAlign = align
+  ctx.textBaseline = baseline
+  ctx.fillText(text, x, -y)
+  ctx.restore()
+}

@@ -7,7 +7,7 @@ import { MirrorDialog } from '@/components/dialogs/MirrorDialog'
 import { LinearPatternDialog } from '@/components/dialogs/LinearPatternDialog'
 import { CircularPatternDialog } from '@/components/dialogs/CircularPatternDialog'
 import { ConstraintDialog } from '@/components/dialogs/ConstraintDialog'
-import { drawElement, drawElementControlPoints, drawElementConstraints } from './sketchRendering'
+import { drawElement, drawElementControlPoints, drawElementConstraints, renderTransformedText } from './sketchRendering'
 import {
   screenToWorld as screenToWorldUtil,
   findElementAtPoint as findElementUtil,
@@ -249,16 +249,13 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
           ctx.fill()
 
           // Show radius value
-          ctx.save()
-          ctx.scale(1, -1)
-          ctx.fillStyle = '#fbbf24'
-          ctx.font = `${14 / zoom}px sans-serif`
-          ctx.textAlign = 'center'
-          ctx.textBaseline = 'middle'
           const midX = (startPoint.x + currentPoint.x) / 2
           const midY = (startPoint.y + currentPoint.y) / 2
-          ctx.fillText(`R: ${radius.toFixed(2)}`, midX, -midY)
-          ctx.restore()
+          renderTransformedText(ctx, `R: ${radius.toFixed(2)}`, midX, midY, {
+            color: '#fbbf24',
+            fontSize: 14,
+            zoom
+          })
           break
         }
 
@@ -281,16 +278,13 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
           ctx.fill()
 
           // Show dimensions
-          ctx.save()
-          ctx.scale(1, -1)
-          ctx.fillStyle = '#fbbf24'
-          ctx.font = `${14 / zoom}px sans-serif`
-          ctx.textAlign = 'center'
-          ctx.textBaseline = 'middle'
-          ctx.fillText(`${Math.abs(w).toFixed(2)} × ${Math.abs(h).toFixed(2)}`,
+          renderTransformedText(
+            ctx,
+            `${Math.abs(w).toFixed(2)} × ${Math.abs(h).toFixed(2)}`,
             startPoint.x + w / 2,
-            -(startPoint.y + h / 2))
-          ctx.restore()
+            startPoint.y + h / 2,
+            { color: '#fbbf24', fontSize: 14, zoom }
+          )
           break
         }
 
@@ -332,14 +326,11 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
                   ctx.fill()
 
                   // Draw point number
-                  ctx.save()
-                  ctx.scale(1, -1) // Flip text back
-                  ctx.fillStyle = '#ffffff'
-                  ctx.font = `${12 / zoom}px sans-serif`
-                  ctx.textAlign = 'center'
-                  ctx.textBaseline = 'middle'
-                  ctx.fillText(pt.label, pt.x, -pt.y - 8 / zoom)
-                  ctx.restore()
+                  renderTransformedText(ctx, pt.label, pt.x, pt.y + 8 / zoom, {
+                    color: '#ffffff',
+                    fontSize: 12,
+                    zoom
+                  })
                 })
               }
             } catch (error) {
@@ -361,14 +352,11 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
             ctx.fill()
 
             // Label
-            ctx.save()
-            ctx.scale(1, -1)
-            ctx.fillStyle = '#ffffff'
-            ctx.font = `${12 / zoom}px sans-serif`
-            ctx.textAlign = 'center'
-            ctx.textBaseline = 'middle'
-            ctx.fillText('1', startPoint.x, -startPoint.y - 8 / zoom)
-            ctx.restore()
+            renderTransformedText(ctx, '1', startPoint.x, startPoint.y + 8 / zoom, {
+              color: '#ffffff',
+              fontSize: 12,
+              zoom
+            })
           }
           break
         }
@@ -409,14 +397,11 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
               ctx.fill()
 
               // Draw point number
-              ctx.save()
-              ctx.scale(1, -1) // Flip text back to readable orientation
-              ctx.fillStyle = '#ffffff'
-              ctx.font = `${12 / zoom}px sans-serif`
-              ctx.textAlign = 'center'
-              ctx.textBaseline = 'middle'
-              ctx.fillText((index + 1).toString(), pt.x, -pt.y - 8 / zoom)
-              ctx.restore()
+              renderTransformedText(ctx, (index + 1).toString(), pt.x, pt.y + 8 / zoom, {
+                color: '#ffffff',
+                fontSize: 12,
+                zoom
+              })
             })
 
             // Draw cursor point
@@ -461,16 +446,13 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
             ctx.fill()
 
             // Draw distance text
-            ctx.save()
-            ctx.scale(1, -1)
-            ctx.fillStyle = '#96d4f6'
-            ctx.font = `${14 / zoom}px sans-serif`
-            ctx.textAlign = 'center'
-            ctx.textBaseline = 'middle'
             const midX = (startPoint.x + currentPoint.x) / 2
             const midY = (startPoint.y + currentPoint.y) / 2
-            ctx.fillText(distance.toFixed(2), midX, -midY - 12 / zoom)
-            ctx.restore()
+            renderTransformedText(ctx, distance.toFixed(2), midX, midY + 12 / zoom, {
+              color: '#96d4f6',
+              fontSize: 14,
+              zoom
+            })
           }
           break
         }
