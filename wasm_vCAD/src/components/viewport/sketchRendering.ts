@@ -3,7 +3,8 @@
  * Handles drawing of sketch elements on canvas
  */
 
-import type { SketchElement } from '@/types/scene'
+import type { SketchElement, Point2D } from '@/types/scene'
+import type { ControlPoint } from './sketchUtils'
 
 export interface RenderStyle {
   strokeColor: string
@@ -187,5 +188,113 @@ export function drawElement(
     case 'spline':
       drawSpline(ctx, element)
       break
+  }
+}
+
+/**
+ * Нарисовать контрольную точку
+ */
+export function drawControlPoint(
+  ctx: CanvasRenderingContext2D,
+  point: Point2D,
+  zoom: number,
+  isHovered: boolean = false
+) {
+  const size = 6 / zoom
+
+  ctx.save()
+  ctx.fillStyle = isHovered ? '#f59e0b' : '#3b82f6'  // Orange if hovered, blue otherwise
+  ctx.strokeStyle = '#ffffff'
+  ctx.lineWidth = 2 / zoom
+  ctx.setLineDash([])
+
+  ctx.beginPath()
+  ctx.arc(point.x, point.y, size, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.stroke()
+  ctx.restore()
+}
+
+/**
+ * Нарисовать контрольную точку центра (для окружностей и дуг)
+ */
+export function drawCenterPoint(
+  ctx: CanvasRenderingContext2D,
+  point: Point2D,
+  zoom: number,
+  isHovered: boolean = false
+) {
+  const size = 4 / zoom
+  const crossSize = 8 / zoom
+
+  ctx.save()
+  ctx.strokeStyle = isHovered ? '#f59e0b' : '#3b82f6'
+  ctx.lineWidth = 2 / zoom
+  ctx.setLineDash([])
+
+  // Крест для центра
+  ctx.beginPath()
+  ctx.moveTo(point.x - crossSize, point.y)
+  ctx.lineTo(point.x + crossSize, point.y)
+  ctx.moveTo(point.x, point.y - crossSize)
+  ctx.lineTo(point.x, point.y + crossSize)
+  ctx.stroke()
+
+  // Кружок в центре
+  ctx.fillStyle = isHovered ? '#f59e0b' : '#3b82f6'
+  ctx.beginPath()
+  ctx.arc(point.x, point.y, size, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.restore()
+}
+
+/**
+ * Нарисовать контрольную точку середины линии (треугольник)
+ */
+export function drawMidpoint(
+  ctx: CanvasRenderingContext2D,
+  point: Point2D,
+  zoom: number,
+  isHovered: boolean = false
+) {
+  const size = 6 / zoom
+
+  ctx.save()
+  ctx.fillStyle = isHovered ? '#f59e0b' : '#3b82f6'
+  ctx.strokeStyle = '#ffffff'
+  ctx.lineWidth = 2 / zoom
+  ctx.setLineDash([])
+
+  // Треугольник
+  ctx.beginPath()
+  ctx.moveTo(point.x, point.y - size)  // Верхняя точка
+  ctx.lineTo(point.x - size, point.y + size)  // Левая нижняя
+  ctx.lineTo(point.x + size, point.y + size)  // Правая нижняя
+  ctx.closePath()
+  ctx.fill()
+  ctx.stroke()
+  ctx.restore()
+}
+
+/**
+ * Нарисовать все контрольные точки для элемента
+ */
+export function drawElementControlPoints(
+  ctx: CanvasRenderingContext2D,
+  controlPoints: ControlPoint[],
+  zoom: number,
+  hoveredPoint: { elementId: string; pointIndex: number } | null
+) {
+  for (const cp of controlPoints) {
+    const isHovered = hoveredPoint?.elementId === cp.elementId &&
+                     hoveredPoint?.pointIndex === cp.pointIndex
+
+    if (cp.type === 'center') {
+      drawCenterPoint(ctx, cp.position, zoom, isHovered)
+    } else if (cp.type === 'midpoint') {
+      drawMidpoint(ctx, cp.position, zoom, isHovered)
+    } else {
+      drawControlPoint(ctx, cp.position, zoom, isHovered)
+    }
   }
 }

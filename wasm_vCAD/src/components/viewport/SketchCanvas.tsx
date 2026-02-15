@@ -6,10 +6,18 @@ import { OffsetDialog } from '@/components/dialogs/OffsetDialog'
 import { MirrorDialog } from '@/components/dialogs/MirrorDialog'
 import { LinearPatternDialog } from '@/components/dialogs/LinearPatternDialog'
 import { CircularPatternDialog } from '@/components/dialogs/CircularPatternDialog'
-import { drawElement } from './sketchRendering'
-import { screenToWorld as screenToWorldUtil, findElementAtPoint as findElementUtil, duplicateElement } from './sketchUtils'
+import { drawElement, drawElementControlPoints } from './sketchRendering'
+import {
+  screenToWorld as screenToWorldUtil,
+  findElementAtPoint as findElementUtil,
+  duplicateElement,
+  getElementControlPoints,
+  hitTestControlPoints,
+  updateElementPoint
+} from './sketchUtils'
 import * as SketchOps from './sketchOperations'
 import { getContextMenuItems, type ContextMenuCallbacks } from './sketchContextMenu'
+import { getToolsContextMenuItems, type ToolsContextMenuCallbacks } from './sketchToolsContextMenu'
 import { engine } from '@/wasm/engine'
 
 interface SketchCanvasProps {
@@ -57,12 +65,20 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
   const isConstruction = useSketchStore((s) => s.isConstruction)
   const setSymmetryAxis = useSketchStore((s) => s.setSymmetryAxis)
   const isSymmetryAxis = useSketchStore((s) => s.isSymmetryAxis)
+  const setTool = useSketchStore((s) => s.setTool)
+  const exitSketch = useSketchStore((s) => s.exitSketch)
 
   const [isPanning, setIsPanning] = useState(false)
   const [panStart, setPanStart] = useState<{ x: number; y: number } | null>(null)
   const [snapPoints, setSnapPoints] = useState<SnapPoint[]>([])
   const [cursorWorldPoint, setCursorWorldPoint] = useState<Point2D | null>(null)
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; elementId: string } | null>(null)
+  const [toolsContextMenu, setToolsContextMenu] = useState<{ x: number; y: number } | null>(null)
+
+  // Control point dragging state
+  const [isDraggingPoint, setIsDraggingPoint] = useState(false)
+  const [draggedPoint, setDraggedPoint] = useState<{ elementId: string; pointIndex: number } | null>(null)
+  const [hoveredControlPoint, setHoveredControlPoint] = useState<{ elementId: string; pointIndex: number } | null>(null)
 
   // Dialog states
   const [offsetDialog, setOffsetDialog] = useState<{ isOpen: boolean; elementId: string | null }>({ isOpen: false, elementId: null })
@@ -151,6 +167,13 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
     elements.forEach((element, index) => {
       drawElement(ctx, element, index, selectedElementIds, construction, symmetryAxis, zoom)
     })
+
+    // Draw control points for selected elements
+    if (tool === 'select' && selectedElementIds.length > 0) {
+      const selectedElements = elements.filter(el => selectedElementIds.includes(el.id))
+      const controlPoints = selectedElements.flatMap(el => getElementControlPoints(el))
+      drawElementControlPoints(ctx, controlPoints, zoom, hoveredControlPoint)
+    }
 
     // Draw preview while drawing
     if (isDrawing && startPoint && currentPoint) {
@@ -554,6 +577,16 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
 
     // Select tool
     if (tool === 'select') {
+      // First check if clicking on a control point of a selected element
+      const pointHit = hitTestControlPoints(worldPoint, elements, selectedElementIds, 0.3)
+      if (pointHit) {
+        // Start dragging control point
+        setIsDraggingPoint(true)
+        setDraggedPoint({ elementId: pointHit.elementId, pointIndex: pointHit.pointIndex })
+        return
+      }
+
+      // Otherwise, select element
       const elementId = findElementAtPoint(worldPoint)
       if (elementId) {
         if (e.ctrlKey || e.metaKey) {
@@ -664,6 +697,32 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
       }
     }
 
+    // Dragging control point
+    if (isDraggingPoint && draggedPoint) {
+      // Use snap point if available
+      const snappedPoint = snapPoints.length > 0 ? snapPoints[0].point : worldPoint
+
+      // Update the element with new point position
+      const elementIndex = elements.findIndex(el => el.id === draggedPoint.elementId)
+      if (elementIndex >= 0) {
+        const updatedElement = updateElementPoint(elements[elementIndex], draggedPoint.pointIndex, snappedPoint)
+        const newElements = [...elements]
+        newElements[elementIndex] = updatedElement
+        setElements(newElements)
+      }
+      return
+    }
+
+    // Update hovered control point in select mode
+    if (tool === 'select' && selectedElementIds.length > 0) {
+      const pointHit = hitTestControlPoints(worldPoint, elements, selectedElementIds, 0.3)
+      if (pointHit) {
+        setHoveredControlPoint({ elementId: pointHit.elementId, pointIndex: pointHit.pointIndex })
+      } else {
+        setHoveredControlPoint(null)
+      }
+    }
+
     // Panning
     if (isPanning && panStart) {
       const dx = (e.clientX - panStart.x) / zoom
@@ -682,6 +741,12 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
   }
 
   const handleMouseUp = () => {
+    if (isDraggingPoint) {
+      setIsDraggingPoint(false)
+      setDraggedPoint(null)
+      return
+    }
+
     if (isPanning) {
       setIsPanning(false)
       setPanStart(null)
@@ -723,7 +788,12 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
         elementId
       })
     } else {
-      console.log('No element found at click position')
+      // Show tools context menu on empty space
+      console.log('Showing tools context menu at:', e.clientX, e.clientY)
+      setToolsContextMenu({
+        x: e.clientX,
+        y: e.clientY
+      })
     }
   }
 
@@ -795,6 +865,18 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
     return getContextMenuItems(element, elementId, contextMenuCallbacks)
   }
 
+  // Tools context menu callbacks
+  const toolsContextMenuCallbacks: ToolsContextMenuCallbacks = {
+    onSelectTool: (toolName: string) => {
+      setTool(toolName as any)
+      setToolsContextMenu(null)
+    },
+    onExitSketch: () => {
+      exitSketch()
+      setToolsContextMenu(null)
+    }
+  }
+
   return (
     <>
       <canvas
@@ -820,6 +902,15 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
           y={contextMenu.y}
           items={getMenuItems(contextMenu.elementId)}
           onClose={() => setContextMenu(null)}
+        />
+      )}
+
+      {toolsContextMenu && (
+        <ContextMenu
+          x={toolsContextMenu.x}
+          y={toolsContextMenu.y}
+          items={getToolsContextMenuItems(toolsContextMenuCallbacks)}
+          onClose={() => setToolsContextMenu(null)}
         />
       )}
 
