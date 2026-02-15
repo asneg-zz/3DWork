@@ -13,7 +13,15 @@
       "Bash(ls:*)",
       "Bash(done)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(find:*)",
+      "Bash(systemctl status:*)",
+      "Bash(wasm-pack build:*)",
+      "Bash(npm run build:wasm:*)",
+      "Bash(cargo search:*)",
+      "Bash(grep:*)",
+      "Bash(npx ts-node:*)",
+      "Bash(npm run test:e2e:*)"
     ]
   }
 }

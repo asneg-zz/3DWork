@@ -1006,7 +1006,10 @@ impl ViewportPanel {
         // Extract sharp edges from mesh
         let edges = edge::extract_sharp_edges(mesh, 10.0); // 10 degree threshold
 
+        tracing::debug!("handle_edge_selection: body={}, sharp_edges={}", body_id, edges.len());
+
         if edges.is_empty() {
+            tracing::debug!("handle_edge_selection: no sharp edges found!");
             return;
         }
 
@@ -1016,6 +1019,7 @@ impl ViewportPanel {
             cursor_pos.y - rect.min.y,
         ];
         let screen_size = [rect.width(), rect.height()];
+        tracing::debug!("handle_edge_selection: cursor={:?}, rect={:?}, screen_size={:?}", cursor_screen, rect, screen_size);
 
         // Get view-projection matrix
         let aspect = rect.width() / rect.height();

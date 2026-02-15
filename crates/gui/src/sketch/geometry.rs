@@ -824,3 +824,158 @@ mod tests {
         assert!(!ints.is_empty());
     }
 }
+
+// ============================================================================
+// Mirror operations
+// ============================================================================
+
+/// Reflect a point about a line (axis)
+pub fn reflect_point_about_line(point: (f64, f64), axis: ((f64, f64), (f64, f64))) -> (f64, f64) {
+    let (ax, ay) = axis.0;
+    let (bx, by) = axis.1;
+
+    // Direction of axis
+    let dx = bx - ax;
+    let dy = by - ay;
+    let len_sq = dx * dx + dy * dy;
+    if len_sq < 1e-12 {
+        return point; // Degenerate axis
+    }
+
+    // Vector from axis start to point
+    let px = point.0 - ax;
+    let py = point.1 - ay;
+
+    // Project point onto axis
+    let t = (px * dx + py * dy) / len_sq;
+    let proj_x = ax + t * dx;
+    let proj_y = ay + t * dy;
+
+    // Reflect: point' = 2 * proj - point
+    (2.0 * proj_x - point.0, 2.0 * proj_y - point.1)
+}
+
+/// Reflect a sketch element about a line (axis)
+pub fn reflect_element_about_line(element: &SketchElement, axis: ((f64, f64), (f64, f64))) -> SketchElement {
+    match element {
+        SketchElement::Line { start, end } => {
+            let reflected_start = reflect_point_about_line((start.x, start.y), axis);
+            let reflected_end = reflect_point_about_line((end.x, end.y), axis);
+            SketchElement::Line {
+                start: Point2D {
+                    x: reflected_start.0,
+                    y: reflected_start.1,
+                },
+                end: Point2D {
+                    x: reflected_end.0,
+                    y: reflected_end.1,
+                },
+            }
+        }
+        SketchElement::Circle { center, radius } => {
+            let reflected_center = reflect_point_about_line((center.x, center.y), axis);
+            SketchElement::Circle {
+                center: Point2D {
+                    x: reflected_center.0,
+                    y: reflected_center.1,
+                },
+                radius: *radius,
+            }
+        }
+        SketchElement::Arc {
+            center,
+            radius,
+            start_angle,
+            end_angle,
+        } => {
+            let reflected_center = reflect_point_about_line((center.x, center.y), axis);
+
+            // Reflect angles: flip both angles and swap them
+            // When reflecting across a line, angles need to be mirrored too
+            let (ax, ay) = axis.0;
+            let (bx, by) = axis.1;
+            let axis_angle = (by - ay).atan2(bx - ax);
+
+            // Reflect angles relative to axis angle
+            let new_start = 2.0 * axis_angle - end_angle;
+            let new_end = 2.0 * axis_angle - start_angle;
+
+            SketchElement::Arc {
+                center: Point2D {
+                    x: reflected_center.0,
+                    y: reflected_center.1,
+                },
+                radius: *radius,
+                start_angle: new_start,
+                end_angle: new_end,
+            }
+        }
+        SketchElement::Rectangle { corner, width, height } => {
+            let reflected_corner = reflect_point_about_line((corner.x, corner.y), axis);
+            SketchElement::Rectangle {
+                corner: Point2D {
+                    x: reflected_corner.0,
+                    y: reflected_corner.1,
+                },
+                width: *width,
+                height: *height,
+            }
+        }
+        SketchElement::Polyline { points } => {
+            let reflected_points: Vec<Point2D> = points
+                .iter()
+                .map(|p| {
+                    let reflected = reflect_point_about_line((p.x, p.y), axis);
+                    Point2D {
+                        x: reflected.0,
+                        y: reflected.1,
+                    }
+                })
+                .collect();
+            SketchElement::Polyline {
+                points: reflected_points,
+            }
+        }
+        SketchElement::Spline { points } => {
+            let reflected_points: Vec<Point2D> = points
+                .iter()
+                .map(|p| {
+                    let reflected = reflect_point_about_line((p.x, p.y), axis);
+                    Point2D {
+                        x: reflected.0,
+                        y: reflected.1,
+                    }
+                })
+                .collect();
+            SketchElement::Spline {
+                points: reflected_points,
+            }
+        }
+        SketchElement::Dimension { from, to, value, parameter_name, dimension_line_pos, target_element, dimension_type } => {
+            let reflected_from = reflect_point_about_line((from.x, from.y), axis);
+            let reflected_to = reflect_point_about_line((to.x, to.y), axis);
+            let reflected_dim_line_pos = dimension_line_pos.as_ref().map(|pos| {
+                let reflected = reflect_point_about_line((pos.x, pos.y), axis);
+                Point2D {
+                    x: reflected.0,
+                    y: reflected.1,
+                }
+            });
+            SketchElement::Dimension {
+                from: Point2D {
+                    x: reflected_from.0,
+                    y: reflected_from.1,
+                },
+                to: Point2D {
+                    x: reflected_to.0,
+                    y: reflected_to.1,
+                },
+                value: *value,
+                parameter_name: parameter_name.clone(),
+                dimension_line_pos: reflected_dim_line_pos,
+                target_element: *target_element,
+                dimension_type: *dimension_type,
+            }
+        }
+    }
+}

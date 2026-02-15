@@ -416,7 +416,43 @@ fn distance_to_element(point: [f64; 2], element: &SketchElement) -> f64 {
             }
             min_dist
         }
-        _ => f64::MAX, // Spline, Dimension - not trimmable
+        SketchElement::Dimension { from, to, dimension_line_pos, .. } => {
+            // Dimension can be selected by clicking on its dimension line
+            let p_from = [from.x, from.y];
+            let p_to = [to.x, to.y];
+
+            // Вычислить позицию размерной линии
+            let (dim_start, dim_end) = if let Some(pos) = dimension_line_pos {
+                let dx = p_to[0] - p_from[0];
+                let dy = p_to[1] - p_from[1];
+                let len = (dx * dx + dy * dy).sqrt();
+                if len < 1e-10 {
+                    (p_from, p_to)
+                } else {
+                    let dir = [dx / len, dy / len];
+                    let to_pos = [pos.x - p_from[0], pos.y - p_from[1]];
+                    let proj = to_pos[0] * dir[0] + to_pos[1] * dir[1];
+                    let perp = [to_pos[0] - proj * dir[0], to_pos[1] - proj * dir[1]];
+                    ([p_from[0] + perp[0], p_from[1] + perp[1]],
+                     [p_to[0] + perp[0], p_to[1] + perp[1]])
+                }
+            } else {
+                // Автоматическое смещение
+                let dx = p_to[0] - p_from[0];
+                let dy = p_to[1] - p_from[1];
+                let len = (dx * dx + dy * dy).sqrt();
+                if len < 1e-10 {
+                    (p_from, p_to)
+                } else {
+                    let perp = [-dy / len * 0.5, dx / len * 0.5];
+                    ([p_from[0] + perp[0], p_from[1] + perp[1]],
+                     [p_to[0] + perp[0], p_to[1] + perp[1]])
+                }
+            };
+
+            distance_to_line_segment(point, dim_start, dim_end)
+        }
+        _ => f64::MAX, // Spline - not selectable for now
     }
 }
 
@@ -561,9 +597,18 @@ pub fn get_element_control_points(elem: &SketchElement) -> Vec<(usize, [f64; 2])
                 .map(|(i, pt)| (i, [pt.x, pt.y]))
                 .collect()
         }
-        SketchElement::Dimension { .. } => {
-            // Dimension points are not draggable
-            vec![]
+        SketchElement::Dimension { from, to, dimension_line_pos, .. } => {
+            let mut points = vec![
+                (0, [from.x, from.y]),  // from point
+                (1, [to.x, to.y]),      // to point
+            ];
+
+            // Add dimension line position if it exists
+            if let Some(pos) = dimension_line_pos {
+                points.push((2, [pos.x, pos.y]));
+            }
+
+            points
         }
     }
 }

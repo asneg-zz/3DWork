@@ -810,6 +810,10 @@ mod tests {
             from: Point2D { x: 0.0, y: 0.0 },
             to: Point2D { x: 1.0, y: 0.0 },
             value: 1.0,
+            parameter_name: None,
+            dimension_line_pos: None,
+            target_element: None,
+            dimension_type: shared::DimensionType::Linear,
         }]);
         assert!(result.is_err());
     }

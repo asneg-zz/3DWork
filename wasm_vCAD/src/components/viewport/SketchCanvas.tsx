@@ -7,9 +7,10 @@ import { MirrorDialog } from '@/components/dialogs/MirrorDialog'
 import { LinearPatternDialog } from '@/components/dialogs/LinearPatternDialog'
 import { CircularPatternDialog } from '@/components/dialogs/CircularPatternDialog'
 import { drawElement } from './sketchRendering'
-import { screenToWorld, findElementAtPoint, duplicateElement } from './sketchUtils'
+import { screenToWorld as screenToWorldUtil, findElementAtPoint as findElementUtil, duplicateElement } from './sketchUtils'
 import * as SketchOps from './sketchOperations'
 import { getContextMenuItems, type ContextMenuCallbacks } from './sketchContextMenu'
+import { engine } from '@/wasm/engine'
 
 interface SketchCanvasProps {
   width: number
@@ -69,42 +70,27 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
   const [linearPatternDialog, setLinearPatternDialog] = useState<{ isOpen: boolean; elementId: string | null }>({ isOpen: false, elementId: null })
   const [circularPatternDialog, setCircularPatternDialog] = useState<{ isOpen: boolean; elementId: string | null }>({ isOpen: false, elementId: null })
 
-  // Convert screen coords to world coords
+  // Convert screen coords to world coords (wrapper for canvas-specific logic)
   const screenToWorld = (screenX: number, screenY: number): Point2D => {
     const canvas = canvasRef.current
     if (!canvas) return { x: 0, y: 0 }
 
     const rect = canvas.getBoundingClientRect()
-    const x = ((screenX - rect.left - width / 2) / zoom) - panX
-    const y = (-(screenY - rect.top - height / 2) / zoom) - panY
-
-    return { x, y }
+    // Adjust for canvas position
+    return screenToWorldUtil(
+      screenX - rect.left,
+      screenY - rect.top,
+      width,
+      height,
+      zoom,
+      panX,
+      panY
+    )
   }
 
-  // ARCHITECTURE: Find element at point using WASM (no geometric calculations in TS)
+  // Find element at point (wrapper with sketch plane)
   const findElementAtPoint = (point: Point2D): string | null => {
-    const threshold = 0.2 // Click threshold in world units
-
-    try {
-      // Create sketch object for WASM
-      const sketch: Sketch = {
-        id: crypto.randomUUID(),
-        plane: sketchPlane,
-        offset: 0.0,
-        elements: elements
-      }
-
-      const sketchJson = JSON.stringify(sketch)
-      const elementIndex = engine.findElementAtPoint(sketchJson, point.x, point.y, threshold)
-
-      if (elementIndex >= 0 && elementIndex < elements.length) {
-        return elements[elementIndex].id
-      }
-    } catch (error) {
-      console.error('Find element failed:', error)
-    }
-
-    return null
+    return findElementUtil(point, elements, sketchPlane)
   }
 
   // Draw everything

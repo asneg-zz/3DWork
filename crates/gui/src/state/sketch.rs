@@ -210,6 +210,45 @@ pub enum SketchTool {
     Fillet,
     Offset,
     Mirror,
+    Pattern,
+}
+
+/// Type of pattern (linear or circular)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PatternType {
+    #[default]
+    Linear,
+    Circular,
+}
+
+/// Pattern parameters
+#[derive(Debug, Clone)]
+pub struct PatternParams {
+    /// Type of pattern
+    pub pattern_type: PatternType,
+    /// Number of copies (including original)
+    pub count: usize,
+    /// For linear: spacing between copies
+    pub spacing: f64,
+    /// For linear: direction angle in radians (0 = along X)
+    pub direction: f64,
+    /// For circular: total angle in degrees
+    pub total_angle: f64,
+    /// For circular: center point
+    pub center: Option<[f64; 2]>,
+}
+
+impl Default for PatternParams {
+    fn default() -> Self {
+        Self {
+            pattern_type: PatternType::Linear,
+            count: 3,
+            spacing: 0.5,
+            direction: 0.0,
+            total_angle: 360.0,
+            center: None,
+        }
+    }
 }
 
 impl SketchTool {
@@ -227,12 +266,13 @@ impl SketchTool {
             Self::Fillet => "Fillet",
             Self::Offset => "Offset",
             Self::Mirror => "Mirror",
+            Self::Pattern => "Pattern",
         }
     }
 
     /// Returns true if this is a modification tool (operates on existing elements)
     pub fn is_modification_tool(&self) -> bool {
-        matches!(self, Self::Trim | Self::Fillet | Self::Offset | Self::Mirror)
+        matches!(self, Self::Trim | Self::Fillet | Self::Offset | Self::Mirror | Self::Pattern)
     }
 }
 
@@ -273,6 +313,8 @@ pub struct SketchState {
     pub offset_distance: f64,
     /// Информация о dimension для окружности (если dimension создаётся для окружности)
     pub dimension_circle_info: Option<DimensionCircleInfo>,
+    /// Pattern parameters
+    pub pattern_params: PatternParams,
 }
 
 impl Default for SketchState {
@@ -289,6 +331,7 @@ impl Default for SketchState {
             fillet_radius: 0.1,
             offset_distance: 0.1,
             dimension_circle_info: None,
+            pattern_params: PatternParams::default(),
         }
     }
 }
@@ -378,7 +421,7 @@ impl SketchState {
             SketchTool::Polyline | SketchTool::Spline => None,
             SketchTool::None => Some(0),
             // Modification tools work by clicking on elements, not accumulating points
-            SketchTool::Trim | SketchTool::Fillet | SketchTool::Offset | SketchTool::Mirror => Some(0),
+            SketchTool::Trim | SketchTool::Fillet | SketchTool::Offset | SketchTool::Mirror | SketchTool::Pattern => Some(0),
         }
     }
 

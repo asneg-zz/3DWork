@@ -31,7 +31,7 @@ impl Default for PanelVisibility {
         Self {
             scene_tree: true,
             properties: true,
-            parameters: false,
+            parameters: true,  // Включена по умолчанию
             chat: true,
         }
     }

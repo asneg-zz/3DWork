@@ -4,6 +4,7 @@
 //! - Trim: Remove parts of elements at intersections
 //! - Fillet: Create rounded corners at element intersections
 //! - Offset: Create parallel copies of elements
+//! - Pattern: Linear and circular arrays of elements
 //! - Validation: Check sketch integrity for extrusion
 //! - Constraints: Geometric constraints solver
 
@@ -12,6 +13,7 @@ pub mod geometry;
 mod trim;
 mod fillet;
 mod offset;
+pub mod pattern;
 mod validation;
 pub mod constraints;
 
@@ -25,4 +27,5 @@ pub mod operations {
     pub use super::offset::{offset_line, offset_circle, offset_arc, offset_rectangle, offset_polyline, offset_spline, offset_element};
     pub use super::validation::{validate_sketch_for_extrusion, check_contour_closed, check_self_intersections};
     pub use super::geometry::reflect_element_about_line;
+    pub use super::pattern::{linear_pattern, circular_pattern};
 }

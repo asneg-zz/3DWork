@@ -74,28 +74,40 @@ pub enum DimensionType {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum SketchElement {
     Line {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
         start: Point2D,
         end: Point2D,
     },
     Circle {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
         center: Point2D,
         radius: f64,
     },
     Arc {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
         center: Point2D,
         radius: f64,
         start_angle: f64,
         end_angle: f64,
     },
     Rectangle {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
         corner: Point2D,
         width: f64,
         height: f64,
     },
     Polyline {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
         points: Vec<Point2D>,
     },
     Spline {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
         points: Vec<Point2D>,
     },
     Dimension {

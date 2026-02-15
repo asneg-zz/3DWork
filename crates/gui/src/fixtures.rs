@@ -4,7 +4,7 @@
 //! and other types used in tests and by the AI agent interface.
 
 use shared::*;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 // ── Body factories ──────────────────────────────────────────────
 
@@ -23,6 +23,7 @@ pub fn cube_body(id: &str, name: &str, w: f64, h: f64, d: f64) -> Body {
             transform: Transform::new(),
         }],
         visible: true,
+        parameters: HashMap::new(),
     }
 }
 
@@ -50,6 +51,7 @@ pub fn cube_body_at(id: &str, name: &str, w: f64, h: f64, d: f64, pos: [f64; 3])
             },
         }],
         visible: true,
+        parameters: HashMap::new(),
     }
 }
 
@@ -64,6 +66,7 @@ pub fn cylinder_body(id: &str, name: &str, r: f64, h: f64) -> Body {
             transform: Transform::new(),
         }],
         visible: true,
+        parameters: HashMap::new(),
     }
 }
 
@@ -78,6 +81,7 @@ pub fn sphere_body(id: &str, name: &str, r: f64) -> Body {
             transform: Transform::new(),
         }],
         visible: true,
+        parameters: HashMap::new(),
     }
 }
 
@@ -92,6 +96,7 @@ pub fn cone_body(id: &str, name: &str, r: f64, h: f64) -> Body {
             transform: Transform::new(),
         }],
         visible: true,
+        parameters: HashMap::new(),
     }
 }
 

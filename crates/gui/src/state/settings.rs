@@ -163,6 +163,27 @@ impl Default for UiSettings {
     }
 }
 
+/// Dimension display settings
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DimensionSettings {
+    /// Font size for dimension values
+    pub font_size: f32,
+    /// Number of decimal places for dimension values
+    pub precision: usize,
+    /// Show dimension units suffix
+    pub show_units: bool,
+}
+
+impl Default for DimensionSettings {
+    fn default() -> Self {
+        Self {
+            font_size: 14.0,
+            precision: 2,
+            show_units: false,
+        }
+    }
+}
+
 /// All application settings
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[derive(Default)]
@@ -179,6 +200,9 @@ pub struct AppSettings {
     pub snap: SnapSettings,
     /// UI settings
     pub ui: UiSettings,
+    /// Dimension display settings
+    #[serde(default)]
+    pub dimensions: DimensionSettings,
 }
 
 

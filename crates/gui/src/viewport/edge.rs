@@ -157,26 +157,48 @@ pub fn pick_edge_2d(
     pixel_tolerance: f32,
 ) -> Option<EdgeHit> {
     let mut best: Option<(usize, f32, f32)> = None; // (index, screen_dist, depth)
+    let mut min_dist_seen = f32::MAX;
 
     for (idx, edge) in edges.iter().enumerate() {
         let Some(p0) = project_point(edge.start, ray_origin, view_proj, screen_size) else { continue };
         let Some(p1) = project_point(edge.end, ray_origin, view_proj, screen_size) else { continue };
 
         let screen_dist = point_to_segment_2d(cursor_screen, p0, p1);
+        if screen_dist < min_dist_seen {
+            min_dist_seen = screen_dist;
+        }
         if screen_dist > pixel_tolerance {
             continue;
         }
 
         let depth = ((edge.start + edge.end) * 0.5 - ray_origin).length();
 
-        let dominated = best.map_or(false, |(_, bd, _)| {
-            // Prefer closer to camera, then closer to cursor
-            depth > bd + 0.01 || (depth > bd - 0.01 && screen_dist > bd)
+        let dominated = best.map_or(false, |(_, best_screen_dist, best_depth)| {
+            // Use relative depth threshold (5% of distance)
+            let depth_threshold = best_depth * 0.05;
+
+            // If significantly further from camera, dominated
+            if depth > best_depth + depth_threshold {
+                return true;
+            }
+            // If significantly closer, not dominated
+            if depth < best_depth - depth_threshold {
+                return false;
+            }
+            // Similar depth: prefer closer to cursor
+            screen_dist > best_screen_dist
         });
 
         if !dominated {
             best = Some((idx, screen_dist, depth));
         }
+    }
+
+    if best.is_none() && edges.len() > 0 {
+        tracing::debug!(
+            "pick_edge_2d: no edge found. edges={}, min_dist={:.1}, tolerance={:.1}, cursor={:?}, screen={:?}",
+            edges.len(), min_dist_seen, pixel_tolerance, cursor_screen, screen_size
+        );
     }
 
     best.map(|(idx, dist, _)| EdgeHit { edge_index: idx, distance: dist })

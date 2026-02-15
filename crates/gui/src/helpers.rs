@@ -182,6 +182,13 @@ pub fn can_perform_extrude(state: &AppState) -> bool {
         .unwrap_or(false)
 }
 
+/// Check if Fillet/Chamfer operation can be performed
+/// Returns true if there is at least one body with base geometry in the scene
+pub fn can_perform_fillet(state: &AppState) -> bool {
+    // Allow fillet if there's at least one body with geometry
+    state.scene.scene.bodies.iter().any(|b| b.visible && has_base_geometry(b))
+}
+
 /// Find construction lines in a sketch that can be used as revolve axes
 /// Also includes the designated revolve axis (even if not construction geometry)
 pub fn find_construction_axes(sketch: &Sketch) -> Vec<RevolveAxis> {
@@ -232,6 +239,7 @@ mod tests {
                 },
                 transform: Transform::new(),
             }],
+            parameters: std::collections::HashMap::new(),
         }
     }
 
@@ -251,6 +259,7 @@ mod tests {
                 },
                 transform: Transform::new(),
             }],
+            parameters: std::collections::HashMap::new(),
         }
     }
 

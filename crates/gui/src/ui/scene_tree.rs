@@ -280,6 +280,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState) {
                                     face_normal: None,
                                     construction: vec![],
                                     revolve_axis: None,
+                                    symmetry_axis: None,
                                     constraints: vec![],
                                 };
                                 if let Some(feature_id) = state.scene.add_sketch_to_body(body_id, sketch, shared::Transform::new()) {
@@ -296,6 +297,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState) {
                                     face_normal: None,
                                     construction: vec![],
                                     revolve_axis: None,
+                                    symmetry_axis: None,
                                     constraints: vec![],
                                 };
                                 if let Some(feature_id) = state.scene.add_sketch_to_body(body_id, sketch, shared::Transform::new()) {
@@ -312,6 +314,7 @@ pub fn show(ui: &mut Ui, state: &mut AppState) {
                                     face_normal: None,
                                     construction: vec![],
                                     revolve_axis: None,
+                                    symmetry_axis: None,
                                     constraints: vec![],
                                 };
                                 if let Some(feature_id) = state.scene.add_sketch_to_body(body_id, sketch, shared::Transform::new()) {

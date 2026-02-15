@@ -1,5 +1,6 @@
 //! Body CRUD operations
 
+use std::collections::HashMap;
 use shared::{
     Body, BodyId, BodyOperation, BooleanOp, BooleanResult, Feature, Primitive,
     SceneDescriptionV2, Sketch, Transform,
@@ -20,6 +21,7 @@ impl SceneState {
             name,
             features: vec![],
             visible: true,
+            parameters: HashMap::new(),
         });
 
         self.version += 1;
@@ -48,6 +50,7 @@ impl SceneState {
                 transform,
             }],
             visible: true,
+            parameters: HashMap::new(),
         });
 
         self.version += 1;
@@ -76,8 +79,11 @@ impl SceneState {
                 sketch,
                 sketch_transform: transform,
                 height,
+                height_backward: 0.0,
+                draft_angle: 0.0,
             }],
             visible: true,
+            parameters: HashMap::new(),
         });
 
         self.version += 1;
@@ -110,6 +116,7 @@ impl SceneState {
                 segments,
             }],
             visible: true,
+            parameters: HashMap::new(),
         });
 
         self.version += 1;
@@ -138,6 +145,7 @@ impl SceneState {
                 transform,
             }],
             visible: true,
+            parameters: HashMap::new(),
         });
 
         self.version += 1;

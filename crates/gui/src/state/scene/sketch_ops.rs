@@ -77,7 +77,7 @@ impl SceneState {
         &mut self,
         body_id: &str,
         feature_id: Option<&str>,
-        element: SketchElement,
+        mut element: SketchElement,
     ) {
         self.save_undo();
         self.redo_stack.clear();
@@ -90,6 +90,58 @@ impl SceneState {
                     | Feature::BaseRevolve { sketch, .. } => sketch,
                     _ => return,
                 };
+
+                // For Dimension elements, try to find and link to target element (Line or Rectangle)
+                if let SketchElement::Dimension { ref from, ref to, ref mut target_element, .. } = element {
+                    if target_element.is_none() {
+                        let threshold = 0.5;
+                        let dim_from = (from.x, from.y);
+                        let dim_to = (to.x, to.y);
+
+                        // Helper to calculate distance between two points
+                        let dist = |a: (f64, f64), b: (f64, f64)| -> f64 {
+                            ((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt()
+                        };
+
+                        // Search for a line or rectangle edge that matches dimension from/to
+                        for (elem_idx, other) in sketch.elements.iter().enumerate() {
+                            match other {
+                                SketchElement::Line { start, end } => {
+                                    let line_start = (start.x, start.y);
+                                    let line_end = (end.x, end.y);
+
+                                    if (dist(dim_from, line_start) < threshold && dist(dim_to, line_end) < threshold) ||
+                                       (dist(dim_from, line_end) < threshold && dist(dim_to, line_start) < threshold) {
+                                        *target_element = Some(elem_idx);
+                                        break;
+                                    }
+                                }
+                                SketchElement::Rectangle { corner, width, height } => {
+                                    // Rectangle corners
+                                    let c0 = (corner.x, corner.y);
+                                    let c1 = (corner.x + *width, corner.y);
+                                    let c2 = (corner.x + *width, corner.y + *height);
+                                    let c3 = (corner.x, corner.y + *height);
+
+                                    // Check all 4 edges
+                                    let edges = [(c0, c1), (c1, c2), (c2, c3), (c3, c0)];
+                                    for (e_start, e_end) in edges {
+                                        if (dist(dim_from, e_start) < threshold && dist(dim_to, e_end) < threshold) ||
+                                           (dist(dim_from, e_end) < threshold && dist(dim_to, e_start) < threshold) {
+                                            *target_element = Some(elem_idx);
+                                            break;
+                                        }
+                                    }
+                                    if target_element.is_some() {
+                                        break;
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+
                 sketch.elements.push(element);
                 self.version += 1;
             }
@@ -102,6 +154,7 @@ impl SceneState {
     }
 
     /// Remove sketch elements by indices
+    /// Also removes dimensions that reference the deleted elements and updates remaining dimension indices
     pub fn remove_sketch_elements(
         &mut self,
         body_id: &BodyId,
@@ -137,11 +190,39 @@ impl SceneState {
                 _ => return false,
             };
 
-            for &idx in indices {
-                if idx < sketch.elements.len() {
-                    sketch.elements.remove(idx);
+            // Find dimensions that reference any of the elements being deleted
+            let indices_set: std::collections::HashSet<usize> = indices.iter().cloned().collect();
+            let mut all_indices: Vec<usize> = indices.to_vec();
+
+            for (dim_idx, elem) in sketch.elements.iter().enumerate() {
+                if let SketchElement::Dimension { target_element: Some(target), .. } = elem {
+                    if indices_set.contains(target) && !indices_set.contains(&dim_idx) {
+                        all_indices.push(dim_idx);
+                    }
                 }
             }
+
+            // Sort in descending order to remove from the end first
+            all_indices.sort_by(|a, b| b.cmp(a));
+            all_indices.dedup();
+
+            // Remove elements
+            for idx in &all_indices {
+                if *idx < sketch.elements.len() {
+                    sketch.elements.remove(*idx);
+                }
+            }
+
+            // Update target_element indices for remaining dimensions
+            for elem in sketch.elements.iter_mut() {
+                if let SketchElement::Dimension { target_element: Some(ref mut target), .. } = elem {
+                    let shift = all_indices.iter().filter(|&&idx| idx < *target).count();
+                    if shift > 0 {
+                        *target -= shift;
+                    }
+                }
+            }
+
             self.version += 1;
             true
         } else {
@@ -150,6 +231,7 @@ impl SceneState {
     }
 
     /// Remove a single sketch element by index
+    /// Also removes dimensions that reference this element and updates remaining dimension indices
     /// If feature_id is Some, removes from that specific feature
     /// If feature_id is None, removes from the LAST Sketch feature, or falls back to BaseExtrude/BaseRevolve
     pub fn remove_sketch_element(
@@ -170,7 +252,37 @@ impl SceneState {
                     _ => return,
                 };
                 if element_index < sketch.elements.len() {
-                    sketch.elements.remove(element_index);
+                    // Find dimensions that reference this element
+                    let mut dims_to_remove: Vec<usize> = sketch.elements.iter().enumerate()
+                        .filter_map(|(i, elem)| {
+                            if let SketchElement::Dimension { target_element: Some(target), .. } = elem {
+                                if *target == element_index { Some(i) } else { None }
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+
+                    // Add the element itself
+                    dims_to_remove.push(element_index);
+                    dims_to_remove.sort_by(|a, b| b.cmp(a));
+                    dims_to_remove.dedup();
+
+                    // Remove all (element + its dimensions)
+                    for idx in &dims_to_remove {
+                        sketch.elements.remove(*idx);
+                    }
+
+                    // Update target_element indices for remaining dimensions
+                    for elem in sketch.elements.iter_mut() {
+                        if let SketchElement::Dimension { target_element: Some(ref mut target), .. } = elem {
+                            let shift = dims_to_remove.iter().filter(|&&idx| idx < *target).count();
+                            if shift > 0 {
+                                *target -= shift;
+                            }
+                        }
+                    }
+
                     self.version += 1;
                 }
             }
@@ -275,7 +387,38 @@ impl SceneState {
         }
     }
 
+    /// Toggle symmetry axis for a sketch element (only one axis per sketch)
+    pub fn toggle_symmetry_axis(
+        &mut self,
+        body_id: &str,
+        feature_id: Option<&str>,
+        element_index: usize,
+    ) {
+        self.save_undo();
+        self.redo_stack.clear();
+
+        if let Some(body) = self.scene.bodies.iter_mut().find(|b| b.id == body_id) {
+            if let Some(idx) = find_sketch_feature_index(body, feature_id) {
+                let sketch = match &mut body.features[idx] {
+                    Feature::Sketch { sketch, .. }
+                    | Feature::BaseExtrude { sketch, .. }
+                    | Feature::BaseRevolve { sketch, .. } => sketch,
+                    _ => return,
+                };
+
+                // Check that element exists and is a line
+                if element_index < sketch.elements.len() {
+                    if matches!(sketch.elements[element_index], shared::SketchElement::Line { .. }) {
+                        sketch.toggle_symmetry_axis(element_index);
+                        self.version += 1;
+                    }
+                }
+            }
+        }
+    }
+
     /// Remove selected sketch elements by indices (handles multiple at once, sorted descending)
+    /// Also removes dimensions that reference the deleted elements and updates remaining dimension indices
     pub fn remove_sketch_elements_by_indices(
         &mut self,
         body_id: &str,
@@ -285,9 +428,6 @@ impl SceneState {
         if indices.is_empty() {
             return;
         }
-
-        // Sort in descending order to remove from the end first
-        indices.sort_by(|a, b| b.cmp(a));
 
         self.save_undo();
         self.redo_stack.clear();
@@ -301,15 +441,43 @@ impl SceneState {
                     _ => return,
                 };
 
-                for elem_idx in indices {
-                    if elem_idx < sketch.elements.len() {
-                        sketch.elements.remove(elem_idx);
-                        // Also remove construction flag if exists
-                        if elem_idx < sketch.construction.len() {
-                            sketch.construction.remove(elem_idx);
+                // Find dimensions that reference any of the elements being deleted
+                let indices_set: std::collections::HashSet<usize> = indices.iter().cloned().collect();
+                for (dim_idx, elem) in sketch.elements.iter().enumerate() {
+                    if let SketchElement::Dimension { target_element: Some(target), .. } = elem {
+                        if indices_set.contains(target) && !indices_set.contains(&dim_idx) {
+                            indices.push(dim_idx);
                         }
                     }
                 }
+
+                // Sort in descending order to remove from the end first
+                indices.sort_by(|a, b| b.cmp(a));
+                indices.dedup();
+
+                // Remove elements
+                for elem_idx in &indices {
+                    if *elem_idx < sketch.elements.len() {
+                        sketch.elements.remove(*elem_idx);
+                        // Also remove construction flag if exists
+                        if *elem_idx < sketch.construction.len() {
+                            sketch.construction.remove(*elem_idx);
+                        }
+                    }
+                }
+
+                // Update target_element indices for remaining dimensions
+                // (indices shift down after removal)
+                for elem in sketch.elements.iter_mut() {
+                    if let SketchElement::Dimension { target_element: Some(ref mut target), .. } = elem {
+                        // Count how many removed elements were before this target
+                        let shift = indices.iter().filter(|&&idx| idx < *target).count();
+                        if shift > 0 {
+                            *target -= shift;
+                        }
+                    }
+                }
+
                 self.version += 1;
             }
         }
@@ -537,14 +705,31 @@ fn update_element_point(elem: &mut SketchElement, point_index: usize, new_pos: [
                 pt.y = new_pos[1];
             }
         }
-        SketchElement::Dimension { from, to, .. } => match point_index {
+        SketchElement::Dimension { from, to, dimension_line_pos, value, .. } => match point_index {
             0 => {
+                // Move from point
                 from.x = new_pos[0];
                 from.y = new_pos[1];
+                // Recalculate distance
+                let dx = to.x - from.x;
+                let dy = to.y - from.y;
+                *value = (dx * dx + dy * dy).sqrt();
             }
             1 => {
+                // Move to point
                 to.x = new_pos[0];
                 to.y = new_pos[1];
+                // Recalculate distance
+                let dx = to.x - from.x;
+                let dy = to.y - from.y;
+                *value = (dx * dx + dy * dy).sqrt();
+            }
+            2 => {
+                // Move dimension line position
+                *dimension_line_pos = Some(shared::Point2D {
+                    x: new_pos[0],
+                    y: new_pos[1],
+                });
             }
             _ => {}
         },

@@ -45,6 +45,7 @@ pub fn show(ui: &mut Ui, state: &AppState) {
                 SketchTool::Fillet => t("hint.fillet").to_string(),
                 SketchTool::Offset => t("hint.offset").to_string(),
                 SketchTool::Mirror => t("hint.mirror").to_string(),
+                SketchTool::Pattern => t("hint.pattern").to_string(),
             };
             let tool_label = match tool {
                 SketchTool::None => t("tool.select"),
@@ -59,6 +60,7 @@ pub fn show(ui: &mut Ui, state: &AppState) {
                 SketchTool::Fillet => t("tool.fillet"),
                 SketchTool::Offset => t("tool.offset"),
                 SketchTool::Mirror => t("tool.mirror"),
+                SketchTool::Pattern => t("tool.pattern"),
             };
             ui.colored_label(
                 egui::Color32::YELLOW,

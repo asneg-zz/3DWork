@@ -104,6 +104,7 @@ pub fn add_sketch_to_existing_body(
         face_normal,
         construction: vec![],
         revolve_axis: None,
+        symmetry_axis: None,
         constraints: vec![],
     };
 
