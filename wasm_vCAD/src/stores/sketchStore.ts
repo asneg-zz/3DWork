@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
-import type { SketchElement, Point2D, SketchPlane, SnapSettings, SnapPoint } from '@/types/scene'
+import type { SketchElement, Point2D, SketchPlane, SnapSettings, SnapPoint, SketchConstraint } from '@/types/scene'
 import { engine } from '@/wasm/engine'
 
 interface SketchState {
@@ -21,6 +21,9 @@ interface SketchState {
   construction: boolean[]
   revolveAxis: number | null    // Index of element marked as revolve axis
   symmetryAxis: number | null   // Index of element marked as mirror/symmetry axis
+
+  // Constraints
+  constraints: SketchConstraint[]
 
   // Current tool
   tool: 'select' | 'line' | 'circle' | 'rectangle' | 'arc' | 'polyline' | 'spline' | 'trim' | 'fillet' | 'offset' | 'mirror' | null
@@ -93,6 +96,12 @@ interface SketchState {
   setSymmetryAxis: (elementId: string) => void
   clearSymmetryAxis: () => void
   isSymmetryAxis: (elementId: string) => boolean
+
+  // Constraints
+  addConstraint: (constraint: SketchConstraint) => void
+  removeConstraint: (index: number) => void
+  clearConstraints: () => void
+  getElementConstraints: (elementId: string) => SketchConstraint[]
 }
 
 interface HistoryState {
@@ -131,6 +140,7 @@ export const useSketchStore = create<SketchState>()(
       construction: [],
       revolveAxis: null,
       symmetryAxis: null,
+      constraints: [],
       tool: null,
       isDrawing: false,
       startPoint: null,
@@ -543,6 +553,51 @@ export const useSketchStore = create<SketchState>()(
       const index = state.elements.findIndex(el => el.id === elementId)
       if (index === -1) return false
       return state.symmetryAxis === index
+    },
+
+    // Constraints
+    addConstraint: (constraint) =>
+      set((state) => {
+        state.constraints.push(constraint)
+      }),
+
+    removeConstraint: (index) =>
+      set((state) => {
+        if (index >= 0 && index < state.constraints.length) {
+          state.constraints.splice(index, 1)
+        }
+      }),
+
+    clearConstraints: () =>
+      set((state) => {
+        state.constraints = []
+      }),
+
+    getElementConstraints: (elementId) => {
+      const state = get()
+      const elementIndex = state.elements.findIndex(el => el.id === elementId)
+      if (elementIndex === -1) return []
+
+      return state.constraints.filter(c => {
+        switch (c.type) {
+          case 'horizontal':
+          case 'vertical':
+          case 'fixed':
+            return c.element === elementIndex
+          case 'parallel':
+          case 'perpendicular':
+          case 'equal':
+          case 'tangent':
+          case 'concentric':
+            return c.element1 === elementIndex || c.element2 === elementIndex
+          case 'symmetric':
+            return c.element1 === elementIndex || c.element2 === elementIndex || c.axis === elementIndex
+          case 'coincident':
+            return c.point1.element_index === elementIndex || c.point2.element_index === elementIndex
+          default:
+            return false
+        }
+      })
     },
     }
   })

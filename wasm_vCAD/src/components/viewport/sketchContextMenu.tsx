@@ -3,7 +3,7 @@
  * Context menu items and actions for sketch elements
  */
 
-import { Trash2, Copy, Move, CornerUpRight, Repeat, RotateCw, Ruler, FlipHorizontal2 } from 'lucide-react'
+import { Trash2, Copy, Move, CornerUpRight, Repeat, RotateCw, Ruler, FlipHorizontal2, Lock } from 'lucide-react'
 import type { ContextMenuItem } from '@/components/ui/ContextMenu'
 import type { SketchElement } from '@/types/scene'
 
@@ -18,6 +18,8 @@ export interface ContextMenuCallbacks {
   onDelete: () => void
   isConstruction: (elementId: string) => boolean
   isSymmetryAxis: (elementId: string) => boolean
+  onAddConstraint: (constraintType: string, elementId: string) => void
+  hasConstraint: (constraintType: string, elementId: string) => boolean
 }
 
 export function getContextMenuItems(
@@ -84,6 +86,34 @@ export function getContextMenuItems(
       icon: <FlipHorizontal2 size={16} />,
       onClick: () => callbacks.onSetSymmetryAxis(elementId),
     }] : []),
+
+    { label: '', onClick: () => {}, separator: true },
+
+    // Constraints submenu
+    {
+      label: 'Ограничения',
+      icon: <Lock size={16} />,
+      onClick: () => {},
+      disabled: true,  // Header
+    },
+
+    // Line constraints
+    ...(element.type === 'line' ? [
+      {
+        label: callbacks.hasConstraint('horizontal', elementId) ? '✓ Горизонтальная' : 'Горизонтальная',
+        onClick: () => callbacks.onAddConstraint('horizontal', elementId),
+      },
+      {
+        label: callbacks.hasConstraint('vertical', elementId) ? '✓ Вертикальная' : 'Вертикальная',
+        onClick: () => callbacks.onAddConstraint('vertical', elementId),
+      },
+    ] : []),
+
+    // All elements can be fixed
+    {
+      label: callbacks.hasConstraint('fixed', elementId) ? '✓ Зафиксировать' : 'Зафиксировать',
+      onClick: () => callbacks.onAddConstraint('fixed', elementId),
+    },
 
     { label: '', onClick: () => {}, separator: true },
 

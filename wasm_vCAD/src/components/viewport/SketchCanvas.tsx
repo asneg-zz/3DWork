@@ -6,7 +6,8 @@ import { OffsetDialog } from '@/components/dialogs/OffsetDialog'
 import { MirrorDialog } from '@/components/dialogs/MirrorDialog'
 import { LinearPatternDialog } from '@/components/dialogs/LinearPatternDialog'
 import { CircularPatternDialog } from '@/components/dialogs/CircularPatternDialog'
-import { drawElement, drawElementControlPoints } from './sketchRendering'
+import { ConstraintDialog } from '@/components/dialogs/ConstraintDialog'
+import { drawElement, drawElementControlPoints, drawElementConstraints } from './sketchRendering'
 import {
   screenToWorld as screenToWorldUtil,
   findElementAtPoint as findElementUtil,
@@ -67,6 +68,8 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
   const isSymmetryAxis = useSketchStore((s) => s.isSymmetryAxis)
   const setTool = useSketchStore((s) => s.setTool)
   const exitSketch = useSketchStore((s) => s.exitSketch)
+  const constraints = useSketchStore((s) => s.constraints)
+  const addConstraint = useSketchStore((s) => s.addConstraint)
 
   const [isPanning, setIsPanning] = useState(false)
   const [panStart, setPanStart] = useState<{ x: number; y: number } | null>(null)
@@ -85,6 +88,11 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
   const [mirrorDialog, setMirrorDialog] = useState<{ isOpen: boolean; elementId: string | null }>({ isOpen: false, elementId: null })
   const [linearPatternDialog, setLinearPatternDialog] = useState<{ isOpen: boolean; elementId: string | null }>({ isOpen: false, elementId: null })
   const [circularPatternDialog, setCircularPatternDialog] = useState<{ isOpen: boolean; elementId: string | null }>({ isOpen: false, elementId: null })
+  const [constraintDialog, setConstraintDialog] = useState<{ isOpen: boolean; elementId: string | null; elementType: string | null }>({
+    isOpen: false,
+    elementId: null,
+    elementType: null
+  })
 
   // Convert screen coords to world coords (wrapper for canvas-specific logic)
   const screenToWorld = (screenX: number, screenY: number): Point2D => {
@@ -166,6 +174,11 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
     // Draw elements using extracted rendering module
     elements.forEach((element, index) => {
       drawElement(ctx, element, index, selectedElementIds, construction, symmetryAxis, zoom)
+    })
+
+    // Draw constraint icons on elements
+    elements.forEach((element, index) => {
+      drawElementConstraints(ctx, element, index, constraints, zoom)
     })
 
     // Draw control points for selected elements
@@ -501,7 +514,8 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
         offsetDialog.isOpen ||
         mirrorDialog.isOpen ||
         linearPatternDialog.isOpen ||
-        circularPatternDialog.isOpen
+        circularPatternDialog.isOpen ||
+        constraintDialog.isOpen
 
       // Log all key presses for debugging
       console.log('Key pressed:', {
@@ -845,6 +859,66 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
     setElements(newElements)
   }
 
+  // Handle adding/removing constraint
+  const handleAddConstraint = (constraintType: string, elementId: string) => {
+    const element = elements.find(el => el.id === elementId)
+    if (!element) return
+
+    const elementIndex = elements.findIndex(el => el.id === elementId)
+    if (elementIndex === -1) return
+
+    // Check if constraint already exists
+    const existingConstraintIndex = constraints.findIndex(c => {
+      switch (constraintType) {
+        case 'horizontal':
+          return c.type === 'horizontal' && c.element === elementIndex
+        case 'vertical':
+          return c.type === 'vertical' && c.element === elementIndex
+        case 'fixed':
+          return c.type === 'fixed' && c.element === elementIndex
+        default:
+          return false
+      }
+    })
+
+    // If exists, remove it; otherwise add it
+    if (existingConstraintIndex >= 0) {
+      useSketchStore.getState().removeConstraint(existingConstraintIndex)
+    } else {
+      // Add constraint based on type
+      switch (constraintType) {
+        case 'horizontal':
+          addConstraint({ type: 'horizontal', element: elementIndex })
+          break
+        case 'vertical':
+          addConstraint({ type: 'vertical', element: elementIndex })
+          break
+        case 'fixed':
+          addConstraint({ type: 'fixed', element: elementIndex })
+          break
+      }
+    }
+  }
+
+  // Check if element has constraint
+  const hasConstraint = (constraintType: string, elementId: string): boolean => {
+    const elementIndex = elements.findIndex(el => el.id === elementId)
+    if (elementIndex === -1) return false
+
+    return constraints.some(c => {
+      switch (constraintType) {
+        case 'horizontal':
+          return c.type === 'horizontal' && c.element === elementIndex
+        case 'vertical':
+          return c.type === 'vertical' && c.element === elementIndex
+        case 'fixed':
+          return c.type === 'fixed' && c.element === elementIndex
+        default:
+          return false
+      }
+    })
+  }
+
   // Context menu items using extracted module
   const contextMenuCallbacks: ContextMenuCallbacks = {
     onDuplicate: handleDuplicate,
@@ -857,6 +931,8 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
     onDelete: deleteSelected,
     isConstruction,
     isSymmetryAxis,
+    onAddConstraint: handleAddConstraint,
+    hasConstraint,
   }
 
   const getMenuItems = (elementId: string) => {
@@ -951,6 +1027,18 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
         onConfirm={(count, centerX, centerY, angle) => {
           if (circularPatternDialog.elementId) {
             handleCircularPattern(circularPatternDialog.elementId, count, centerX, centerY, angle)
+          }
+        }}
+      />
+
+      <ConstraintDialog
+        isOpen={constraintDialog.isOpen}
+        elementId={constraintDialog.elementId}
+        elementType={constraintDialog.elementType}
+        onClose={() => setConstraintDialog({ isOpen: false, elementId: null, elementType: null })}
+        onConfirm={(constraintType) => {
+          if (constraintDialog.elementId) {
+            handleAddConstraint(constraintType, constraintDialog.elementId)
           }
         }}
       />

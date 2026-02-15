@@ -65,6 +65,36 @@ export interface SketchElement {
   points?: Point2D[]
 }
 
+// Constraint types
+export interface PointRef {
+  element_index: number
+  point_index: number
+}
+
+export type SketchConstraintType =
+  | 'horizontal'
+  | 'vertical'
+  | 'parallel'
+  | 'perpendicular'
+  | 'coincident'
+  | 'fixed'
+  | 'equal'
+  | 'tangent'
+  | 'concentric'
+  | 'symmetric'
+
+export type SketchConstraint =
+  | { type: 'horizontal'; element: number }
+  | { type: 'vertical'; element: number }
+  | { type: 'parallel'; element1: number; element2: number }
+  | { type: 'perpendicular'; element1: number; element2: number }
+  | { type: 'coincident'; point1: PointRef; point2: PointRef }
+  | { type: 'fixed'; element: number }
+  | { type: 'equal'; element1: number; element2: number }
+  | { type: 'tangent'; element1: number; element2: number }
+  | { type: 'concentric'; element1: number; element2: number }
+  | { type: 'symmetric'; element1: number; element2: number; axis: number }
+
 export interface Sketch {
   id: string
   plane: SketchPlane
@@ -74,6 +104,7 @@ export interface Sketch {
   construction?: boolean[]  // Flags for construction geometry (parallel to elements)
   revolve_axis?: number     // Index of element marked as revolve axis
   symmetry_axis?: number    // Index of element marked as symmetry/mirror axis
+  constraints?: SketchConstraint[]  // Geometric constraints
 }
 
 export interface ExtrudeParams {

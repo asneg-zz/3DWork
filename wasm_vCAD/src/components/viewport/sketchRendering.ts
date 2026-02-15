@@ -3,7 +3,7 @@
  * Handles drawing of sketch elements on canvas
  */
 
-import type { SketchElement, Point2D } from '@/types/scene'
+import type { SketchElement, Point2D, SketchConstraint } from '@/types/scene'
 import type { ControlPoint } from './sketchUtils'
 
 export interface RenderStyle {
@@ -297,4 +297,160 @@ export function drawElementControlPoints(
       drawControlPoint(ctx, cp.position, zoom, isHovered)
     }
   }
+}
+
+// ============================================================================
+// Constraint Icons (иконки ограничений)
+// ============================================================================
+
+/**
+ * Получить иконку для типа ограничения
+ */
+export function getConstraintIcon(constraint: SketchConstraint): string {
+  switch (constraint.type) {
+    case 'horizontal':
+      return 'H'
+    case 'vertical':
+      return 'V'
+    case 'parallel':
+      return '//'
+    case 'perpendicular':
+      return '⊥'
+    case 'coincident':
+      return 'C'
+    case 'fixed':
+      return 'F'
+    case 'equal':
+      return '='
+    case 'tangent':
+      return 'T'
+    case 'concentric':
+      return 'O'
+    case 'symmetric':
+      return 'S'
+    default:
+      return '?'
+  }
+}
+
+/**
+ * Нарисовать иконку ограничения
+ */
+export function drawConstraintIcon(
+  ctx: CanvasRenderingContext2D,
+  position: Point2D,
+  icon: string,
+  zoom: number
+) {
+  const size = 16 / zoom
+  const padding = 4 / zoom
+  const fontSize = 12 / zoom
+
+  ctx.save()
+
+  // Фон иконки
+  ctx.fillStyle = 'rgba(59, 130, 246, 0.9)' // Blue background
+  ctx.strokeStyle = '#ffffff'
+  ctx.lineWidth = 1 / zoom
+
+  ctx.beginPath()
+  ctx.rect(position.x - size / 2, position.y - size / 2, size, size)
+  ctx.fill()
+  ctx.stroke()
+
+  // Текст иконки
+  ctx.fillStyle = '#ffffff'
+  ctx.font = `bold ${fontSize}px sans-serif`
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(icon, position.x, position.y)
+
+  ctx.restore()
+}
+
+/**
+ * Получить позицию для иконки ограничения на элементе
+ */
+export function getConstraintIconPosition(
+  element: SketchElement,
+  iconIndex: number,
+  zoom: number
+): Point2D {
+  const offset = 20 / zoom
+  const spacing = 18 / zoom
+
+  // Базовая позиция - середина элемента
+  let baseX = 0
+  let baseY = 0
+
+  switch (element.type) {
+    case 'line':
+      if (element.start && element.end) {
+        baseX = (element.start.x + element.end.x) / 2
+        baseY = (element.start.y + element.end.y) / 2
+      }
+      break
+    case 'circle':
+    case 'arc':
+      if (element.center) {
+        baseX = element.center.x
+        baseY = element.center.y
+      }
+      break
+    case 'rectangle':
+      if (element.corner && element.width !== undefined && element.height !== undefined) {
+        baseX = element.corner.x + element.width / 2
+        baseY = element.corner.y + element.height / 2
+      }
+      break
+    default:
+      baseX = 0
+      baseY = 0
+  }
+
+  // Смещение для множественных иконок
+  return {
+    x: baseX + iconIndex * spacing,
+    y: baseY - offset
+  }
+}
+
+/**
+ * Нарисовать все иконки ограничений для элемента
+ */
+export function drawElementConstraints(
+  ctx: CanvasRenderingContext2D,
+  element: SketchElement,
+  elementIndex: number,
+  constraints: SketchConstraint[],
+  zoom: number
+) {
+  // Фильтруем ограничения для этого элемента
+  const elementConstraints = constraints.filter(c => {
+    switch (c.type) {
+      case 'horizontal':
+      case 'vertical':
+      case 'fixed':
+        return c.element === elementIndex
+      case 'parallel':
+      case 'perpendicular':
+      case 'equal':
+      case 'tangent':
+      case 'concentric':
+        return c.element1 === elementIndex || c.element2 === elementIndex
+      case 'symmetric':
+        return c.element1 === elementIndex || c.element2 === elementIndex || c.axis === elementIndex
+      case 'coincident':
+        return c.point1.element_index === elementIndex || c.point2.element_index === elementIndex
+      default:
+        return false
+    }
+  })
+
+  // Рисуем иконки
+  elementConstraints.forEach((constraint, index) => {
+    const icon = getConstraintIcon(constraint)
+    const position = getConstraintIconPosition(element, index, zoom)
+    drawConstraintIcon(ctx, position, icon, zoom)
+  })
 }
