@@ -21,7 +21,8 @@
       "Bash(cargo search:*)",
       "Bash(grep:*)",
       "Bash(npx ts-node:*)",
-      "Bash(npm run test:e2e:*)"
+      "Bash(npm run test:e2e:*)",
+      "Bash(npm run:*)"
     ]
   }
 }
