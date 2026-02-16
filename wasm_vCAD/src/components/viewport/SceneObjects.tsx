@@ -1,4 +1,5 @@
 import { useSceneStore } from '@/stores/sceneStore'
+import { useEdgeSelectionStore } from '@/stores/edgeSelectionStore'
 import { useMemo } from 'react'
 import * as THREE from 'three'
 import { engine } from '@/wasm/engine'
@@ -34,6 +35,8 @@ function createGeometryFromMeshData(meshData: MeshData): THREE.BufferGeometry {
 
 // Component for rendering a single primitive feature
 function PrimitiveFeature({ feature, body, isSelected }: { feature: Feature; body: Body; isSelected: boolean }) {
+  const edgeSelectionActive = useEdgeSelectionStore((s) => s.active)
+
   const transform = feature.transform || {
     position: [0, 0, 0],
     rotation: [0, 0, 0],
@@ -107,7 +110,7 @@ function PrimitiveFeature({ feature, body, isSelected }: { feature: Feature; bod
         />
 
         {/* Wireframe overlay when selected */}
-        {isSelected && (
+        {isSelected && !edgeSelectionActive && (
           <mesh geometry={geometry}>
             <meshBasicMaterial
               color="#4a9eff"
@@ -138,6 +141,8 @@ function PrimitiveFeature({ feature, body, isSelected }: { feature: Feature; bod
 
 // Component for rendering extrude feature
 function ExtrudeFeature({ feature, body, isSelected }: { feature: Feature; body: Body; isSelected: boolean }) {
+  const edgeSelectionActive = useEdgeSelectionStore((s) => s.active)
+
   const color = isSelected ? '#4a9eff' : '#808080'
 
   // Get extrude parameters
@@ -180,7 +185,7 @@ function ExtrudeFeature({ feature, body, isSelected }: { feature: Feature; body:
         />
 
         {/* Wireframe overlay when selected */}
-        {isSelected && (
+        {isSelected && !edgeSelectionActive && (
           <mesh geometry={geometry}>
             <meshBasicMaterial
               color="#4a9eff"

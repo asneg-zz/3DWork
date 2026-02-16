@@ -7,6 +7,7 @@ import { useRef, useState } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import { useFaceSelectionStore } from '@/stores/faceSelectionStore'
+import { useEdgeSelectionStore } from '@/stores/edgeSelectionStore'
 import type { Feature, Body, SketchPlane } from '@/types/scene'
 
 interface FaceHighlightProps {
@@ -207,6 +208,7 @@ export function FaceHighlight({ feature, body, geometry }: FaceHighlightProps) {
   const faceSelectionActive = useFaceSelectionStore((s) => s.active)
   const setHoveredFace = useFaceSelectionStore((s) => s.setHoveredFace)
   const selectFace = useFaceSelectionStore((s) => s.selectFace)
+  const edgeSelectionActive = useEdgeSelectionStore((s) => s.active)
 
   const meshRef = useRef<THREE.Mesh>(null)
   const [hoveredFaceData, setHoveredFaceData] = useState<{
@@ -310,7 +312,7 @@ export function FaceHighlight({ feature, body, geometry }: FaceHighlightProps) {
     window.dispatchEvent(customEvent)
   }
 
-  if (!faceSelectionActive) {
+  if (!faceSelectionActive || edgeSelectionActive) {
     return null
   }
 

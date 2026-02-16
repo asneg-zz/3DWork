@@ -23,53 +23,44 @@ interface Edge {
 }
 
 /**
- * Extract unique edges from mesh geometry
+ * Extract geometric edges from mesh using THREE.EdgesGeometry
+ * This automatically filters for sharp edges (angle > threshold)
  */
 function extractEdges(geometry: THREE.BufferGeometry): Edge[] {
-  const index = geometry.index
-  const position = geometry.attributes.position
+  // Use Three.js EdgesGeometry to get only geometric edges (not mesh triangulation)
+  // thresholdAngle = 1 degree means edges where angle between faces > 1 degree
+  const edgesGeometry = new THREE.EdgesGeometry(geometry, 1)
+  const position = edgesGeometry.attributes.position
 
-  if (!index || !position || !(position instanceof THREE.BufferAttribute)) {
+  if (!position || !(position instanceof THREE.BufferAttribute)) {
     return []
   }
 
-  const edges: Map<string, Edge> = new Map()
+  const edges: Edge[] = []
 
-  // Iterate through all triangles
-  for (let i = 0; i < index.count; i += 3) {
-    const indices = [
-      index.getX(i),
-      index.getX(i + 1),
-      index.getX(i + 2)
-    ]
-
-    // Get triangle vertices
-    const vertices = indices.map(idx =>
-      new THREE.Vector3(
-        position.getX(idx),
-        position.getY(idx),
-        position.getZ(idx)
-      )
+  // EdgesGeometry contains line segments (pairs of vertices)
+  for (let i = 0; i < position.count; i += 2) {
+    const start = new THREE.Vector3(
+      position.getX(i),
+      position.getY(i),
+      position.getZ(i)
+    )
+    const end = new THREE.Vector3(
+      position.getX(i + 1),
+      position.getY(i + 1),
+      position.getZ(i + 1)
     )
 
-    // Add three edges of the triangle
-    for (let j = 0; j < 3; j++) {
-      const start = vertices[j]
-      const end = vertices[(j + 1) % 3]
+    // Create key for this edge
+    const key = [start, end]
+      .map(v => `${v.x.toFixed(6)},${v.y.toFixed(6)},${v.z.toFixed(6)}`)
+      .sort()
+      .join('|')
 
-      // Create sorted key to avoid duplicates
-      const key = [start, end]
-        .map(v => `${v.x.toFixed(6)},${v.y.toFixed(6)},${v.z.toFixed(6)}`)
-        .sort()
-        .join('|')
-
-      if (!edges.has(key)) {
-        edges.set(key, { start, end, key })
-      }
-    }
+    edges.push({ start, end, key })
   }
 
-  return Array.from(edges.values())
+  return edges
 }
 
 /**
