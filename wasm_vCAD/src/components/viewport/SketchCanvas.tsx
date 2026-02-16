@@ -1210,6 +1210,18 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
           return c.type === 'vertical' && c.element === elementIndex
         case 'fixed':
           return c.type === 'fixed' && c.element === elementIndex
+        case 'parallel':
+          return c.type === 'parallel' && (c.element1 === elementIndex || c.element2 === elementIndex)
+        case 'perpendicular':
+          return c.type === 'perpendicular' && (c.element1 === elementIndex || c.element2 === elementIndex)
+        case 'equal':
+          return c.type === 'equal' && (c.element1 === elementIndex || c.element2 === elementIndex)
+        case 'tangent':
+          return c.type === 'tangent' && (c.element1 === elementIndex || c.element2 === elementIndex)
+        case 'concentric':
+          return c.type === 'concentric' && (c.element1 === elementIndex || c.element2 === elementIndex)
+        case 'symmetric':
+          return c.type === 'symmetric' && (c.element1 === elementIndex || c.element2 === elementIndex || c.axis === elementIndex)
         default:
           return false
       }
@@ -1353,6 +1365,7 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
         elementType={constraintDialog.elementType}
         secondElementId={constraintDialog.secondElementId}
         needsSecondElement={constraintDialog.needsSecondElement}
+        hasConstraint={hasConstraint}
         onClose={() => setConstraintDialog({
           isOpen: false,
           elementId: null,

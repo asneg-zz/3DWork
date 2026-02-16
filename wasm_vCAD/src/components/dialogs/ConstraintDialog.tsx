@@ -17,6 +17,8 @@ export interface ConstraintDialogProps {
   secondElementId?: string | null
   needsSecondElement?: boolean
   onNeedSecondElement?: (constraintType: SketchConstraintType) => void
+  // Check if constraint is already applied
+  hasConstraint?: (constraintType: string, elementId: string) => boolean
 }
 
 export function ConstraintDialog({
@@ -27,7 +29,8 @@ export function ConstraintDialog({
   onConfirm,
   secondElementId,
   needsSecondElement = false,
-  onNeedSecondElement
+  onNeedSecondElement,
+  hasConstraint
 }: ConstraintDialogProps) {
   const [selectedType, setSelectedType] = useState<SketchConstraintType>('horizontal')
 
@@ -86,8 +89,11 @@ export function ConstraintDialog({
   const selectedConstraint = availableConstraints.find(c => c.type === selectedType)
   const showSecondElementHint = selectedConstraint?.needsSecond && !secondElementId
 
+  // Check if selected constraint is already applied
+  const isConstraintActive = elementId && hasConstraint ? hasConstraint(selectedType, elementId) : false
+
   return (
-    <BaseDialog title="Добавить ограничение" isOpen={isOpen} onClose={onClose}>
+    <BaseDialog title="Управление ограничениями" isOpen={isOpen} onClose={onClose}>
       <div className="flex flex-col gap-3">
         {needsSecondElement && !secondElementId ? (
           <div className="text-sm text-amber-400 bg-amber-400/10 p-2 rounded border border-amber-400/30">
@@ -111,32 +117,43 @@ export function ConstraintDialog({
           </div>
         ) : (
           <div className="flex flex-col gap-2">
-            {availableConstraints.map((constraint) => (
-              <label
-                key={constraint.type}
-                className="flex items-start gap-2 cursor-pointer hover:bg-cad-accent/10 p-2 rounded"
-              >
-                <input
-                  type="radio"
-                  name="constraintType"
-                  value={constraint.type}
-                  checked={selectedType === constraint.type}
-                  onChange={(e) => setSelectedType(e.target.value as SketchConstraintType)}
-                  className="mt-1"
-                />
-                <div className="flex flex-col flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium text-cad-text">{constraint.label}</span>
-                    {constraint.needsSecond && (
-                      <span className="text-xs text-cad-text-secondary bg-cad-accent/20 px-1.5 py-0.5 rounded">
-                        2 элемента
+            {availableConstraints.map((constraint) => {
+              const isActive = elementId && hasConstraint ? hasConstraint(constraint.type, elementId) : false
+              return (
+                <label
+                  key={constraint.type}
+                  className="flex items-start gap-2 cursor-pointer hover:bg-cad-accent/10 p-2 rounded"
+                >
+                  <input
+                    type="radio"
+                    name="constraintType"
+                    value={constraint.type}
+                    checked={selectedType === constraint.type}
+                    onChange={(e) => setSelectedType(e.target.value as SketchConstraintType)}
+                    className="mt-1"
+                  />
+                  <div className="flex flex-col flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-cad-text">
+                        {isActive && '✓ '}
+                        {constraint.label}
                       </span>
-                    )}
+                      {constraint.needsSecond && (
+                        <span className="text-xs text-cad-text-secondary bg-cad-accent/20 px-1.5 py-0.5 rounded">
+                          2 элемента
+                        </span>
+                      )}
+                      {isActive && (
+                        <span className="text-xs text-green-400 bg-green-400/20 px-1.5 py-0.5 rounded">
+                          активно
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-xs text-cad-text-secondary">{constraint.description}</span>
                   </div>
-                  <span className="text-xs text-cad-text-secondary">{constraint.description}</span>
-                </div>
-              </label>
-            ))}
+                </label>
+              )
+            })}
           </div>
         )}
 
@@ -156,9 +173,13 @@ export function ConstraintDialog({
           <button
             onClick={handleConfirm}
             disabled={availableConstraints.length === 0}
-            className="flex-1 px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            className={`flex-1 px-3 py-2 rounded disabled:opacity-50 disabled:cursor-not-allowed ${
+              isConstraintActive
+                ? 'bg-red-600 text-white hover:bg-red-700'
+                : 'bg-blue-600 text-white hover:bg-blue-700'
+            }`}
           >
-            {showSecondElementHint ? 'Выбрать второй элемент' : 'Применить'}
+            {isConstraintActive ? 'Удалить ограничение' : showSecondElementHint ? 'Выбрать второй элемент' : 'Применить'}
           </button>
         </div>
       </div>
