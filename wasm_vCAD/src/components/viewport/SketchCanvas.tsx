@@ -107,6 +107,11 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
     needsSecondElement: false
   })
 
+  // State for coincident constraint point selection
+  const [selectingCoincidentPoints, setSelectingCoincidentPoints] = useState(false)
+  const [coincidentPoint1, setCoincidentPoint1] = useState<{ elementId: string; pointIndex: number } | null>(null)
+  const [coincidentPoint2, setCoincidentPoint2] = useState<{ elementId: string; pointIndex: number } | null>(null)
+
   // Convert screen coords to world coords (wrapper for canvas-specific logic)
   const screenToWorld = (screenX: number, screenY: number): Point2D => {
     const canvas = canvasRef.current
@@ -585,8 +590,54 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
       ctx.restore()
     }
 
+    // Show hint if selecting coincident points
+    if (selectingCoincidentPoints) {
+      const hintText = coincidentPoint1
+        ? 'Кликните на вторую точку (Escape для отмены)'
+        : 'Кликните на первую точку (Escape для отмены)'
+      const hintX = 0
+      const hintY = 1.5
+
+      ctx.save()
+      // Background for hint
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'
+      ctx.font = `14px sans-serif`
+      const textWidth = ctx.measureText(hintText).width
+      ctx.fillRect(hintX - 0.1, hintY - 0.15, textWidth / zoom + 0.2, 0.3)
+
+      // Hint text
+      renderTransformedText(ctx, hintText, hintX, hintY, {
+        color: '#4ade80',
+        fontSize: 14,
+        zoom,
+        align: 'left'
+      })
+      ctx.restore()
+
+      // Highlight selected point1 if it exists
+      if (coincidentPoint1) {
+        const element = elements.find(el => el.id === coincidentPoint1.elementId)
+        if (element) {
+          const controlPoints = getElementControlPoints(element)
+          const point = controlPoints.find(cp => cp.pointIndex === coincidentPoint1.pointIndex)
+          if (point) {
+            ctx.save()
+            ctx.strokeStyle = '#22c55e'  // Green
+            ctx.fillStyle = 'rgba(34, 197, 94, 0.3)'
+            ctx.lineWidth = 3 / zoom
+            ctx.setLineDash([])
+            ctx.beginPath()
+            ctx.arc(point.position.x, point.position.y, 10 / zoom, 0, Math.PI * 2)
+            ctx.fill()
+            ctx.stroke()
+            ctx.restore()
+          }
+        }
+      }
+    }
+
     ctx.restore()
-  }, [elements, construction, symmetryAxis, isDrawing, startPoint, currentPoint, arcMidPoint, polylinePoints, tool, width, height, gridSize, snapToGrid, zoom, panX, panY, selectedElementIds, snapPoints, hoveredControlPoint, highlightedCircleCenter, constraints, constraintDialog])
+  }, [elements, construction, symmetryAxis, isDrawing, startPoint, currentPoint, arcMidPoint, polylinePoints, tool, width, height, gridSize, snapToGrid, zoom, panX, panY, selectedElementIds, snapPoints, hoveredControlPoint, highlightedCircleCenter, constraints, constraintDialog, selectingCoincidentPoints, coincidentPoint1])
 
   // Keyboard events
   useEffect(() => {
@@ -645,6 +696,14 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
         })
       }
 
+      // Escape to cancel coincident point selection mode
+      if (e.key === 'Escape' && selectingCoincidentPoints) {
+        e.preventDefault()
+        setSelectingCoincidentPoints(false)
+        setCoincidentPoint1(null)
+        setCoincidentPoint2(null)
+      }
+
       // Enter to finish polyline/spline
       if (e.key === 'Enter' && isDrawing && (tool === 'polyline' || tool === 'spline')) {
         e.preventDefault()
@@ -662,6 +721,60 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
 
     // Right click is handled in handleContextMenu
     if (e.button === 2) {
+      return
+    }
+
+    // If we're selecting points for coincident constraint
+    if (selectingCoincidentPoints) {
+      // Try to find a control point at click location
+      const pointHit = hitTestControlPoints(worldPoint, elements, elements.map(el => el.id), 0.3)
+      if (pointHit) {
+        if (!coincidentPoint1) {
+          // Select first point
+          setCoincidentPoint1({ elementId: pointHit.elementId, pointIndex: pointHit.pointIndex })
+        } else if (!coincidentPoint2) {
+          // Select second point and apply constraint
+          const element1Index = elements.findIndex(el => el.id === coincidentPoint1.elementId)
+          const element2Index = elements.findIndex(el => el.id === pointHit.elementId)
+
+          if (element1Index >= 0 && element2Index >= 0) {
+            // Create coincident constraint
+            addConstraint({
+              type: 'coincident',
+              point1: {
+                element_index: element1Index,
+                point_index: coincidentPoint1.pointIndex
+              },
+              point2: {
+                element_index: element2Index,
+                point_index: pointHit.pointIndex
+              }
+            })
+
+            // Apply constraint solver
+            setTimeout(() => {
+              const currentConstraints = useSketchStore.getState().constraints
+              const currentElements = useSketchStore.getState().elements
+
+              if (currentConstraints.length > 0) {
+                try {
+                  const sketch = createSketchForWasm(currentElements, sketchPlane, currentConstraints)
+                  const resultJson = engine.solveConstraints(JSON.stringify(sketch))
+                  const elementsWithIds = processWasmResult(resultJson, currentElements)
+                  setElements(elementsWithIds, true)
+                } catch (error) {
+                  console.error('Constraint solving failed:', error)
+                }
+              }
+            }, 0)
+
+            // Reset state
+            setSelectingCoincidentPoints(false)
+            setCoincidentPoint1(null)
+            setCoincidentPoint2(null)
+          }
+        }
+      }
       return
     }
 
@@ -1366,6 +1479,12 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
         secondElementId={constraintDialog.secondElementId}
         needsSecondElement={constraintDialog.needsSecondElement}
         hasConstraint={hasConstraint}
+        onStartCoincidentSelection={() => {
+          // Enter mode for selecting points for coincident constraint
+          setSelectingCoincidentPoints(true)
+          setCoincidentPoint1(null)
+          setCoincidentPoint2(null)
+        }}
         onClose={() => setConstraintDialog({
           isOpen: false,
           elementId: null,

@@ -19,6 +19,8 @@ export interface ConstraintDialogProps {
   onNeedSecondElement?: (constraintType: SketchConstraintType) => void
   // Check if constraint is already applied
   hasConstraint?: (constraintType: string, elementId: string) => boolean
+  // For coincident constraint (point-to-point)
+  onStartCoincidentSelection?: () => void
 }
 
 export function ConstraintDialog({
@@ -30,11 +32,19 @@ export function ConstraintDialog({
   secondElementId,
   needsSecondElement = false,
   onNeedSecondElement,
-  hasConstraint
+  hasConstraint,
+  onStartCoincidentSelection
 }: ConstraintDialogProps) {
   const [selectedType, setSelectedType] = useState<SketchConstraintType>('horizontal')
 
   const handleConfirm = () => {
+    // Special handling for coincident constraint (point-to-point)
+    if (selectedType === 'coincident' && onStartCoincidentSelection) {
+      onStartCoincidentSelection()
+      onClose()
+      return
+    }
+
     // Если выбранное ограничение требует второй элемент и он не выбран
     const requiresSecondElement = ['parallel', 'perpendicular', 'equal', 'tangent', 'concentric'].includes(selectedType)
     const requiresSymmetric = selectedType === 'symmetric'
@@ -76,6 +86,11 @@ export function ConstraintDialog({
       { type: 'tangent' as SketchConstraintType, label: 'Касательность', description: 'Сделать элементы касательными друг к другу', needsSecond: true },
       { type: 'concentric' as SketchConstraintType, label: 'Концентричность', description: 'Сделать окружности/дуги концентричными', needsSecond: true },
       { type: 'symmetric' as SketchConstraintType, label: 'Симметрия', description: 'Сделать два элемента симметричными относительно оси', needsSecond: true }
+    )
+
+    // Point-to-point constraint
+    constraints.push(
+      { type: 'coincident' as SketchConstraintType, label: 'Совпадение точек', description: 'Сделать две точки совпадающими (endpoints)', needsSecond: true }
     )
 
     return constraints
