@@ -50,59 +50,157 @@ function calculateOffset(point: THREE.Vector3, plane: SketchPlane): number {
 }
 
 /**
- * Extract face vertices to create highlight geometry
+ * Check if two normals are approximately equal
+ */
+function normalsEqual(n1: THREE.Vector3, n2: THREE.Vector3, threshold: number = 0.01): boolean {
+  return n1.distanceTo(n2) < threshold
+}
+
+/**
+ * Calculate triangle center
+ */
+function getTriangleCenter(
+  position: THREE.BufferAttribute,
+  a: number,
+  b: number,
+  c: number
+): THREE.Vector3 {
+  const v1 = new THREE.Vector3(position.getX(a), position.getY(a), position.getZ(a))
+  const v2 = new THREE.Vector3(position.getX(b), position.getY(b), position.getZ(b))
+  const v3 = new THREE.Vector3(position.getX(c), position.getY(c), position.getZ(c))
+
+  return new THREE.Vector3()
+    .add(v1)
+    .add(v2)
+    .add(v3)
+    .divideScalar(3)
+}
+
+/**
+ * Extract all triangles that form a single planar face
+ * Uses clicked triangle center and normal to find coplanar triangles
  */
 function createFaceGeometry(
   geometry: THREE.BufferGeometry,
-  faceIndex: number
+  faceIndex: number,
+  _intersectionPoint: THREE.Vector3
 ): { geometry: THREE.BufferGeometry; center: THREE.Vector3; normal: THREE.Vector3 } | null {
   const index = geometry.index
   const position = geometry.attributes.position
   const normal = geometry.attributes.normal
 
   if (!index || !position || !normal) return null
+  if (!(position instanceof THREE.BufferAttribute) || !(normal instanceof THREE.BufferAttribute)) {
+    console.warn('[FaceHighlight] Unsupported attribute type')
+    return null
+  }
 
-  // Get the three vertices of the face
+  // Get the normal of the clicked triangle
   const a = index.getX(faceIndex * 3)
   const b = index.getX(faceIndex * 3 + 1)
   const c = index.getX(faceIndex * 3 + 2)
 
-  // Get positions
-  const v1 = new THREE.Vector3(position.getX(a), position.getY(a), position.getZ(a))
-  const v2 = new THREE.Vector3(position.getX(b), position.getY(b), position.getZ(b))
-  const v3 = new THREE.Vector3(position.getX(c), position.getY(c), position.getZ(c))
-
-  // Calculate face center
-  const center = new THREE.Vector3()
-    .add(v1)
-    .add(v2)
-    .add(v3)
-    .divideScalar(3)
-
-  // Get face normal
-  const faceNormal = new THREE.Vector3(
+  const clickedNormal = new THREE.Vector3(
     normal.getX(a),
     normal.getY(a),
     normal.getZ(a)
   )
 
-  // Create triangle geometry for the face
+  const clickedTriangleCenter = getTriangleCenter(position, a, b, c)
+
+  // Calculate reference plane distance: project clicked triangle center onto normal
+  const clickedPlaneD = clickedTriangleCenter.dot(clickedNormal)
+
+  // Find all triangles with the same normal AND same plane position
+  const faceTriangles: number[] = []
+  const triangleCount = index.count / 3
+
+  // Plane distance threshold - must be on the same plane
+  const planeThreshold = 0.001
+  // Spatial distance threshold - triangles must be close together
+  const spatialThreshold = 0.6
+
+  for (let i = 0; i < triangleCount; i++) {
+    const a = index.getX(i * 3)
+    const b = index.getX(i * 3 + 1)
+    const c = index.getX(i * 3 + 2)
+
+    const triangleNormal = new THREE.Vector3(
+      normal.getX(a),
+      normal.getY(a),
+      normal.getZ(a)
+    )
+
+    // Check if normals are the same
+    if (!normalsEqual(clickedNormal, triangleNormal)) {
+      continue
+    }
+
+    // Calculate triangle center
+    const triangleCenter = getTriangleCenter(position, a, b, c)
+
+    // Check if triangle is on the same plane by comparing plane distance
+    // For a plane with normal n passing through point p: d = p · n
+    const trianglePlaneD = triangleCenter.dot(clickedNormal)
+    const planeDiff = Math.abs(trianglePlaneD - clickedPlaneD)
+
+    // Additional check: triangles must be spatially close
+    // This prevents selecting triangles on different faces with the same normal
+    const spatialDistance = triangleCenter.distanceTo(clickedTriangleCenter)
+
+    if (planeDiff < planeThreshold && spatialDistance < spatialThreshold) {
+      faceTriangles.push(i)
+    }
+  }
+
+  if (faceTriangles.length === 0) return null
+
+  // Build geometry from all triangles on the same face
+  const faceVertices: number[] = []
+  const faceNormals: number[] = []
+  const uniqueVertices: THREE.Vector3[] = []
+
+  for (const triangleIndex of faceTriangles) {
+    const a = index.getX(triangleIndex * 3)
+    const b = index.getX(triangleIndex * 3 + 1)
+    const c = index.getX(triangleIndex * 3 + 2)
+
+    // Add triangle vertices
+    const v1 = new THREE.Vector3(position.getX(a), position.getY(a), position.getZ(a))
+    const v2 = new THREE.Vector3(position.getX(b), position.getY(b), position.getZ(b))
+    const v3 = new THREE.Vector3(position.getX(c), position.getY(c), position.getZ(c))
+
+    faceVertices.push(
+      v1.x, v1.y, v1.z,
+      v2.x, v2.y, v2.z,
+      v3.x, v3.y, v3.z
+    )
+
+    uniqueVertices.push(v1, v2, v3)
+
+    // Add normals
+    faceNormals.push(
+      clickedNormal.x, clickedNormal.y, clickedNormal.z,
+      clickedNormal.x, clickedNormal.y, clickedNormal.z,
+      clickedNormal.x, clickedNormal.y, clickedNormal.z
+    )
+  }
+
+  // Calculate center from all vertices
+  const center = new THREE.Vector3()
+  for (const v of uniqueVertices) {
+    center.add(v)
+  }
+  center.divideScalar(uniqueVertices.length)
+
+  console.log(`[FaceHighlight] Selected ${faceTriangles.length} triangles for face`)
+
+  // Create geometry
   const faceGeometry = new THREE.BufferGeometry()
-  const vertices = new Float32Array([
-    v1.x, v1.y, v1.z,
-    v2.x, v2.y, v2.z,
-    v3.x, v3.y, v3.z
-  ])
-  const normals = new Float32Array([
-    faceNormal.x, faceNormal.y, faceNormal.z,
-    faceNormal.x, faceNormal.y, faceNormal.z,
-    faceNormal.x, faceNormal.y, faceNormal.z
-  ])
+  faceGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(faceVertices), 3))
+  faceGeometry.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(faceNormals), 3))
 
-  faceGeometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3))
-  faceGeometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3))
-
-  return { geometry: faceGeometry, center, normal: faceNormal }
+  return { geometry: faceGeometry, center, normal: clickedNormal }
 }
 
 export function FaceHighlight({ feature, body, geometry }: FaceHighlightProps) {
@@ -142,7 +240,7 @@ export function FaceHighlight({ feature, body, geometry }: FaceHighlightProps) {
 
       if (faceIndex !== undefined && faceIndex !== hoveredFaceData?.faceIndex) {
         // Extract the hovered face geometry
-        const faceData = createFaceGeometry(geometry, faceIndex)
+        const faceData = createFaceGeometry(geometry, faceIndex, intersection.point)
 
         if (faceData) {
           setHoveredFaceData({
@@ -176,10 +274,7 @@ export function FaceHighlight({ feature, body, geometry }: FaceHighlightProps) {
   })
 
   const handleClick = () => {
-    console.log('[FaceHighlight] Click detected, faceSelectionActive:', faceSelectionActive)
-
     if (!faceSelectionActive || !meshRef.current || !hoveredFaceData) {
-      console.log('[FaceHighlight] Cannot process click - no active selection or hovered face')
       return
     }
 
@@ -188,21 +283,15 @@ export function FaceHighlight({ feature, body, geometry }: FaceHighlightProps) {
       new THREE.Matrix3().getNormalMatrix(meshRef.current.matrixWorld)
     ).normalize()
 
-    console.log('[FaceHighlight] Face normal (world):', worldNormal)
-
     const plane = normalToPlane(worldNormal)
     if (!plane) {
       console.warn('[FaceHighlight] Could not determine sketch plane from face normal:', worldNormal)
       return
     }
 
-    console.log('[FaceHighlight] Determined plane:', plane)
-
     // Calculate offset from face center
     const worldCenter = hoveredFaceData.center.clone().applyMatrix4(meshRef.current.matrixWorld)
     const offset = calculateOffset(worldCenter, plane)
-
-    console.log('[FaceHighlight] Calculated offset:', offset)
 
     const faceData = {
       bodyId: body.id,
@@ -212,15 +301,13 @@ export function FaceHighlight({ feature, body, geometry }: FaceHighlightProps) {
       offset
     }
 
-    console.log('[FaceHighlight] Dispatching face-selected event with data:', faceData)
+    console.log('[FaceHighlight] Face selected:', plane, 'offset:', offset.toFixed(3))
 
     selectFace(faceData)
 
     // Dispatch custom event to notify Toolbar
     const customEvent = new CustomEvent('face-selected', { detail: faceData })
     window.dispatchEvent(customEvent)
-
-    console.log('[FaceHighlight] Event dispatched')
   }
 
   if (!faceSelectionActive) {
@@ -234,14 +321,8 @@ export function FaceHighlight({ feature, body, geometry }: FaceHighlightProps) {
         ref={meshRef}
         geometry={geometry}
         onClick={handleClick}
-        onPointerOver={(e) => {
-          console.log('[FaceHighlight] Pointer over')
-          e.stopPropagation()
-        }}
-        onPointerOut={(e) => {
-          console.log('[FaceHighlight] Pointer out')
-          e.stopPropagation()
-        }}
+        onPointerOver={(e) => e.stopPropagation()}
+        onPointerOut={(e) => e.stopPropagation()}
       >
         <meshBasicMaterial
           transparent

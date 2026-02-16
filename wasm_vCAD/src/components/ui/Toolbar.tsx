@@ -18,38 +18,30 @@ export function Toolbar() {
   // Listen for face selection events
   useEffect(() => {
     const handleFaceSelect = (event: CustomEvent) => {
-      console.log('[Toolbar] face-selected event received:', event.detail)
-
       const { bodyId, plane, offset } = event.detail
 
       // Find the body
       const body = bodies.find(b => b.id === bodyId)
       if (!body) {
-        console.log('[Toolbar] Body not found:', bodyId)
+        console.warn('[Toolbar] Body not found:', bodyId)
         return
       }
-
-      console.log('[Toolbar] Creating sketch on plane:', plane, 'offset:', offset)
 
       // Create new sketch on selected face
       const sketchId = engine.createSketch(plane)
 
-      console.log('[Toolbar] Sketch created:', sketchId)
-
       // Start sketch mode with offset
       startSketch(bodyId, sketchId, plane, offset)
 
-      console.log('[Toolbar] Exiting face selection mode')
-
       // Exit face selection mode
       exitFaceSelection()
+
+      console.log('[Toolbar] Created sketch on', plane, 'plane at offset', offset.toFixed(3))
     }
 
-    console.log('[Toolbar] Setting up face-selected event listener')
     window.addEventListener('face-selected' as any, handleFaceSelect as EventListener)
 
     return () => {
-      console.log('[Toolbar] Cleaning up face-selected event listener')
       window.removeEventListener('face-selected' as any, handleFaceSelect as EventListener)
     }
   }, [bodies, startSketch, exitFaceSelection])
