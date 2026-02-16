@@ -917,8 +917,25 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
         const updatedElement = updateElementPoint(elements[elementIndex], draggedPoint.pointIndex, snappedPoint)
         const newElements = [...elements]
         newElements[elementIndex] = updatedElement
-        // Preserve selection while dragging
-        setElements(newElements, true)
+
+        // Apply constraint solver in real-time if constraints exist
+        if (constraints.length > 0) {
+          try {
+            const sketch = createSketchForWasm(newElements, sketchPlane, constraints)
+            const resultJson = engine.solveConstraints(JSON.stringify(sketch))
+            // CRITICAL: Preserve original IDs when updating from WASM
+            const elementsWithIds = processWasmResult(resultJson, newElements)
+            // Preserve selection while dragging
+            setElements(elementsWithIds, true)
+          } catch (error) {
+            // If solver fails, just use the direct update
+            console.error('Real-time constraint solving failed:', error)
+            setElements(newElements, true)
+          }
+        } else {
+          // No constraints - just update directly
+          setElements(newElements, true)
+        }
       }
       return
     }

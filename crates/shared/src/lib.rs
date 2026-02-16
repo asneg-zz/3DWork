@@ -141,6 +141,7 @@ pub struct PointRef {
 
 /// Геометрическое ограничение (constraint) эскиза
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
 pub enum SketchConstraint {
     /// Линия горизонтальна (параллельна оси X)
     Horizontal { element: usize },
