@@ -13,6 +13,10 @@ export interface ConstraintDialogProps {
   elementType: string | null
   onClose: () => void
   onConfirm: (constraintType: SketchConstraintType) => void
+  // For two-element constraints
+  secondElementId?: string | null
+  needsSecondElement?: boolean
+  onNeedSecondElement?: (constraintType: SketchConstraintType) => void
 }
 
 export function ConstraintDialog({
@@ -20,19 +24,33 @@ export function ConstraintDialog({
   elementId,
   elementType,
   onClose,
-  onConfirm
+  onConfirm,
+  secondElementId,
+  needsSecondElement = false,
+  onNeedSecondElement
 }: ConstraintDialogProps) {
   const [selectedType, setSelectedType] = useState<SketchConstraintType>('horizontal')
 
   const handleConfirm = () => {
+    // Если выбранное ограничение требует второй элемент и он не выбран
+    const requiresSecondElement = ['parallel', 'perpendicular', 'equal', 'tangent', 'concentric'].includes(selectedType)
+    const requiresSymmetric = selectedType === 'symmetric'
+
+    if ((requiresSecondElement || requiresSymmetric) && !secondElementId && onNeedSecondElement) {
+      // Сообщаем родителю что нужен второй элемент
+      onNeedSecondElement(selectedType)
+      return
+    }
+
     onConfirm(selectedType)
     onClose()
   }
 
   // Constraint options based on element type
-  const getAvailableConstraints = (): { type: SketchConstraintType; label: string; description: string }[] => {
+  const getAvailableConstraints = (): { type: SketchConstraintType; label: string; description: string; needsSecond?: boolean }[] => {
     const constraints = []
 
+    // Single-element constraints
     if (elementType === 'line') {
       constraints.push(
         { type: 'horizontal' as SketchConstraintType, label: 'Горизонтальная', description: 'Сделать линию горизонтальной (параллельно оси X)' },
@@ -47,6 +65,16 @@ export function ConstraintDialog({
       )
     }
 
+    // Two-element constraints - available for all element types
+    constraints.push(
+      { type: 'parallel' as SketchConstraintType, label: 'Параллельность', description: 'Сделать два элемента параллельными', needsSecond: true },
+      { type: 'perpendicular' as SketchConstraintType, label: 'Перпендикулярность', description: 'Сделать два элемента перпендикулярными', needsSecond: true },
+      { type: 'equal' as SketchConstraintType, label: 'Равенство', description: 'Сделать два элемента равными (длины/радиусы)', needsSecond: true },
+      { type: 'tangent' as SketchConstraintType, label: 'Касательность', description: 'Сделать элементы касательными друг к другу', needsSecond: true },
+      { type: 'concentric' as SketchConstraintType, label: 'Концентричность', description: 'Сделать окружности/дуги концентричными', needsSecond: true },
+      { type: 'symmetric' as SketchConstraintType, label: 'Симметрия', description: 'Сделать два элемента симметричными относительно оси', needsSecond: true }
+    )
+
     return constraints
   }
 
@@ -54,12 +82,28 @@ export function ConstraintDialog({
 
   if (!isOpen || !elementId) return null
 
+  // Check if selected constraint needs second element
+  const selectedConstraint = availableConstraints.find(c => c.type === selectedType)
+  const showSecondElementHint = selectedConstraint?.needsSecond && !secondElementId
+
   return (
     <BaseDialog title="Добавить ограничение" isOpen={isOpen} onClose={onClose}>
       <div className="flex flex-col gap-3">
-        <div className="text-sm text-cad-text-secondary">
-          Выберите тип ограничения для элемента
-        </div>
+        {needsSecondElement && !secondElementId ? (
+          <div className="text-sm text-amber-400 bg-amber-400/10 p-2 rounded border border-amber-400/30">
+            📍 Выберите второй элемент для ограничения
+          </div>
+        ) : (
+          <div className="text-sm text-cad-text-secondary">
+            Выберите тип ограничения для элемента
+          </div>
+        )}
+
+        {secondElementId && (
+          <div className="text-sm text-green-400 bg-green-400/10 p-2 rounded border border-green-400/30">
+            ✓ Второй элемент выбран
+          </div>
+        )}
 
         {availableConstraints.length === 0 ? (
           <div className="text-sm text-cad-text-secondary">
@@ -80,12 +124,25 @@ export function ConstraintDialog({
                   onChange={(e) => setSelectedType(e.target.value as SketchConstraintType)}
                   className="mt-1"
                 />
-                <div className="flex flex-col">
-                  <span className="font-medium text-cad-text">{constraint.label}</span>
+                <div className="flex flex-col flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-cad-text">{constraint.label}</span>
+                    {constraint.needsSecond && (
+                      <span className="text-xs text-cad-text-secondary bg-cad-accent/20 px-1.5 py-0.5 rounded">
+                        2 элемента
+                      </span>
+                    )}
+                  </div>
                   <span className="text-xs text-cad-text-secondary">{constraint.description}</span>
                 </div>
               </label>
             ))}
+          </div>
+        )}
+
+        {showSecondElementHint && (
+          <div className="text-xs text-cad-text-secondary italic">
+            💡 После применения нужно будет выбрать второй элемент
           </div>
         )}
 
@@ -101,7 +158,7 @@ export function ConstraintDialog({
             disabled={availableConstraints.length === 0}
             className="flex-1 px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Применить
+            {showSecondElementHint ? 'Выбрать второй элемент' : 'Применить'}
           </button>
         </div>
       </div>

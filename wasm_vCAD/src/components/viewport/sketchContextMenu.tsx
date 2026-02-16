@@ -20,6 +20,7 @@ export interface ContextMenuCallbacks {
   isSymmetryAxis: (elementId: string) => boolean
   onAddConstraint: (constraintType: string, elementId: string) => void
   hasConstraint: (constraintType: string, elementId: string) => boolean
+  onOpenConstraintDialog?: (elementId: string) => void
 }
 
 export function getContextMenuItems(
@@ -97,7 +98,7 @@ export function getContextMenuItems(
       disabled: true,  // Header
     },
 
-    // Line constraints
+    // Quick access to common single-element constraints
     ...(element.type === 'line' ? [
       {
         label: callbacks.hasConstraint('horizontal', elementId) ? '✓ Горизонтальная' : 'Горизонтальная',
@@ -114,6 +115,12 @@ export function getContextMenuItems(
       label: callbacks.hasConstraint('fixed', elementId) ? '✓ Зафиксировать' : 'Зафиксировать',
       onClick: () => callbacks.onAddConstraint('fixed', elementId),
     },
+
+    // Open dialog for more constraints (parallel, perpendicular, equal, tangent, etc.)
+    ...(callbacks.onOpenConstraintDialog ? [{
+      label: 'Добавить ограничение...',
+      onClick: () => callbacks.onOpenConstraintDialog!(elementId),
+    }] : []),
 
     { label: '', onClick: () => {}, separator: true },
 

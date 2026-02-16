@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSketchStore } from '@/stores/sketchStore'
-import type { Point2D, SnapPoint, SketchElement } from '@/types/scene'
+import type { Point2D, SnapPoint, SketchElement, SketchConstraintType } from '@/types/scene'
 import { ContextMenu } from '@/components/ui/ContextMenu'
 import { OffsetDialog } from '@/components/dialogs/OffsetDialog'
 import { MirrorDialog } from '@/components/dialogs/MirrorDialog'
@@ -92,10 +92,19 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
   const [mirrorDialog, setMirrorDialog] = useState<{ isOpen: boolean; elementId: string | null }>({ isOpen: false, elementId: null })
   const [linearPatternDialog, setLinearPatternDialog] = useState<{ isOpen: boolean; elementId: string | null }>({ isOpen: false, elementId: null })
   const [circularPatternDialog, setCircularPatternDialog] = useState<{ isOpen: boolean; elementId: string | null }>({ isOpen: false, elementId: null })
-  const [constraintDialog, setConstraintDialog] = useState<{ isOpen: boolean; elementId: string | null; elementType: string | null }>({
+  const [constraintDialog, setConstraintDialog] = useState<{
+    isOpen: boolean
+    elementId: string | null
+    elementType: string | null
+    secondElementId?: string | null
+    needsSecondElement?: boolean
+    pendingConstraintType?: SketchConstraintType
+  }>({
     isOpen: false,
     elementId: null,
-    elementType: null
+    elementType: null,
+    secondElementId: null,
+    needsSecondElement: false
   })
 
   // Convert screen coords to world coords (wrapper for canvas-specific logic)
@@ -553,8 +562,31 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
       })
     }
 
+    // Show hint if waiting for second element selection
+    if (constraintDialog.needsSecondElement && constraintDialog.pendingConstraintType) {
+      const hintText = `Выберите второй элемент для ограничения "${constraintDialog.pendingConstraintType}" (Escape для отмены)`
+      const hintX = 0
+      const hintY = 1.5
+
+      ctx.save()
+      // Background for hint
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'
+      ctx.font = `14px sans-serif`
+      const textWidth = ctx.measureText(hintText).width
+      ctx.fillRect(hintX - 0.1, hintY - 0.15, textWidth / zoom + 0.2, 0.3)
+
+      // Hint text
+      renderTransformedText(ctx, hintText, hintX, hintY, {
+        color: '#4ade80',
+        fontSize: 14,
+        zoom,
+        align: 'left'
+      })
+      ctx.restore()
+    }
+
     ctx.restore()
-  }, [elements, construction, symmetryAxis, isDrawing, startPoint, currentPoint, arcMidPoint, polylinePoints, tool, width, height, gridSize, snapToGrid, zoom, panX, panY, selectedElementIds, snapPoints, hoveredControlPoint, highlightedCircleCenter, constraints])
+  }, [elements, construction, symmetryAxis, isDrawing, startPoint, currentPoint, arcMidPoint, polylinePoints, tool, width, height, gridSize, snapToGrid, zoom, panX, panY, selectedElementIds, snapPoints, hoveredControlPoint, highlightedCircleCenter, constraints, constraintDialog])
 
   // Keyboard events
   useEffect(() => {
@@ -601,6 +633,18 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
         cancelDrawing()
       }
 
+      // Escape to cancel second element selection mode
+      if (e.key === 'Escape' && constraintDialog.needsSecondElement) {
+        e.preventDefault()
+        setConstraintDialog({
+          isOpen: false,
+          elementId: null,
+          elementType: null,
+          secondElementId: null,
+          needsSecondElement: false
+        })
+      }
+
       // Enter to finish polyline/spline
       if (e.key === 'Enter' && isDrawing && (tool === 'polyline' || tool === 'spline')) {
         e.preventDefault()
@@ -618,6 +662,24 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
 
     // Right click is handled in handleContextMenu
     if (e.button === 2) {
+      return
+    }
+
+    // If we're waiting for second element selection for a constraint
+    if (constraintDialog.needsSecondElement && constraintDialog.pendingConstraintType) {
+      const elementId = findElementAtPoint(worldPoint)
+      if (elementId && elementId !== constraintDialog.elementId) {
+        // User clicked on a different element - set it as second element
+        const element = elements.find(el => el.id === elementId)
+        if (element) {
+          setConstraintDialog({
+            ...constraintDialog,
+            secondElementId: elementId,
+            isOpen: true,
+            needsSecondElement: false
+          })
+        }
+      }
       return
     }
 
@@ -1006,12 +1068,19 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
   }
 
   // Handle adding/removing constraint
-  const handleAddConstraint = (constraintType: string, elementId: string) => {
+  const handleAddConstraint = (constraintType: string, elementId: string, secondElementId?: string) => {
     const element = elements.find(el => el.id === elementId)
     if (!element) return
 
     const elementIndex = elements.findIndex(el => el.id === elementId)
     if (elementIndex === -1) return
+
+    // For two-element constraints, find second element index
+    let secondElementIndex: number | undefined
+    if (secondElementId) {
+      secondElementIndex = elements.findIndex(el => el.id === secondElementId)
+      if (secondElementIndex === -1) return
+    }
 
     // Check if constraint already exists
     const existingConstraintIndex = constraints.findIndex(c => {
@@ -1022,6 +1091,26 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
           return c.type === 'vertical' && c.element === elementIndex
         case 'fixed':
           return c.type === 'fixed' && c.element === elementIndex
+        case 'parallel':
+          return c.type === 'parallel' &&
+            ((c.element1 === elementIndex && c.element2 === secondElementIndex) ||
+             (c.element1 === secondElementIndex && c.element2 === elementIndex))
+        case 'perpendicular':
+          return c.type === 'perpendicular' &&
+            ((c.element1 === elementIndex && c.element2 === secondElementIndex) ||
+             (c.element1 === secondElementIndex && c.element2 === elementIndex))
+        case 'equal':
+          return c.type === 'equal' &&
+            ((c.element1 === elementIndex && c.element2 === secondElementIndex) ||
+             (c.element1 === secondElementIndex && c.element2 === elementIndex))
+        case 'tangent':
+          return c.type === 'tangent' &&
+            ((c.element1 === elementIndex && c.element2 === secondElementIndex) ||
+             (c.element1 === secondElementIndex && c.element2 === elementIndex))
+        case 'concentric':
+          return c.type === 'concentric' &&
+            ((c.element1 === elementIndex && c.element2 === secondElementIndex) ||
+             (c.element1 === secondElementIndex && c.element2 === elementIndex))
         default:
           return false
       }
@@ -1041,6 +1130,31 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
           break
         case 'fixed':
           addConstraint({ type: 'fixed', element: elementIndex })
+          break
+        case 'parallel':
+          if (secondElementIndex !== undefined) {
+            addConstraint({ type: 'parallel', element1: elementIndex, element2: secondElementIndex })
+          }
+          break
+        case 'perpendicular':
+          if (secondElementIndex !== undefined) {
+            addConstraint({ type: 'perpendicular', element1: elementIndex, element2: secondElementIndex })
+          }
+          break
+        case 'equal':
+          if (secondElementIndex !== undefined) {
+            addConstraint({ type: 'equal', element1: elementIndex, element2: secondElementIndex })
+          }
+          break
+        case 'tangent':
+          if (secondElementIndex !== undefined) {
+            addConstraint({ type: 'tangent', element1: elementIndex, element2: secondElementIndex })
+          }
+          break
+        case 'concentric':
+          if (secondElementIndex !== undefined) {
+            addConstraint({ type: 'concentric', element1: elementIndex, element2: secondElementIndex })
+          }
           break
       }
     }
@@ -1099,6 +1213,18 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
     isSymmetryAxis,
     onAddConstraint: handleAddConstraint,
     hasConstraint,
+    onOpenConstraintDialog: (elementId) => {
+      const element = elements.find(el => el.id === elementId)
+      if (element) {
+        setConstraintDialog({
+          isOpen: true,
+          elementId,
+          elementType: element.type,
+          secondElementId: null,
+          needsSecondElement: false
+        })
+      }
+    },
   }
 
   const getMenuItems = (elementId: string) => {
@@ -1201,11 +1327,51 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
         isOpen={constraintDialog.isOpen}
         elementId={constraintDialog.elementId}
         elementType={constraintDialog.elementType}
-        onClose={() => setConstraintDialog({ isOpen: false, elementId: null, elementType: null })}
+        secondElementId={constraintDialog.secondElementId}
+        needsSecondElement={constraintDialog.needsSecondElement}
+        onClose={() => setConstraintDialog({
+          isOpen: false,
+          elementId: null,
+          elementType: null,
+          secondElementId: null,
+          needsSecondElement: false
+        })}
         onConfirm={(constraintType) => {
           if (constraintDialog.elementId) {
-            handleAddConstraint(constraintType, constraintDialog.elementId)
+            // If we have second element, apply the constraint
+            if (constraintDialog.secondElementId) {
+              handleAddConstraint(constraintType, constraintDialog.elementId, constraintDialog.secondElementId)
+              setConstraintDialog({
+                isOpen: false,
+                elementId: null,
+                elementType: null,
+                secondElementId: null,
+                needsSecondElement: false
+              })
+            } else {
+              // For single-element constraints, apply directly
+              const requiresSecond = ['parallel', 'perpendicular', 'equal', 'tangent', 'concentric', 'symmetric'].includes(constraintType)
+              if (!requiresSecond) {
+                handleAddConstraint(constraintType, constraintDialog.elementId)
+                setConstraintDialog({
+                  isOpen: false,
+                  elementId: null,
+                  elementType: null,
+                  secondElementId: null,
+                  needsSecondElement: false
+                })
+              }
+            }
           }
+        }}
+        onNeedSecondElement={(constraintType) => {
+          // Enter mode for selecting second element
+          setConstraintDialog({
+            ...constraintDialog,
+            isOpen: false,
+            needsSecondElement: true,
+            pendingConstraintType: constraintType
+          })
         }}
       />
     </>
