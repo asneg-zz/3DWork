@@ -57,23 +57,30 @@ function normalsEqual(n1: THREE.Vector3, n2: THREE.Vector3, threshold: number = 
 }
 
 /**
- * Calculate triangle center
+ * Calculate triangle center and face normal from geometry (not vertex normals!)
  */
-function getTriangleCenter(
+function getTriangleData(
   position: THREE.BufferAttribute,
   a: number,
   b: number,
   c: number
-): THREE.Vector3 {
+): { center: THREE.Vector3; faceNormal: THREE.Vector3 } {
   const v1 = new THREE.Vector3(position.getX(a), position.getY(a), position.getZ(a))
   const v2 = new THREE.Vector3(position.getX(b), position.getY(b), position.getZ(b))
   const v3 = new THREE.Vector3(position.getX(c), position.getY(c), position.getZ(c))
 
-  return new THREE.Vector3()
+  const center = new THREE.Vector3()
     .add(v1)
     .add(v2)
     .add(v3)
     .divideScalar(3)
+
+  // Calculate face normal using cross product (geometric normal, not vertex normal)
+  const edge1 = new THREE.Vector3().subVectors(v2, v1)
+  const edge2 = new THREE.Vector3().subVectors(v3, v1)
+  const faceNormal = new THREE.Vector3().crossVectors(edge1, edge2).normalize()
+
+  return { center, faceNormal }
 }
 
 /**
@@ -87,26 +94,21 @@ function createFaceGeometry(
 ): { geometry: THREE.BufferGeometry; center: THREE.Vector3; normal: THREE.Vector3 } | null {
   const index = geometry.index
   const position = geometry.attributes.position
-  const normal = geometry.attributes.normal
 
-  if (!index || !position || !normal) return null
-  if (!(position instanceof THREE.BufferAttribute) || !(normal instanceof THREE.BufferAttribute)) {
+  if (!index || !position) return null
+  if (!(position instanceof THREE.BufferAttribute)) {
     console.warn('[FaceHighlight] Unsupported attribute type')
     return null
   }
 
-  // Get the normal of the clicked triangle
+  // Get the clicked triangle's geometric normal and center
   const a = index.getX(faceIndex * 3)
   const b = index.getX(faceIndex * 3 + 1)
   const c = index.getX(faceIndex * 3 + 2)
 
-  const clickedNormal = new THREE.Vector3(
-    normal.getX(a),
-    normal.getY(a),
-    normal.getZ(a)
-  )
-
-  const clickedTriangleCenter = getTriangleCenter(position, a, b, c)
+  const clickedData = getTriangleData(position, a, b, c)
+  const clickedNormal = clickedData.faceNormal
+  const clickedTriangleCenter = clickedData.center
 
   // Calculate reference plane distance: project clicked triangle center onto normal
   const clickedPlaneD = clickedTriangleCenter.dot(clickedNormal)
@@ -116,28 +118,26 @@ function createFaceGeometry(
   const triangleCount = index.count / 3
 
   // Plane distance threshold - must be on the same plane
-  const planeThreshold = 0.001
+  const planeThreshold = 0.01
   // Spatial distance threshold - triangles must be close together
-  const spatialThreshold = 0.6
+  // For a cube with size 1, two triangles on same face are ~0.4-0.47 apart
+  // Adjacent faces would be ~0.58+ apart
+  const spatialThreshold = 0.50
 
   for (let i = 0; i < triangleCount; i++) {
     const a = index.getX(i * 3)
     const b = index.getX(i * 3 + 1)
     const c = index.getX(i * 3 + 2)
 
-    const triangleNormal = new THREE.Vector3(
-      normal.getX(a),
-      normal.getY(a),
-      normal.getZ(a)
-    )
+    // Calculate geometric face normal (not vertex normal!)
+    const triangleData = getTriangleData(position, a, b, c)
+    const triangleNormal = triangleData.faceNormal
+    const triangleCenter = triangleData.center
 
     // Check if normals are the same
     if (!normalsEqual(clickedNormal, triangleNormal)) {
       continue
     }
-
-    // Calculate triangle center
-    const triangleCenter = getTriangleCenter(position, a, b, c)
 
     // Check if triangle is on the same plane by comparing plane distance
     // For a plane with normal n passing through point p: d = p · n
