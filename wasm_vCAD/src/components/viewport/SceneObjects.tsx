@@ -3,7 +3,8 @@ import { useMemo } from 'react'
 import * as THREE from 'three'
 import { engine } from '@/wasm/engine'
 import type { MeshData } from '@/types/mesh'
-import type { Feature } from '@/types/scene'
+import type { Feature, Body } from '@/types/scene'
+import { generateExtrudeMesh } from '@/utils/extrudeMesh'
 
 // Helper to create Three.js BufferGeometry from WASM MeshData
 function createGeometryFromMeshData(meshData: MeshData): THREE.BufferGeometry {
@@ -118,24 +119,42 @@ function PrimitiveFeature({ feature, isSelected }: { feature: Feature; isSelecte
   )
 }
 
-// Component for rendering extrude feature (temporary visualization)
-function ExtrudeFeature({ feature, isSelected }: { feature: Feature; isSelected: boolean }) {
+// Component for rendering extrude feature
+function ExtrudeFeature({ feature, body, isSelected }: { feature: Feature; body: Body; isSelected: boolean }) {
   const color = isSelected ? '#4a9eff' : '#808080'
 
   // Get extrude parameters
   const height = feature.extrude_params?.height || 1
   const heightBackward = feature.extrude_params?.height_backward || 0
-  const totalHeight = height + heightBackward
 
-  // Create a simple box as temporary visualization
-  // TODO: Generate actual mesh from sketch
+  // Generate geometry from sketch
   const geometry = useMemo(() => {
-    return new THREE.BoxGeometry(2, totalHeight, 2)
-  }, [totalHeight])
+    // Find the sketch feature this extrude is based on
+    const sketchFeature = body.features.find(f => f.id === feature.sketch_id)
+
+    if (!sketchFeature || sketchFeature.type !== 'sketch' || !sketchFeature.sketch) {
+      // Fallback to box if sketch not found
+      console.warn('Sketch not found for extrude, using fallback box')
+      return new THREE.BoxGeometry(2, height + heightBackward, 2)
+    }
+
+    try {
+      // Generate extrude mesh from sketch elements
+      return generateExtrudeMesh(
+        sketchFeature.sketch.elements,
+        sketchFeature.sketch.plane,
+        height,
+        heightBackward
+      )
+    } catch (error) {
+      console.error('Failed to generate extrude mesh:', error)
+      // Fallback to box on error
+      return new THREE.BoxGeometry(2, height + heightBackward, 2)
+    }
+  }, [feature.sketch_id, height, heightBackward, body.features])
 
   return (
     <mesh
-      position={[0, totalHeight / 2, 0]}
       geometry={geometry}
     >
       <meshStandardMaterial
@@ -184,12 +203,13 @@ export function SceneObjects() {
                 )
               }
 
-              // Render extrude features (temporary visualization)
+              // Render extrude features
               if (feature.type === 'extrude') {
                 return (
                   <ExtrudeFeature
                     key={feature.id}
                     feature={feature}
+                    body={body}
                     isSelected={isSelected}
                   />
                 )
