@@ -20,36 +20,36 @@ export function useSketchExtrude() {
       return
     }
 
-    // First, save the sketch feature
-    const bodies = useSceneStore.getState().scene.bodies
-    const body = bodies.find(b => b.id === sketchBodyId)
+    try {
+      // First, save the sketch feature
+      const bodies = useSceneStore.getState().scene.bodies
+      const body = bodies.find(b => b.id === sketchBodyId)
 
-    if (body) {
-      const existingSketchFeature = body.features.find(f => f.id === sketchId)
+      if (body) {
+        const existingSketchFeature = body.features.find(f => f.id === sketchId)
 
-      // Save or update sketch feature
-      const sketchFeature = {
-        id: sketchId,
-        type: 'sketch' as const,
-        name: `Sketch (${plane})`,
-        sketch: {
+        // Save or update sketch feature
+        const sketchFeature = {
           id: sketchId,
-          plane,
-          offset: 0.0,
-          elements: [...elements],
-          construction,
-          constraints: constraints.length > 0 ? [...constraints] : undefined,
+          type: 'sketch' as const,
+          name: `Sketch (${plane})`,
+          sketch: {
+            id: sketchId,
+            plane,
+            offset: 0.0,
+            elements: [...elements],
+            construction,
+            constraints: constraints.length > 0 ? [...constraints] : undefined,
+          }
         }
-      }
 
-      if (existingSketchFeature) {
-        updateFeature(sketchBodyId, sketchId, sketchFeature)
-      } else {
-        addFeature(sketchBodyId, sketchFeature)
-      }
+        if (existingSketchFeature) {
+          updateFeature(sketchBodyId, sketchId, sketchFeature)
+        } else {
+          addFeature(sketchBodyId, sketchFeature)
+        }
 
-      // Now create the extrude feature
-      try {
+        // Now create the extrude feature
         const extrudeId = engine.extrudeSketch(sketchId, height, heightBackward, draftAngle)
 
         const extrudeFeature = {
@@ -65,12 +65,13 @@ export function useSketchExtrude() {
         }
 
         addFeature(sketchBodyId, extrudeFeature)
-      } catch (error) {
-        console.error('Extrude failed:', error)
       }
+    } catch (error) {
+      console.error('Extrude operation failed:', error)
+    } finally {
+      // Always exit sketch mode, even if extrude fails
+      exitSketch()
     }
-
-    exitSketch()
   }
 
   return { extrudeAndExit }

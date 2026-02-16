@@ -16,7 +16,7 @@ export default defineConfig({
     target: 'esnext'
   },
   server: {
-    port: 5175,
+    port: 5176,
     fs: {
       allow: ['..']
     }
