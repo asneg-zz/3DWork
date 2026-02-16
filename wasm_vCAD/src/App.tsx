@@ -6,6 +6,7 @@ import { SceneTree } from './components/panels/SceneTree'
 import { PropertyPanel } from './components/panels/PropertyPanel'
 import { BooleanPanel } from './components/panels/BooleanPanel'
 import { SketchPropertiesPanel } from './components/panels/SketchPropertiesPanel'
+import { EdgeContextMenu } from './components/ui/EdgeContextMenu'
 import { Viewport3D } from './components/viewport/Viewport3D'
 import { SketchCanvas } from './components/viewport/SketchCanvas'
 import { useSketchStore } from './stores/sketchStore'
@@ -123,6 +124,9 @@ function App() {
         <span className="mx-2">|</span>
         <span>Ready</span>
       </div>
+
+      {/* Edge Context Menu */}
+      <EdgeContextMenu />
     </div>
   )
 }

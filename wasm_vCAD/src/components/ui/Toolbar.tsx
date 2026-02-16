@@ -1,7 +1,8 @@
-import { Box, Circle, CircleDot, Square, MousePointer2 } from 'lucide-react'
+import { Box, Circle, CircleDot, Square, MousePointer2, GitBranch } from 'lucide-react'
 import { useSceneStore } from '@/stores/sceneStore'
 import { useSketchStore } from '@/stores/sketchStore'
 import { useFaceSelectionStore } from '@/stores/faceSelectionStore'
+import { useEdgeSelectionStore } from '@/stores/edgeSelectionStore'
 import { engine } from '@/wasm/engine'
 import type { Body } from '@/types/scene'
 import { useEffect } from 'react'
@@ -14,6 +15,10 @@ export function Toolbar() {
   const faceSelectionActive = useFaceSelectionStore((s) => s.active)
   const startFaceSelection = useFaceSelectionStore((s) => s.startFaceSelection)
   const exitFaceSelection = useFaceSelectionStore((s) => s.exitFaceSelection)
+
+  const edgeSelectionActive = useEdgeSelectionStore((s) => s.active)
+  const startEdgeSelection = useEdgeSelectionStore((s) => s.startEdgeSelection)
+  const exitEdgeSelection = useEdgeSelectionStore((s) => s.exitEdgeSelection)
 
   // Listen for face selection events
   useEffect(() => {
@@ -152,7 +157,23 @@ export function Toolbar() {
     if (faceSelectionActive) {
       exitFaceSelection()
     } else {
+      // Exit edge selection if active
+      if (edgeSelectionActive) {
+        exitEdgeSelection()
+      }
       startFaceSelection()
+    }
+  }
+
+  const handleToggleEdgeSelection = () => {
+    if (edgeSelectionActive) {
+      exitEdgeSelection()
+    } else {
+      // Exit face selection if active
+      if (faceSelectionActive) {
+        exitFaceSelection()
+      }
+      startEdgeSelection()
     }
   }
 
@@ -207,6 +228,19 @@ export function Toolbar() {
       >
         <MousePointer2 size={18} />
         <span className="text-sm">Select Face</span>
+      </button>
+
+      <button
+        onClick={handleToggleEdgeSelection}
+        className={`px-3 py-1.5 rounded flex items-center gap-2 transition-colors ${
+          edgeSelectionActive
+            ? 'bg-cad-accent text-white'
+            : 'bg-cad-hover hover:bg-cad-accent/20'
+        }`}
+        title="Select Edge (right-click on an edge to create sketch)"
+      >
+        <GitBranch size={18} />
+        <span className="text-sm">Select Edge</span>
       </button>
     </div>
   )

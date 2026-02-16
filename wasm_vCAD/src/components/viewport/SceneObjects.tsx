@@ -6,6 +6,7 @@ import type { MeshData } from '@/types/mesh'
 import type { Feature, Body } from '@/types/scene'
 import { generateExtrudeMesh } from '@/utils/extrudeMesh'
 import { FaceHighlight } from './FaceHighlight'
+import { EdgeHighlight } from './EdgeHighlight'
 
 // Helper to create Three.js BufferGeometry from WASM MeshData
 function createGeometryFromMeshData(meshData: MeshData): THREE.BufferGeometry {
@@ -124,6 +125,13 @@ function PrimitiveFeature({ feature, body, isSelected }: { feature: Feature; bod
         body={body}
         geometry={geometry}
       />
+
+      {/* Edge selection overlay */}
+      <EdgeHighlight
+        feature={feature}
+        body={body}
+        geometry={geometry}
+      />
     </group>
   )
 }
@@ -186,6 +194,13 @@ function ExtrudeFeature({ feature, body, isSelected }: { feature: Feature; body:
 
       {/* Face selection overlay */}
       <FaceHighlight
+        feature={feature}
+        body={body}
+        geometry={geometry}
+      />
+
+      {/* Edge selection overlay */}
+      <EdgeHighlight
         feature={feature}
         body={body}
         geometry={geometry}
