@@ -118,6 +118,47 @@ function PrimitiveFeature({ feature, isSelected }: { feature: Feature; isSelecte
   )
 }
 
+// Component for rendering extrude feature (temporary visualization)
+function ExtrudeFeature({ feature, isSelected }: { feature: Feature; isSelected: boolean }) {
+  const color = isSelected ? '#4a9eff' : '#808080'
+
+  // Get extrude parameters
+  const height = feature.extrude_params?.height || 1
+  const heightBackward = feature.extrude_params?.height_backward || 0
+  const totalHeight = height + heightBackward
+
+  // Create a simple box as temporary visualization
+  // TODO: Generate actual mesh from sketch
+  const geometry = useMemo(() => {
+    return new THREE.BoxGeometry(2, totalHeight, 2)
+  }, [totalHeight])
+
+  return (
+    <mesh
+      position={[0, totalHeight / 2, 0]}
+      geometry={geometry}
+    >
+      <meshStandardMaterial
+        color={color}
+        metalness={0.3}
+        roughness={0.4}
+      />
+
+      {/* Wireframe overlay when selected */}
+      {isSelected && (
+        <mesh geometry={geometry}>
+          <meshBasicMaterial
+            color="#4a9eff"
+            wireframe
+            transparent
+            opacity={0.5}
+          />
+        </mesh>
+      )}
+    </mesh>
+  )
+}
+
 export function SceneObjects() {
   const bodies = useSceneStore((s) => s.scene.bodies)
   const selectedBodyIds = useSceneStore((s) => s.selectedBodyIds)
@@ -132,15 +173,29 @@ export function SceneObjects() {
         return (
           <group key={body.id}>
             {body.features.map(feature => {
-              if (feature.type !== 'primitive' || !feature.primitive) return null
+              // Render primitive features
+              if (feature.type === 'primitive' && feature.primitive) {
+                return (
+                  <PrimitiveFeature
+                    key={feature.id}
+                    feature={feature}
+                    isSelected={isSelected}
+                  />
+                )
+              }
 
-              return (
-                <PrimitiveFeature
-                  key={feature.id}
-                  feature={feature}
-                  isSelected={isSelected}
-                />
-              )
+              // Render extrude features (temporary visualization)
+              if (feature.type === 'extrude') {
+                return (
+                  <ExtrudeFeature
+                    key={feature.id}
+                    feature={feature}
+                    isSelected={isSelected}
+                  />
+                )
+              }
+
+              return null
             })}
           </group>
         )

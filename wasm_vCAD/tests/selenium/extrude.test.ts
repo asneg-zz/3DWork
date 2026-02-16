@@ -22,7 +22,8 @@ async function runExtrudeTest() {
   console.log('🧪 Starting Extrude operation test...\n')
 
   const options = new chrome.Options()
-  options.addArguments('--headless=new')
+  // Run in visible mode (comment out headless for debugging)
+  // options.addArguments('--headless=new')
   options.addArguments('--no-sandbox')
   options.addArguments('--disable-dev-shm-usage')
   options.addArguments('--window-size=1920,1080')
