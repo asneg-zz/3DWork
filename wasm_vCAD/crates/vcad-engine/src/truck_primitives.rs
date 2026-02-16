@@ -10,52 +10,56 @@ pub struct MeshData {
     pub normals: Vec<f32>,   // [nx, ny, nz, nx, ny, nz, ...]
 }
 
-/// Create a cube mesh (simple parametric generation)
+/// Create a cube mesh with flat shading (each face has its own vertices)
 pub fn create_cube_mesh(width: f64, height: f64, depth: f64) -> Result<MeshData, JsValue> {
     let w = (width / 2.0) as f32;
     let h = (height / 2.0) as f32;
     let d = (depth / 2.0) as f32;
 
-    let vertices = vec![
-        // Front face
-        -w, -h,  d,  // 0
-         w, -h,  d,  // 1
-         w,  h,  d,  // 2
-        -w,  h,  d,  // 3
-        // Back face
-        -w, -h, -d,  // 4
-         w, -h, -d,  // 5
-         w,  h, -d,  // 6
-        -w,  h, -d,  // 7
+    let mut vertices = Vec::new();
+    let mut normals = Vec::new();
+    let mut indices = Vec::new();
+
+    // Each face has its own 4 vertices with flat normals
+    let faces: [([f32; 3], [f32; 3], [[f32; 3]; 4]); 6] = [
+        // Front (+Z)
+        ([0.0, 0.0, 1.0], [0.0, 0.0, 1.0], [
+            [-w, -h,  d], [ w, -h,  d], [ w,  h,  d], [-w,  h,  d]
+        ]),
+        // Back (-Z)
+        ([0.0, 0.0, -1.0], [0.0, 0.0, -1.0], [
+            [ w, -h, -d], [-w, -h, -d], [-w,  h, -d], [ w,  h, -d]
+        ]),
+        // Right (+X)
+        ([1.0, 0.0, 0.0], [1.0, 0.0, 0.0], [
+            [ w, -h,  d], [ w, -h, -d], [ w,  h, -d], [ w,  h,  d]
+        ]),
+        // Left (-X)
+        ([-1.0, 0.0, 0.0], [-1.0, 0.0, 0.0], [
+            [-w, -h, -d], [-w, -h,  d], [-w,  h,  d], [-w,  h, -d]
+        ]),
+        // Top (+Y)
+        ([0.0, 1.0, 0.0], [0.0, 1.0, 0.0], [
+            [-w,  h,  d], [ w,  h,  d], [ w,  h, -d], [-w,  h, -d]
+        ]),
+        // Bottom (-Y)
+        ([0.0, -1.0, 0.0], [0.0, -1.0, 0.0], [
+            [-w, -h, -d], [ w, -h, -d], [ w, -h,  d], [-w, -h,  d]
+        ]),
     ];
 
-    let indices = vec![
-        // Front
-        0, 1, 2,  0, 2, 3,
-        // Right
-        1, 5, 6,  1, 6, 2,
-        // Back
-        5, 4, 7,  5, 7, 6,
-        // Left
-        4, 0, 3,  4, 3, 7,
-        // Top
-        3, 2, 6,  3, 6, 7,
-        // Bottom
-        4, 5, 1,  4, 1, 0,
-    ];
+    for (normal, _, quad) in &faces {
+        let base = (vertices.len() / 3) as u32;
 
-    let normals = vec![
-        // Front face normals
-         0.0,  0.0,  1.0,
-         0.0,  0.0,  1.0,
-         0.0,  0.0,  1.0,
-         0.0,  0.0,  1.0,
-        // Back face normals
-         0.0,  0.0, -1.0,
-         0.0,  0.0, -1.0,
-         0.0,  0.0, -1.0,
-         0.0,  0.0, -1.0,
-    ];
+        // Add 4 vertices for this face
+        for v in quad {
+            vertices.extend_from_slice(v);
+            normals.extend_from_slice(normal);
+        }
+
+        // Add 2 triangles (quad = 0,1,2 + 0,2,3)
+        indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+    }
 
     Ok(MeshData {
         vertices,

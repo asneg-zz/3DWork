@@ -120,10 +120,6 @@ function createFaceGeometry(
 
   // Plane distance threshold - must be on the same plane
   const planeThreshold = 0.01
-  // Spatial distance threshold - triangles must be close together
-  // For a cube with size 1, two triangles on same face are ~0.4-0.47 apart
-  // Adjacent faces would be ~0.58+ apart
-  const spatialThreshold = 0.50
 
   for (let i = 0; i < triangleCount; i++) {
     const a = index.getX(i * 3)
@@ -145,11 +141,8 @@ function createFaceGeometry(
     const trianglePlaneD = triangleCenter.dot(clickedNormal)
     const planeDiff = Math.abs(trianglePlaneD - clickedPlaneD)
 
-    // Additional check: triangles must be spatially close
-    // This prevents selecting triangles on different faces with the same normal
-    const spatialDistance = triangleCenter.distanceTo(clickedTriangleCenter)
-
-    if (planeDiff < planeThreshold && spatialDistance < spatialThreshold) {
+    // Only check coplanarity - all triangles with same normal on same plane are one face
+    if (planeDiff < planeThreshold) {
       faceTriangles.push(i)
     }
   }

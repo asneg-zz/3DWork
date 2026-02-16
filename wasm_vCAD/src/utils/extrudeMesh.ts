@@ -176,37 +176,43 @@ export function generateExtrudeMesh(
       p[2] + extrudeVec[2]
     ] as [number, number, number])
 
-    // Bottom cap (fan triangulation)
-    const baseIdx = vertices.length / 9
-    for (const p of bottom3D) {
-      vertices.push(p[0], p[1], p[2]) // position
-      vertices.push(bottomNormal[0], bottomNormal[1], bottomNormal[2]) // normal
-      vertices.push(0.6, 0.6, 0.65) // color
-    }
+    // Bottom cap (fan triangulation with separate vertices per triangle)
     for (let i = 1; i < n - 1; i++) {
-      if (height >= 0) {
-        indices.push(baseIdx, baseIdx + i + 1, baseIdx + i)
-      } else {
-        indices.push(baseIdx, baseIdx + i, baseIdx + i + 1)
+      const triIdx = vertices.length / 9
+
+      // Add 3 vertices for this triangle (no shared vertices)
+      const triPoints = height >= 0
+        ? [bottom3D[0], bottom3D[i + 1], bottom3D[i]]
+        : [bottom3D[0], bottom3D[i], bottom3D[i + 1]]
+
+      for (const p of triPoints) {
+        vertices.push(p[0], p[1], p[2]) // position
+        vertices.push(bottomNormal[0], bottomNormal[1], bottomNormal[2]) // normal
+        vertices.push(0.6, 0.6, 0.65) // color
       }
+
+      indices.push(triIdx, triIdx + 1, triIdx + 2)
     }
 
-    // Top cap (fan triangulation)
-    const topBaseIdx = vertices.length / 9
-    for (const p of top3D) {
-      vertices.push(p[0], p[1], p[2]) // position
-      vertices.push(topNormal[0], topNormal[1], topNormal[2]) // normal
-      vertices.push(0.6, 0.6, 0.65) // color
-    }
+    // Top cap (fan triangulation with separate vertices per triangle)
     for (let i = 1; i < n - 1; i++) {
-      if (height >= 0) {
-        indices.push(topBaseIdx, topBaseIdx + i, topBaseIdx + i + 1)
-      } else {
-        indices.push(topBaseIdx, topBaseIdx + i + 1, topBaseIdx + i)
+      const triIdx = vertices.length / 9
+
+      // Add 3 vertices for this triangle (no shared vertices)
+      const triPoints = height >= 0
+        ? [top3D[0], top3D[i], top3D[i + 1]]
+        : [top3D[0], top3D[i + 1], top3D[i]]
+
+      for (const p of triPoints) {
+        vertices.push(p[0], p[1], p[2]) // position
+        vertices.push(topNormal[0], topNormal[1], topNormal[2]) // normal
+        vertices.push(0.6, 0.6, 0.65) // color
       }
+
+      indices.push(triIdx, triIdx + 1, triIdx + 2)
     }
 
-    // Side walls
+    // Side walls (each triangle gets its own 3 vertices)
     for (let i = 0; i < n; i++) {
       const next = (i + 1) % n
       const b0 = bottom3D[i]
@@ -221,23 +227,25 @@ export function generateExtrudeMesh(
         ? new THREE.Vector3().crossVectors(edge2, edge1).normalize()
         : new THREE.Vector3().crossVectors(edge1, edge2).normalize()
 
-      const sideBaseIdx = vertices.length / 9
-
-      // Add 4 vertices for quad
-      for (const p of [b0, b1, t1, t0]) {
+      // First triangle (b0, b1, t1)
+      const tri1Idx = vertices.length / 9
+      const tri1Points = height >= 0 ? [b0, b1, t1] : [b0, t1, b1]
+      for (const p of tri1Points) {
         vertices.push(p[0], p[1], p[2])
         vertices.push(faceNormal.x, faceNormal.y, faceNormal.z)
         vertices.push(0.6, 0.6, 0.65)
       }
+      indices.push(tri1Idx, tri1Idx + 1, tri1Idx + 2)
 
-      // Add 2 triangles
-      if (height >= 0) {
-        indices.push(sideBaseIdx, sideBaseIdx + 1, sideBaseIdx + 2)
-        indices.push(sideBaseIdx, sideBaseIdx + 2, sideBaseIdx + 3)
-      } else {
-        indices.push(sideBaseIdx, sideBaseIdx + 2, sideBaseIdx + 1)
-        indices.push(sideBaseIdx, sideBaseIdx + 3, sideBaseIdx + 2)
+      // Second triangle (b0, t1, t0)
+      const tri2Idx = vertices.length / 9
+      const tri2Points = height >= 0 ? [b0, t1, t0] : [b0, t0, t1]
+      for (const p of tri2Points) {
+        vertices.push(p[0], p[1], p[2])
+        vertices.push(faceNormal.x, faceNormal.y, faceNormal.z)
+        vertices.push(0.6, 0.6, 0.65)
       }
+      indices.push(tri2Idx, tri2Idx + 1, tri2Idx + 2)
     }
   }
 
