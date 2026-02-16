@@ -1,138 +1,220 @@
 /**
- * Face highlighting for extrude features
- * Shows interactive faces that can be selected for sketch creation
+ * Face highlighting and selection for 3D objects
+ * Uses raycasting to detect and select actual mesh faces
  */
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
+import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import { useFaceSelectionStore } from '@/stores/faceSelectionStore'
-import type { Feature, Body } from '@/types/scene'
+import type { Feature, Body, SketchPlane } from '@/types/scene'
 
 interface FaceHighlightProps {
   feature: Feature
   body: Body
+  geometry: THREE.BufferGeometry
 }
 
-export function FaceHighlight({ feature, body }: FaceHighlightProps) {
+/**
+ * Determine sketch plane from face normal
+ */
+function normalToPlane(normal: THREE.Vector3): SketchPlane | null {
+  // Round to handle floating point precision
+  const x = Math.abs(normal.x)
+  const y = Math.abs(normal.y)
+  const z = Math.abs(normal.z)
+
+  // Find dominant axis
+  if (z > x && z > y && z > 0.9) {
+    return 'XY' // Normal points along Z axis
+  } else if (y > x && y > z && y > 0.9) {
+    return 'XZ' // Normal points along Y axis
+  } else if (x > y && x > z && x > 0.9) {
+    return 'YZ' // Normal points along X axis
+  }
+
+  return null
+}
+
+/**
+ * Calculate plane offset from point and plane
+ */
+function calculateOffset(point: THREE.Vector3, plane: SketchPlane): number {
+  switch (plane) {
+    case 'XY':
+      return point.z
+    case 'XZ':
+      return point.y
+    case 'YZ':
+      return point.x
+  }
+}
+
+export function FaceHighlight({ feature, body, geometry }: FaceHighlightProps) {
   const faceSelectionActive = useFaceSelectionStore((s) => s.active)
   const setHoveredFace = useFaceSelectionStore((s) => s.setHoveredFace)
   const selectFace = useFaceSelectionStore((s) => s.selectFace)
 
-  const [hoveredFace, setLocalHoveredFace] = useState<'top' | 'bottom' | null>(null)
+  const meshRef = useRef<THREE.Mesh>(null)
+  const [hoveredFaceIndex, setHoveredFaceIndex] = useState<number | null>(null)
+  const [hoveredFaceColor, setHoveredFaceColor] = useState<THREE.Color | null>(null)
 
-  if (!faceSelectionActive || feature.type !== 'extrude') {
-    return null
-  }
+  const { raycaster, pointer, camera } = useThree()
 
-  // Get extrude parameters
-  const height = feature.extrude_params?.height || 1
-  const heightBackward = feature.extrude_params?.height_backward || 0
-
-  // Find the sketch this extrude is based on
-  const sketchFeature = body.features.find(f => f.id === feature.sketch_id)
-  if (!sketchFeature || sketchFeature.type !== 'sketch' || !sketchFeature.sketch) {
-    return null
-  }
-
-  const plane = sketchFeature.sketch.plane
-
-  // Calculate face positions based on plane
-  const getFacePosition = (faceType: 'top' | 'bottom'): [number, number, number] => {
-    const offset = faceType === 'top' ? height : -heightBackward
-
-    switch (plane) {
-      case 'XY':
-        return [0, 0, offset]
-      case 'XZ':
-        return [0, offset, 0]
-      case 'YZ':
-        return [offset, 0, 0]
+  // Track mouse movement for hover highlighting
+  useFrame(() => {
+    if (!faceSelectionActive || !meshRef.current) {
+      if (hoveredFaceIndex !== null) {
+        setHoveredFaceIndex(null)
+        setHoveredFaceColor(null)
+      }
+      return
     }
-  }
 
-  const getFaceRotation = (): [number, number, number] => {
-    switch (plane) {
-      case 'XY':
-        return [0, 0, 0]
-      case 'XZ':
-        return [Math.PI / 2, 0, 0]
-      case 'YZ':
-        return [0, 0, Math.PI / 2]
+    // Update raycaster
+    raycaster.setFromCamera(pointer, camera)
+
+    // Check intersection with mesh
+    const intersects = raycaster.intersectObject(meshRef.current)
+
+    if (intersects.length > 0) {
+      const intersection = intersects[0]
+      const faceIndex = intersection.faceIndex
+
+      if (faceIndex !== undefined && faceIndex !== hoveredFaceIndex) {
+        setHoveredFaceIndex(faceIndex)
+
+        // Get face normal to determine plane
+        const normal = intersection.face?.normal
+        if (normal) {
+          // Transform normal to world space
+          const worldNormal = normal.clone().applyMatrix3(
+            new THREE.Matrix3().getNormalMatrix(meshRef.current.matrixWorld)
+          ).normalize()
+
+          const plane = normalToPlane(worldNormal)
+          if (plane) {
+            // Calculate offset
+            const offset = calculateOffset(intersection.point, plane)
+
+            setHoveredFace({
+              bodyId: body.id,
+              featureId: feature.id,
+              faceType: 'side', // Generic type, actual plane determined by normal
+              plane,
+              offset
+            })
+
+            // Highlight color
+            setHoveredFaceColor(new THREE.Color('#4a9eff'))
+          }
+        }
+      }
+    } else if (hoveredFaceIndex !== null) {
+      setHoveredFaceIndex(null)
+      setHoveredFaceColor(null)
+      setHoveredFace(null)
     }
-  }
+  })
 
-  const handleFacePointerOver = (faceType: 'top' | 'bottom') => {
-    setLocalHoveredFace(faceType)
-    setHoveredFace({
-      bodyId: body.id,
-      featureId: feature.id,
-      faceType,
-      plane,
-      offset: faceType === 'top' ? height : -heightBackward
-    })
-  }
+  const handleClick = (event: any) => {
+    console.log('[FaceHighlight] Click detected, faceSelectionActive:', faceSelectionActive)
 
-  const handleFacePointerOut = () => {
-    setLocalHoveredFace(null)
-    setHoveredFace(null)
-  }
+    if (!faceSelectionActive) {
+      console.log('[FaceHighlight] Face selection not active, ignoring click')
+      return
+    }
 
-  const handleFaceClick = (faceType: 'top' | 'bottom') => {
+    event.stopPropagation?.()
+
+    // Get intersection info from Three.js raycaster
+    if (!meshRef.current) {
+      console.log('[FaceHighlight] No mesh ref, ignoring click')
+      return
+    }
+
+    // Use current raycaster state
+    raycaster.setFromCamera(pointer, camera)
+    const intersects = raycaster.intersectObject(meshRef.current)
+
+    console.log('[FaceHighlight] Intersects:', intersects.length)
+
+    if (intersects.length === 0) return
+
+    const intersection = intersects[0]
+    if (!intersection.face) {
+      console.log('[FaceHighlight] No face in intersection')
+      return
+    }
+
+    const normal = intersection.face.normal
+
+    // Transform normal to world space
+    const worldNormal = normal.clone().applyMatrix3(
+      new THREE.Matrix3().getNormalMatrix(meshRef.current.matrixWorld)
+    ).normalize()
+
+    console.log('[FaceHighlight] Face normal (world):', worldNormal)
+
+    const plane = normalToPlane(worldNormal)
+    if (!plane) {
+      console.warn('[FaceHighlight] Could not determine sketch plane from face normal:', worldNormal)
+      return
+    }
+
+    console.log('[FaceHighlight] Determined plane:', plane)
+
+    // Calculate offset from intersection point
+    const offset = calculateOffset(intersection.point, plane)
+
+    console.log('[FaceHighlight] Calculated offset:', offset)
+
     const faceData = {
       bodyId: body.id,
       featureId: feature.id,
-      faceType,
+      faceType: 'side' as const,
       plane,
-      offset: faceType === 'top' ? height : -heightBackward
+      offset
     }
+
+    console.log('[FaceHighlight] Dispatching face-selected event with data:', faceData)
 
     selectFace(faceData)
 
     // Dispatch custom event to notify Toolbar
-    const event = new CustomEvent('face-selected', { detail: faceData })
-    window.dispatchEvent(event)
+    const customEvent = new CustomEvent('face-selected', { detail: faceData })
+    window.dispatchEvent(customEvent)
+
+    console.log('[FaceHighlight] Event dispatched')
   }
 
-  // Simple rectangular plane for highlighting
-  const planeGeometry = new THREE.PlaneGeometry(10, 10)
+  if (!faceSelectionActive) {
+    return null
+  }
 
   return (
-    <group>
-      {/* Top face */}
-      <mesh
-        position={getFacePosition('top')}
-        rotation={getFaceRotation()}
-        geometry={planeGeometry}
-        onPointerOver={() => handleFacePointerOver('top')}
-        onPointerOut={handleFacePointerOut}
-        onClick={() => handleFaceClick('top')}
-      >
-        <meshBasicMaterial
-          color={hoveredFace === 'top' ? '#4a9eff' : '#ffffff'}
-          transparent
-          opacity={hoveredFace === 'top' ? 0.3 : 0.1}
-          side={THREE.DoubleSide}
-        />
-      </mesh>
-
-      {/* Bottom face */}
-      {heightBackward > 0 && (
-        <mesh
-          position={getFacePosition('bottom')}
-          rotation={getFaceRotation()}
-          geometry={planeGeometry}
-          onPointerOver={() => handleFacePointerOver('bottom')}
-          onPointerOut={handleFacePointerOut}
-          onClick={() => handleFaceClick('bottom')}
-        >
-          <meshBasicMaterial
-            color={hoveredFace === 'bottom' ? '#4a9eff' : '#ffffff'}
-            transparent
-            opacity={hoveredFace === 'bottom' ? 0.3 : 0.1}
-            side={THREE.DoubleSide}
-          />
-        </mesh>
-      )}
-    </group>
+    <mesh
+      ref={meshRef}
+      geometry={geometry}
+      onClick={handleClick}
+      onPointerOver={(e) => {
+        console.log('[FaceHighlight] Pointer over')
+        e.stopPropagation()
+      }}
+      onPointerOut={(e) => {
+        console.log('[FaceHighlight] Pointer out')
+        e.stopPropagation()
+      }}
+      renderOrder={999}
+    >
+      <meshBasicMaterial
+        color={hoveredFaceColor || '#4a9eff'}
+        transparent
+        opacity={hoveredFaceIndex !== null ? 0.4 : 0.2}
+        side={THREE.DoubleSide}
+        depthTest={false}
+        depthWrite={false}
+      />
+    </mesh>
   )
 }

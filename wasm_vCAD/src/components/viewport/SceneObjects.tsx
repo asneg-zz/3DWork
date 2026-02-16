@@ -32,7 +32,7 @@ function createGeometryFromMeshData(meshData: MeshData): THREE.BufferGeometry {
 }
 
 // Component for rendering a single primitive feature
-function PrimitiveFeature({ feature, isSelected }: { feature: Feature; isSelected: boolean }) {
+function PrimitiveFeature({ feature, body, isSelected }: { feature: Feature; body: Body; isSelected: boolean }) {
   const transform = feature.transform || {
     position: [0, 0, 0],
     rotation: [0, 0, 0],
@@ -93,30 +93,38 @@ function PrimitiveFeature({ feature, isSelected }: { feature: Feature; isSelecte
   }, [feature.primitive])
 
   return (
-    <mesh
+    <group
       position={transform.position as [number, number, number]}
       rotation={transform.rotation as [number, number, number]}
       scale={transform.scale as [number, number, number]}
-      geometry={geometry}
     >
-      <meshStandardMaterial
-        color={color}
-        metalness={0.3}
-        roughness={0.4}
-      />
+      <mesh geometry={geometry}>
+        <meshStandardMaterial
+          color={color}
+          metalness={0.3}
+          roughness={0.4}
+        />
 
-      {/* Wireframe overlay when selected */}
-      {isSelected && (
-        <mesh geometry={geometry}>
-          <meshBasicMaterial
-            color="#4a9eff"
-            wireframe
-            transparent
-            opacity={0.5}
-          />
-        </mesh>
-      )}
-    </mesh>
+        {/* Wireframe overlay when selected */}
+        {isSelected && (
+          <mesh geometry={geometry}>
+            <meshBasicMaterial
+              color="#4a9eff"
+              wireframe
+              transparent
+              opacity={0.5}
+            />
+          </mesh>
+        )}
+      </mesh>
+
+      {/* Face selection overlay */}
+      <FaceHighlight
+        feature={feature}
+        body={body}
+        geometry={geometry}
+      />
+    </group>
   )
 }
 
@@ -155,27 +163,34 @@ function ExtrudeFeature({ feature, body, isSelected }: { feature: Feature; body:
   }, [feature.sketch_id, height, heightBackward, body.features])
 
   return (
-    <mesh
-      geometry={geometry}
-    >
-      <meshStandardMaterial
-        color={color}
-        metalness={0.3}
-        roughness={0.4}
-      />
+    <group>
+      <mesh geometry={geometry}>
+        <meshStandardMaterial
+          color={color}
+          metalness={0.3}
+          roughness={0.4}
+        />
 
-      {/* Wireframe overlay when selected */}
-      {isSelected && (
-        <mesh geometry={geometry}>
-          <meshBasicMaterial
-            color="#4a9eff"
-            wireframe
-            transparent
-            opacity={0.5}
-          />
-        </mesh>
-      )}
-    </mesh>
+        {/* Wireframe overlay when selected */}
+        {isSelected && (
+          <mesh geometry={geometry}>
+            <meshBasicMaterial
+              color="#4a9eff"
+              wireframe
+              transparent
+              opacity={0.5}
+            />
+          </mesh>
+        )}
+      </mesh>
+
+      {/* Face selection overlay */}
+      <FaceHighlight
+        feature={feature}
+        body={body}
+        geometry={geometry}
+      />
+    </group>
   )
 }
 
@@ -199,6 +214,7 @@ export function SceneObjects() {
                   <PrimitiveFeature
                     key={feature.id}
                     feature={feature}
+                    body={body}
                     isSelected={isSelected}
                   />
                 )
@@ -207,18 +223,12 @@ export function SceneObjects() {
               // Render extrude features
               if (feature.type === 'extrude') {
                 return (
-                  <group key={feature.id}>
-                    <ExtrudeFeature
-                      feature={feature}
-                      body={body}
-                      isSelected={isSelected}
-                    />
-                    {/* Face selection overlay */}
-                    <FaceHighlight
-                      feature={feature}
-                      body={body}
-                    />
-                  </group>
+                  <ExtrudeFeature
+                    key={feature.id}
+                    feature={feature}
+                    body={body}
+                    isSelected={isSelected}
+                  />
                 )
               }
 
