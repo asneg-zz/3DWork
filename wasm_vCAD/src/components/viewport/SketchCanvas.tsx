@@ -1216,11 +1216,18 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
     onOpenConstraintDialog: (elementId) => {
       const element = elements.find(el => el.id === elementId)
       if (element) {
+        // Если уже выбрано 2 элемента, используем второй как secondElementId
+        let secondElementId = null
+        if (selectedElementIds.length === 2) {
+          // Найти элемент из выборки, который не равен текущему
+          secondElementId = selectedElementIds.find(id => id !== elementId) || null
+        }
+
         setConstraintDialog({
           isOpen: true,
           elementId,
           elementType: element.type,
-          secondElementId: null,
+          secondElementId,
           needsSecondElement: false
         })
       }
