@@ -14,6 +14,7 @@ export function SceneTree() {
   const clearSelection = useSceneStore((s) => s.clearSelection)
   const updateBody = useSceneStore((s) => s.updateBody)
   const removeBody = useSceneStore((s) => s.removeBody)
+  const removeFeature = useSceneStore((s) => s.removeFeature)
 
   const booleanActive = useBooleanStore((s) => s.active)
   const booleanSelectedBodies = useBooleanStore((s) => s.selectedBodies)
@@ -103,6 +104,15 @@ export function SceneTree() {
         feature.sketch.elements
       )
     }
+    setContextMenu(null)
+  }
+
+  const handleDeleteFeature = () => {
+    if (!contextMenu) return
+
+    const { bodyId, feature } = contextMenu
+    removeFeature(bodyId, feature.id)
+    setContextMenu(null)
   }
 
   return (
@@ -185,6 +195,12 @@ export function SceneTree() {
               icon: <Edit size={16} />,
               onClick: handleEditSketch,
               disabled: contextMenu.feature.type !== 'sketch',
+            },
+            {
+              label: 'Delete',
+              icon: <Trash size={16} />,
+              onClick: handleDeleteFeature,
+              danger: true,
             },
           ]}
           onClose={() => setContextMenu(null)}

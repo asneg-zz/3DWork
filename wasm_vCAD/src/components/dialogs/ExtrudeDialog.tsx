@@ -3,23 +3,29 @@
  * Dialog for extruding sketch into 3D body
  */
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { BaseDialog } from './BaseDialog'
 
 export interface ExtrudeDialogProps {
   isOpen: boolean
   onClose: () => void
   onConfirm: (height: number, heightBackward: number, draftAngle: number) => void
+  initialHeight?: number
+  initialHeightBackward?: number
+  initialDraftAngle?: number
 }
 
 export function ExtrudeDialog({
   isOpen,
   onClose,
-  onConfirm
+  onConfirm,
+  initialHeight,
+  initialHeightBackward,
+  initialDraftAngle
 }: ExtrudeDialogProps) {
-  const [height, setHeight] = useState(1.0)
-  const [heightBackward, setHeightBackward] = useState(0.0)
-  const [draftAngle, setDraftAngle] = useState(0.0)
+  const [height, setHeight] = useState(initialHeight ?? 1.0)
+  const [heightBackward, setHeightBackward] = useState(initialHeightBackward ?? 0.0)
+  const [draftAngle, setDraftAngle] = useState(initialDraftAngle ?? 0.0)
 
   const handleConfirm = () => {
     onConfirm(height, heightBackward, draftAngle)
@@ -31,6 +37,15 @@ export function ExtrudeDialog({
     setHeightBackward(0.0)
     setDraftAngle(0.0)
   }
+
+  // Update state when initial values change (when dialog opens with existing values)
+  useEffect(() => {
+    if (isOpen) {
+      setHeight(initialHeight ?? 1.0)
+      setHeightBackward(initialHeightBackward ?? 0.0)
+      setDraftAngle(initialDraftAngle ?? 0.0)
+    }
+  }, [isOpen, initialHeight, initialHeightBackward, initialDraftAngle])
 
   if (!isOpen) return null
 

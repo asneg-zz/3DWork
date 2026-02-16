@@ -12,9 +12,29 @@ export function SketchToolbar() {
   const undo = useSketchStore((s) => s.undo)
   const redo = useSketchStore((s) => s.redo)
   const { saveAndExit, cancelAndExit } = useSketchSave()
-  const { extrudeAndExit } = useSketchExtrude()
+  const { extrudeAndExit, getExistingExtrudeParams } = useSketchExtrude()
 
   const [extrudeDialogOpen, setExtrudeDialogOpen] = useState(false)
+  const [extrudeParams, setExtrudeParams] = useState<{
+    height: number
+    heightBackward: number
+    draftAngle: number
+  } | null>(null)
+
+  const handleOpenExtrudeDialog = () => {
+    // Load existing parameters if extrude already exists
+    const existing = getExistingExtrudeParams()
+    if (existing) {
+      setExtrudeParams({
+        height: existing.height,
+        heightBackward: existing.heightBackward,
+        draftAngle: existing.draftAngle
+      })
+    } else {
+      setExtrudeParams(null)
+    }
+    setExtrudeDialogOpen(true)
+  }
 
   if (!active) return null
 
@@ -114,7 +134,7 @@ export function SketchToolbar() {
       <div className="flex-1" />
 
       <button
-        onClick={() => setExtrudeDialogOpen(true)}
+        onClick={handleOpenExtrudeDialog}
         disabled={!hasElements}
         className="px-3 py-1.5 bg-blue-600 text-white rounded flex items-center gap-2 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
         title="Extrude sketch to 3D"
@@ -148,6 +168,9 @@ export function SketchToolbar() {
           extrudeAndExit(height, heightBackward, draftAngle)
           setExtrudeDialogOpen(false)
         }}
+        initialHeight={extrudeParams?.height}
+        initialHeightBackward={extrudeParams?.heightBackward}
+        initialDraftAngle={extrudeParams?.draftAngle}
       />
     </div>
   )
