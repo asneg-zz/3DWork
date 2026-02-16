@@ -35,12 +35,14 @@ export const useFaceSelectionStore = create<FaceSelectionState>()(
 
     startFaceSelection: () =>
       set((state) => {
+        console.log('[FaceSelectionStore] Starting face selection mode')
         state.active = true
         state.hoveredFace = null
       }),
 
     exitFaceSelection: () =>
       set((state) => {
+        console.log('[FaceSelectionStore] Exiting face selection mode')
         state.active = false
         state.hoveredFace = null
       }),

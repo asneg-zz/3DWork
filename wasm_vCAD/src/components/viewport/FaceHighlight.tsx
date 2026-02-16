@@ -252,7 +252,11 @@ export function FaceHighlight({ feature, body, geometry }: FaceHighlightProps) {
 
       {/* Highlight overlay for hovered face only */}
       {hoveredFaceData && (
-        <mesh geometry={hoveredFaceData.geometry} renderOrder={1000}>
+        <mesh
+          geometry={hoveredFaceData.geometry}
+          renderOrder={1000}
+          onClick={handleClick}
+        >
           <meshBasicMaterial
             color="#4a9eff"
             transparent
