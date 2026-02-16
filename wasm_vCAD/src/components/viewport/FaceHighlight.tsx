@@ -187,8 +187,6 @@ function createFaceGeometry(
   }
   center.divideScalar(uniqueVertices.length)
 
-  console.log(`[FaceHighlight] Selected ${faceTriangles.length} triangles for face`)
-
   // Create geometry
   const faceGeometry = new THREE.BufferGeometry()
   faceGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(faceVertices), 3))
@@ -295,8 +293,6 @@ export function FaceHighlight({ feature, body, geometry }: FaceHighlightProps) {
       plane,
       offset
     }
-
-    console.log('[FaceHighlight] Face selected:', plane, 'offset:', offset.toFixed(3))
 
     selectFace(faceData)
 
