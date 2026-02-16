@@ -1,16 +1,24 @@
-import { MousePointer, Minus, Circle, Square, Check, X, Undo, Redo, Spline, Scissors, CornerUpRight, CopyPlus, FlipHorizontal, GitBranch, Waves, Pencil, Ruler } from 'lucide-react'
+import { MousePointer, Minus, Circle, Square, Check, X, Undo, Redo, Spline, Scissors, CornerUpRight, CopyPlus, FlipHorizontal, GitBranch, Waves, Pencil, Ruler, Box } from 'lucide-react'
+import { useState } from 'react'
 import { useSketchStore } from '@/stores/sketchStore'
 import { useSketchSave } from '@/hooks/useSketchSave'
+import { useSketchExtrude } from '@/hooks/useSketchExtrude'
 import { ToolDropdown } from './ToolDropdown'
+import { ExtrudeDialog } from '@/components/dialogs/ExtrudeDialog'
 
 export function SketchToolbar() {
-  const { active, tool } = useSketchStore()
+  const { active, tool, elements } = useSketchStore()
   const setTool = useSketchStore((s) => s.setTool)
   const undo = useSketchStore((s) => s.undo)
   const redo = useSketchStore((s) => s.redo)
   const { saveAndExit, cancelAndExit } = useSketchSave()
+  const { extrudeAndExit } = useSketchExtrude()
+
+  const [extrudeDialogOpen, setExtrudeDialogOpen] = useState(false)
 
   if (!active) return null
+
+  const hasElements = elements.length > 0
 
   const drawTools = [
     { id: 'line', icon: Minus, label: 'Line' },
@@ -106,6 +114,18 @@ export function SketchToolbar() {
       <div className="flex-1" />
 
       <button
+        onClick={() => setExtrudeDialogOpen(true)}
+        disabled={!hasElements}
+        className="px-3 py-1.5 bg-blue-600 text-white rounded flex items-center gap-2 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+        title="Extrude sketch to 3D"
+      >
+        <Box size={16} />
+        <span className="text-sm">Extrude</span>
+      </button>
+
+      <div className="w-px h-6 bg-cad-border mx-2"></div>
+
+      <button
         onClick={saveAndExit}
         className="px-3 py-1.5 bg-cad-success text-white rounded flex items-center gap-2 hover:bg-cad-success/80"
       >
@@ -120,6 +140,15 @@ export function SketchToolbar() {
         <X size={16} />
         <span className="text-sm">Cancel</span>
       </button>
+
+      <ExtrudeDialog
+        isOpen={extrudeDialogOpen}
+        onClose={() => setExtrudeDialogOpen(false)}
+        onConfirm={(height, heightBackward, draftAngle) => {
+          extrudeAndExit(height, heightBackward, draftAngle)
+          setExtrudeDialogOpen(false)
+        }}
+      />
     </div>
   )
 }
