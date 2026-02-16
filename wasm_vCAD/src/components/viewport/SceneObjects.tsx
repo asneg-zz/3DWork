@@ -5,6 +5,7 @@ import { engine } from '@/wasm/engine'
 import type { MeshData } from '@/types/mesh'
 import type { Feature, Body } from '@/types/scene'
 import { generateExtrudeMesh } from '@/utils/extrudeMesh'
+import { FaceHighlight } from './FaceHighlight'
 
 // Helper to create Three.js BufferGeometry from WASM MeshData
 function createGeometryFromMeshData(meshData: MeshData): THREE.BufferGeometry {
@@ -206,12 +207,18 @@ export function SceneObjects() {
               // Render extrude features
               if (feature.type === 'extrude') {
                 return (
-                  <ExtrudeFeature
-                    key={feature.id}
-                    feature={feature}
-                    body={body}
-                    isSelected={isSelected}
-                  />
+                  <group key={feature.id}>
+                    <ExtrudeFeature
+                      feature={feature}
+                      body={body}
+                      isSelected={isSelected}
+                    />
+                    {/* Face selection overlay */}
+                    <FaceHighlight
+                      feature={feature}
+                      body={body}
+                    />
+                  </group>
                 )
               }
 

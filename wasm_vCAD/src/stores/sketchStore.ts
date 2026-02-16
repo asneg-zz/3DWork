@@ -11,8 +11,9 @@ interface SketchState {
   sketchId: string | null
   bodyId: string | null
 
-  // Plane type
+  // Plane type and offset
   plane: SketchPlane
+  planeOffset: number  // Offset along plane normal
 
   // Elements in current sketch
   elements: SketchElement[]
@@ -52,8 +53,8 @@ interface SketchState {
   selectedElementIds: string[]
 
   // Actions
-  startSketch: (bodyId: string, sketchId: string, plane: SketchPlane) => void
-  loadSketch: (bodyId: string, sketchId: string, plane: SketchPlane, elements: SketchElement[]) => void
+  startSketch: (bodyId: string, sketchId: string, plane: SketchPlane, planeOffset?: number) => void
+  loadSketch: (bodyId: string, sketchId: string, plane: SketchPlane, elements: SketchElement[], planeOffset?: number) => void
   exitSketch: () => void
   setTool: (tool: SketchState['tool']) => void
 
@@ -147,6 +148,7 @@ export const useSketchStore = create<SketchState>()(
       sketchId: null,
       bodyId: null,
       plane: 'XY',
+      planeOffset: 0,
       elements: [],
       construction: [],
       revolveAxis: null,
@@ -176,12 +178,13 @@ export const useSketchStore = create<SketchState>()(
       panY: 0,
       selectedElementIds: [],
 
-    startSketch: (bodyId, sketchId, plane) =>
+    startSketch: (bodyId, sketchId, plane, planeOffset = 0) =>
       set((state) => {
         state.active = true
         state.bodyId = bodyId
         state.sketchId = sketchId
         state.plane = plane
+        state.planeOffset = planeOffset
         state.elements = []
         state.construction = []
         state.revolveAxis = null
@@ -195,12 +198,13 @@ export const useSketchStore = create<SketchState>()(
         historyIndex = -1
       }),
 
-    loadSketch: (bodyId, sketchId, plane, elements) =>
+    loadSketch: (bodyId, sketchId, plane, elements, planeOffset = 0) =>
       set((state) => {
         state.active = true
         state.bodyId = bodyId
         state.sketchId = sketchId
         state.plane = plane
+        state.planeOffset = planeOffset
         state.elements = [...elements]
         state.construction = []  // Will be loaded from sketch data if available
         state.revolveAxis = null

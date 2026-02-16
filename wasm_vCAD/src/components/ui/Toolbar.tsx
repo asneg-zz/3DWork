@@ -1,12 +1,44 @@
-import { Box, Circle, CircleDot, Square } from 'lucide-react'
+import { Box, Circle, CircleDot, Square, MousePointer2 } from 'lucide-react'
 import { useSceneStore } from '@/stores/sceneStore'
 import { useSketchStore } from '@/stores/sketchStore'
+import { useFaceSelectionStore } from '@/stores/faceSelectionStore'
 import { engine } from '@/wasm/engine'
 import type { Body } from '@/types/scene'
+import { useEffect } from 'react'
 
 export function Toolbar() {
   const addBody = useSceneStore((s) => s.addBody)
+  const bodies = useSceneStore((s) => s.scene.bodies)
   const startSketch = useSketchStore((s) => s.startSketch)
+
+  const faceSelectionActive = useFaceSelectionStore((s) => s.active)
+  const startFaceSelection = useFaceSelectionStore((s) => s.startFaceSelection)
+  const exitFaceSelection = useFaceSelectionStore((s) => s.exitFaceSelection)
+
+  // Listen for face selection events
+  useEffect(() => {
+    const handleFaceSelect = (event: CustomEvent) => {
+      const { bodyId, plane, offset } = event.detail
+
+      // Find the body
+      const body = bodies.find(b => b.id === bodyId)
+      if (!body) return
+
+      // Create new sketch on selected face
+      const sketchId = engine.createSketch(plane)
+
+      // Start sketch mode with offset
+      startSketch(bodyId, sketchId, plane, offset)
+
+      // Exit face selection mode
+      exitFaceSelection()
+    }
+
+    window.addEventListener('face-selected' as any, handleFaceSelect as EventListener)
+    return () => {
+      window.removeEventListener('face-selected' as any, handleFaceSelect as EventListener)
+    }
+  }, [bodies, startSketch, exitFaceSelection])
 
   const handleCreateCube = () => {
     const bodyId = crypto.randomUUID()
@@ -110,6 +142,14 @@ export function Toolbar() {
     startSketch(bodyId, sketchId, 'XY')
   }
 
+  const handleToggleFaceSelection = () => {
+    if (faceSelectionActive) {
+      exitFaceSelection()
+    } else {
+      startFaceSelection()
+    }
+  }
+
   return (
     <div className="h-12 bg-cad-surface border-b border-cad-border px-4 flex items-center gap-2">
       <button
@@ -148,6 +188,19 @@ export function Toolbar() {
       >
         <Square size={18} />
         <span className="text-sm">Sketch</span>
+      </button>
+
+      <button
+        onClick={handleToggleFaceSelection}
+        className={`px-3 py-1.5 rounded flex items-center gap-2 transition-colors ${
+          faceSelectionActive
+            ? 'bg-cad-accent text-white'
+            : 'bg-cad-hover hover:bg-cad-accent/20'
+        }`}
+        title="Select Face (click on a face to create sketch)"
+      >
+        <MousePointer2 size={18} />
+        <span className="text-sm">Select Face</span>
       </button>
     </div>
   )
