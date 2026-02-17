@@ -272,8 +272,12 @@ export function SketchScene3D() {
     if (tool === 'select') {
       const pointHit = hitTestControlPoints(sketchPoint, elements, selectedElementIds, 0.3)
       if (pointHit) {
-        setIsDraggingPoint(true)
-        setDraggedPoint({ elementId: pointHit.elementId, pointIndex: pointHit.pointIndex })
+        const hitElementIndex = elements.findIndex(el => el.id === pointHit.elementId)
+        const isFixed = constraints.some(c => c.type === 'fixed' && c.element === hitElementIndex)
+        if (!isFixed) {
+          setIsDraggingPoint(true)
+          setDraggedPoint({ elementId: pointHit.elementId, pointIndex: pointHit.pointIndex })
+        }
         return
       }
       const elementId = findElementAtPoint(sketchPoint)
