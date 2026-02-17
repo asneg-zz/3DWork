@@ -40,7 +40,6 @@ function createGeometryFromMeshData(meshData: MeshData): THREE.BufferGeometry {
 // ─── Boolean feature component ────────────────────────────────────────────────
 
 function BooleanFeature({ feature, body, isSelected }: { feature: Feature; body: Body; isSelected: boolean }) {
-  const edgeSelectionActive = useEdgeSelectionStore((s) => s.active)
   const color = isSelected ? '#4cb2e5' : '#7a9fc0'
 
   const geometry = useMemo(() => {
@@ -53,6 +52,8 @@ function BooleanFeature({ feature, body, isSelected }: { feature: Feature; body:
     })
   }, [feature.cached_mesh_vertices, feature.cached_mesh_indices])
 
+  const edgesGeometry = useMemo(() => new THREE.EdgesGeometry(geometry), [geometry])
+
   // Register geometry in cache so subsequent boolean ops can use this body
   useEffect(() => {
     geometryCache.set(body.id, geometry)
@@ -61,14 +62,20 @@ function BooleanFeature({ feature, body, isSelected }: { feature: Feature; body:
 
   return (
     <group>
-      <mesh geometry={geometry} castShadow receiveShadow>
-        <meshStandardMaterial key={color} color={color} metalness={0.1} roughness={0.5} />
-        {isSelected && !edgeSelectionActive && (
-          <mesh geometry={geometry}>
-            <meshBasicMaterial color="#4cb2e5" wireframe transparent opacity={0.5} />
-          </mesh>
-        )}
+      {/* transparent ghost fill — gives shape depth without solid mesh */}
+      <mesh geometry={geometry}>
+        <meshBasicMaterial
+          color={color}
+          transparent
+          opacity={0.08}
+          side={THREE.DoubleSide}
+          depthWrite={false}
+        />
       </mesh>
+      {/* visible edges */}
+      <lineSegments geometry={edgesGeometry}>
+        <lineBasicMaterial color={color} />
+      </lineSegments>
       <FaceHighlight feature={feature} body={body} geometry={geometry} />
       <EdgeHighlight feature={feature} body={body} geometry={geometry} />
     </group>
@@ -154,7 +161,6 @@ function BodyObject({ body, isSelected }: { body: Body; isSelected: boolean }) {
 
 function PrimitiveFeatureWithCache(props: { feature: Feature; body: Body; isSelected: boolean }) {
   const { feature, body, isSelected } = props
-  const edgeSelectionActive = useEdgeSelectionStore((s) => s.active)
   const color = isSelected ? '#4cb2e5' : '#7a9fc0'
 
   const geometry = useMemo(() => {
@@ -193,6 +199,8 @@ function PrimitiveFeatureWithCache(props: { feature: Feature; body: Body; isSele
     }
   }, [feature.primitive])
 
+  const edgesGeometry = useMemo(() => new THREE.EdgesGeometry(geometry), [geometry])
+
   useEffect(() => {
     geometryCache.set(body.id, geometry)
     return () => geometryCache.delete(body.id)
@@ -206,14 +214,20 @@ function PrimitiveFeatureWithCache(props: { feature: Feature; body: Body; isSele
       rotation={transform.rotation as [number,number,number]}
       scale={transform.scale as [number,number,number]}
     >
-      <mesh geometry={geometry} castShadow receiveShadow>
-        <meshStandardMaterial key={color} color={color} metalness={0.1} roughness={0.5} />
-        {isSelected && !edgeSelectionActive && (
-          <mesh geometry={geometry}>
-            <meshBasicMaterial color="#4cb2e5" wireframe transparent opacity={0.5} />
-          </mesh>
-        )}
+      {/* transparent ghost fill */}
+      <mesh geometry={geometry}>
+        <meshBasicMaterial
+          color={color}
+          transparent
+          opacity={0.08}
+          side={THREE.DoubleSide}
+          depthWrite={false}
+        />
       </mesh>
+      {/* visible edges */}
+      <lineSegments geometry={edgesGeometry}>
+        <lineBasicMaterial color={color} />
+      </lineSegments>
       <FaceHighlight feature={feature} body={body} geometry={geometry} />
       <EdgeHighlight feature={feature} body={body} geometry={geometry} />
     </group>
@@ -222,7 +236,6 @@ function PrimitiveFeatureWithCache(props: { feature: Feature; body: Body; isSele
 
 function ExtrudeFeatureWithCache(props: { feature: Feature; body: Body; isSelected: boolean }) {
   const { feature, body, isSelected } = props
-  const edgeSelectionActive = useEdgeSelectionStore((s) => s.active)
   const color = isSelected ? '#4cb2e5' : '#7a9fc0'
 
   const height = feature.extrude_params?.height || 1
@@ -247,6 +260,8 @@ function ExtrudeFeatureWithCache(props: { feature: Feature; body: Body; isSelect
     }
   }, [feature.sketch_id, height, heightBackward, body.features])
 
+  const edgesGeometry = useMemo(() => new THREE.EdgesGeometry(geometry), [geometry])
+
   useEffect(() => {
     geometryCache.set(body.id, geometry)
     return () => geometryCache.delete(body.id)
@@ -254,14 +269,20 @@ function ExtrudeFeatureWithCache(props: { feature: Feature; body: Body; isSelect
 
   return (
     <group>
-      <mesh geometry={geometry} castShadow receiveShadow>
-        <meshStandardMaterial key={color} color={color} metalness={0.1} roughness={0.5} />
-        {isSelected && !edgeSelectionActive && (
-          <mesh geometry={geometry}>
-            <meshBasicMaterial color="#4cb2e5" wireframe transparent opacity={0.5} />
-          </mesh>
-        )}
+      {/* transparent ghost fill */}
+      <mesh geometry={geometry}>
+        <meshBasicMaterial
+          color={color}
+          transparent
+          opacity={0.08}
+          side={THREE.DoubleSide}
+          depthWrite={false}
+        />
       </mesh>
+      {/* visible edges */}
+      <lineSegments geometry={edgesGeometry}>
+        <lineBasicMaterial color={color} />
+      </lineSegments>
       <FaceHighlight feature={feature} body={body} geometry={geometry} />
       <EdgeHighlight feature={feature} body={body} geometry={geometry} />
     </group>
