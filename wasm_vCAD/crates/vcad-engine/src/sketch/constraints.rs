@@ -389,64 +389,40 @@ fn apply_tangent(sketch: &mut Sketch, elem1_idx: usize, elem2_idx: usize) -> boo
         return true;
     };
 
-    // Calculate distance from circle center to line
+    // Line direction vector and length
     let dx = e.0 - s.0;
     let dy = e.1 - s.1;
     let len = (dx * dx + dy * dy).sqrt();
     if len < TOLERANCE {
-
         return true;
     }
 
-    // Line direction and normal (perpendicular to line)
-    let dir = (dx / len, dy / len);
+    // Normal to line (perpendicular, pointing toward circle center)
     let normal = (-dy / len, dx / len);
 
-    // Vector from line start to circle center
+    // Signed distance from circle center to the infinite line
     let to_center = (circle_center.0 - s.0, circle_center.1 - s.1);
-
-    // Signed distance from center to line (along normal)
     let dist = to_center.0 * normal.0 + to_center.1 * normal.1;
 
-    // Project center onto line to find tangent point parameter
-    let t = (to_center.0 * dir.0 + to_center.1 * dir.1) / len; // normalized parameter [0, 1]
-
-    let dist_error = dist.abs() - circle_radius;
-
-    // Target: tangent point should be at center of line (t=0.5)
-    let t_target = 0.5;
-    let t_error = (t - t_target).abs();
-
-    if dist_error.abs() < TOLERANCE && t_error < TOLERANCE {
-
-        return true;
+    if (dist.abs() - circle_radius).abs() < TOLERANCE {
+        return true; // Already tangent
     }
 
-    // Move circle center:
-    // 1. Along normal to achieve tangent distance (dist = radius)
-    // 2. Along line direction to move tangent point to center of line (t = 0.5)
-
+    // Move circle center along the normal so that dist == ±radius
+    // Preserve the side (sign) of dist.
     let target_dist = if dist >= 0.0 { circle_radius } else { -circle_radius };
-    let normal_shift = (dist - target_dist) * 0.8;
+    let shift = (dist - target_dist) * 0.5; // damped step
 
-    // Move along line direction to bring tangent point to center
-    let along_shift = (t - t_target) * len * 0.8;
-
-    // Update circle/arc center
     match sketch.elements.get_mut(circle_idx) {
         Some(SketchElement::Circle { center, .. }) => {
-            center.x -= normal.0 * normal_shift + dir.0 * along_shift;
-            center.y -= normal.1 * normal_shift + dir.1 * along_shift;
-
+            center.x -= normal.0 * shift;
+            center.y -= normal.1 * shift;
         }
         Some(SketchElement::Arc { center, .. }) => {
-            center.x -= normal.0 * normal_shift + dir.0 * along_shift;
-            center.y -= normal.1 * normal_shift + dir.1 * along_shift;
-
+            center.x -= normal.0 * shift;
+            center.y -= normal.1 * shift;
         }
-        _ => {
-
-        }
+        _ => {}
     }
 
     false
@@ -510,7 +486,11 @@ fn apply_concentric(sketch: &mut Sketch, elem1_idx: usize, elem2_idx: usize) -> 
     false
 }
 
-/// Make two elements symmetric about an axis line
+/// Make two elements symmetric about an axis line.
+///
+/// Iterative approach: each iteration moves both points halfway toward
+/// the configuration where p2 == reflect(p1) and p1 == reflect(p2).
+/// This converges to the nearest symmetric state.
 fn apply_symmetric(sketch: &mut Sketch, elem1_idx: usize, elem2_idx: usize, axis_idx: usize) -> bool {
     // Get axis line
     let axis = match sketch.elements.get(axis_idx) {
@@ -520,104 +500,75 @@ fn apply_symmetric(sketch: &mut Sketch, elem1_idx: usize, elem2_idx: usize, axis
         _ => return true, // Axis must be a line
     };
 
-    // Get elements
+    // Helper: move both scalar values halfway toward the state where
+    // p2 == reflect(p1) and p1 == reflect(p2).
+    // Fixed point: p1 == reflect(p2) ↔ p2 == reflect(p1).
+    fn converge_pair(
+        p1: (f64, f64),
+        p2: (f64, f64),
+        axis: ((f64, f64), (f64, f64)),
+    ) -> ((f64, f64), (f64, f64)) {
+        let p1_target = reflect_point(p2, axis); // where p1 should go to match p2
+        let p2_target = reflect_point(p1, axis); // where p2 should go to match p1
+        let new_p1 = ((p1.0 + p1_target.0) / 2.0, (p1.1 + p1_target.1) / 2.0);
+        let new_p2 = ((p2.0 + p2_target.0) / 2.0, (p2.1 + p2_target.1) / 2.0);
+        (new_p1, new_p2)
+    }
+
     let elem1 = sketch.elements.get(elem1_idx).cloned();
     let elem2 = sketch.elements.get(elem2_idx).cloned();
 
     match (elem1, elem2) {
-        // Two lines: make them symmetric
+        // Two lines
         (
             Some(SketchElement::Line { start: s1, end: e1, .. }),
             Some(SketchElement::Line { start: s2, end: e2, .. }),
         ) => {
-            // Calculate midpoints of both lines
-            let mid_start = ((s1.x + s2.x) / 2.0, (s1.y + s2.y) / 2.0);
-            let mid_end = ((e1.x + e2.x) / 2.0, (e1.y + e2.y) / 2.0);
+            let (new_s1, new_s2) = converge_pair((s1.x, s1.y), (s2.x, s2.y), axis);
+            let (new_e1, new_e2) = converge_pair((e1.x, e1.y), (e2.x, e2.y), axis);
 
-            // Reflect midpoints about the axis to get target positions
-            let target_start = reflect_point(mid_start, axis);
-            let target_end = reflect_point(mid_end, axis);
-
-            // Calculate offsets from target to actual positions
-            let offset_start = ((s1.x - target_start.0), (s1.y - target_start.1));
-            let offset_end = ((e1.x - target_end.0), (e1.y - target_end.1));
-
-            // Place line1 and line2 symmetrically about target positions
-            // line1 = target + offset, line2 = target - offset
-            let new_s1 = (target_start.0 + offset_start.0, target_start.1 + offset_start.1);
-            let new_e1 = (target_end.0 + offset_end.0, target_end.1 + offset_end.1);
-            let new_s2 = (target_start.0 - offset_start.0, target_start.1 - offset_start.1);
-            let new_e2 = (target_end.0 - offset_end.0, target_end.1 - offset_end.1);
-
-            // Check if already symmetric
-            let dist1 = ((s1.x - new_s1.0).powi(2) + (s1.y - new_s1.1).powi(2) +
-                        (e1.x - new_e1.0).powi(2) + (e1.y - new_e1.1).powi(2)).sqrt();
-            let dist2 = ((s2.x - new_s2.0).powi(2) + (s2.y - new_s2.1).powi(2) +
-                        (e2.x - new_e2.0).powi(2) + (e2.y - new_e2.1).powi(2)).sqrt();
-
-            if dist1 + dist2 < TOLERANCE {
+            let err = (s1.x - new_s1.0).powi(2) + (s1.y - new_s1.1).powi(2)
+                    + (e1.x - new_e1.0).powi(2) + (e1.y - new_e1.1).powi(2)
+                    + (s2.x - new_s2.0).powi(2) + (s2.y - new_s2.1).powi(2)
+                    + (e2.x - new_e2.0).powi(2) + (e2.y - new_e2.1).powi(2);
+            if err < TOLERANCE * TOLERANCE {
                 return true;
             }
 
-            // Apply symmetric positions
             if let Some(SketchElement::Line { start, end, .. }) = sketch.elements.get_mut(elem1_idx) {
-                start.x = new_s1.0;
-                start.y = new_s1.1;
-                end.x = new_e1.0;
-                end.y = new_e1.1;
+                start.x = new_s1.0; start.y = new_s1.1;
+                end.x   = new_e1.0; end.y   = new_e1.1;
             }
             if let Some(SketchElement::Line { start, end, .. }) = sketch.elements.get_mut(elem2_idx) {
-                start.x = new_s2.0;
-                start.y = new_s2.1;
-                end.x = new_e2.0;
-                end.y = new_e2.1;
+                start.x = new_s2.0; start.y = new_s2.1;
+                end.x   = new_e2.0; end.y   = new_e2.1;
             }
             false
         }
-        // Two circles: make them symmetric (same radius, reflected centers)
+        // Two circles: reflected centers, equal radii
         (
             Some(SketchElement::Circle { center: c1, radius: r1, .. }),
             Some(SketchElement::Circle { center: c2, radius: r2, .. }),
         ) => {
-            // Calculate midpoint between centers
-            let mid_center = ((c1.x + c2.x) / 2.0, (c1.y + c2.y) / 2.0);
+            let (new_c1, new_c2) = converge_pair((c1.x, c1.y), (c2.x, c2.y), axis);
+            let avg_r = (r1 + r2) / 2.0;
 
-            // Reflect midpoint about the axis
-            let target_center = reflect_point(mid_center, axis);
-
-            // Calculate offset from target to c1
-            let offset = ((c1.x - target_center.0), (c1.y - target_center.1));
-
-            // Place circles symmetrically about target
-            let new_c1 = (target_center.0 + offset.0, target_center.1 + offset.1);
-            let new_c2 = (target_center.0 - offset.0, target_center.1 - offset.1);
-
-            // Average radius
-            let avg_radius = (r1 + r2) / 2.0;
-
-            // Check if already symmetric
-            let dist = ((c1.x - new_c1.0).powi(2) + (c1.y - new_c1.1).powi(2) +
-                       (c2.x - new_c2.0).powi(2) + (c2.y - new_c2.1).powi(2)).sqrt() +
-                       (r1 - avg_radius).abs() + (r2 - avg_radius).abs();
-
-            if dist < TOLERANCE {
+            let err = (c1.x - new_c1.0).powi(2) + (c1.y - new_c1.1).powi(2)
+                    + (c2.x - new_c2.0).powi(2) + (c2.y - new_c2.1).powi(2)
+                    + (r1 - avg_r).powi(2) + (r2 - avg_r).powi(2);
+            if err < TOLERANCE * TOLERANCE {
                 return true;
             }
 
-            // Apply symmetric positions and same radius
             if let Some(SketchElement::Circle { center, radius, .. }) = sketch.elements.get_mut(elem1_idx) {
-                center.x = new_c1.0;
-                center.y = new_c1.1;
-                *radius = avg_radius;
+                center.x = new_c1.0; center.y = new_c1.1; *radius = avg_r;
             }
             if let Some(SketchElement::Circle { center, radius, .. }) = sketch.elements.get_mut(elem2_idx) {
-                center.x = new_c2.0;
-                center.y = new_c2.1;
-                *radius = avg_radius;
+                center.x = new_c2.0; center.y = new_c2.1; *radius = avg_r;
             }
             false
         }
-        _ => true, // Not supported yet
+        _ => true,
     }
 }
 
