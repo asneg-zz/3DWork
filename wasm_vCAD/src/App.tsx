@@ -18,7 +18,6 @@ function App() {
     engine.initialize()
       .then(() => {
         setWasmReady(true)
-        console.log('Application ready')
       })
       .catch((err) => {
         console.error('Failed to initialize WASM:', err)

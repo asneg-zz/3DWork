@@ -62,11 +62,7 @@ export function Toolbar() {
       // Exit face selection mode
       exitFaceSelection()
 
-      if (plane === 'CUSTOM') {
-        console.log('[Toolbar] Created sketch on inclined face with FCS')
-      } else {
-        console.log('[Toolbar] Created sketch on', plane, 'plane at offset', offset.toFixed(3))
-      }
+      // plane and offset available if needed for future logging
     }
 
     window.addEventListener('face-selected' as any, handleFaceSelect as EventListener)

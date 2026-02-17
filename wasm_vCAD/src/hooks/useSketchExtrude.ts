@@ -109,7 +109,6 @@ export function useSketchExtrude() {
             }
           }
           updateFeature(sketchBodyId, existingExtrude.id, updatedExtrudeFeature)
-          console.log('Updated existing extrude parameters')
         } else {
           // Create new extrude feature
           const extrudeId = engine.extrudeSketch(sketchId, height, heightBackward, draftAngle)
@@ -127,7 +126,6 @@ export function useSketchExtrude() {
           }
 
           addFeature(sketchBodyId, extrudeFeature)
-          console.log('Created new extrude feature')
         }
       }
     } catch (error) {

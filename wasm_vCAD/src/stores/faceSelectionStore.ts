@@ -51,9 +51,7 @@ export const useFaceSelectionStore = create<FaceSelectionState>()(
         state.hoveredFace = face
       }),
 
-    selectFace: (face) => {
-      // Face selected - will be handled by parent component via event
-      console.log('Face selected:', face)
+    selectFace: (_face) => {
     },
   }))
 )
