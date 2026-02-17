@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import { engine } from './wasm/engine'
 import { Toolbar } from './components/ui/Toolbar'
 import { SketchToolbar } from './components/ui/SketchToolbar'
@@ -8,15 +8,10 @@ import { BooleanPanel } from './components/panels/BooleanPanel'
 import { SketchPropertiesPanel } from './components/panels/SketchPropertiesPanel'
 import { EdgeContextMenu } from './components/ui/EdgeContextMenu'
 import { Viewport3D } from './components/viewport/Viewport3D'
-import { SketchCanvas } from './components/viewport/SketchCanvas'
-import { useSketchStore } from './stores/sketchStore'
 
 function App() {
   const [wasmReady, setWasmReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const sketchActive = useSketchStore((s) => s.active)
-  const [viewportSize, setViewportSize] = useState({ width: 800, height: 600 })
-  const viewportRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     // Initialize WASM engine on mount
@@ -37,29 +32,6 @@ function App() {
     window.addEventListener('contextmenu', handleContextMenu, { passive: false })
     return () => window.removeEventListener('contextmenu', handleContextMenu)
   }, [])
-
-  useEffect(() => {
-    // Update viewport size on resize and when sketch mode changes
-    const updateSize = () => {
-      if (viewportRef.current) {
-        setViewportSize({
-          width: viewportRef.current.clientWidth,
-          height: viewportRef.current.clientHeight,
-        })
-      }
-    }
-
-    updateSize()
-    window.addEventListener('resize', updateSize)
-
-    // Small delay to ensure layout is updated
-    const timeout = setTimeout(updateSize, 100)
-
-    return () => {
-      window.removeEventListener('resize', updateSize)
-      clearTimeout(timeout)
-    }
-  }, [sketchActive])
 
   if (error) {
     return (
@@ -101,13 +73,9 @@ function App() {
           <SceneTree />
         </div>
 
-        {/* Center - 3D Viewport or Sketch Canvas */}
-        <div ref={viewportRef} className="flex-1 relative">
-          {sketchActive ? (
-            <SketchCanvas width={viewportSize.width} height={viewportSize.height} />
-          ) : (
-            <Viewport3D />
-          )}
+        {/* Center - 3D Viewport (sketch integrated) */}
+        <div className="flex-1 relative">
+          <Viewport3D />
         </div>
 
         {/* Right Panel - Properties & Boolean */}
