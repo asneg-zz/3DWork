@@ -70,36 +70,40 @@ fn apply_constraint(sketch: &mut Sketch, constraint: &SketchConstraint) -> bool 
     }
 }
 
-/// Make a line horizontal (start.y == end.y)
+/// Make a line horizontal (start.y == end.y), preserving line length
 fn apply_horizontal(sketch: &mut Sketch, element_idx: usize) -> bool {
     let elem = match sketch.elements.get(element_idx) {
         Some(e) => e.clone(),
-        None => return true, // Element doesn't exist, consider satisfied
+        None => return true,
     };
 
     match elem {
         SketchElement::Line { start, end, .. } => {
-            let mid_y = (start.y + end.y) / 2.0;
-            let diff = (start.y - end.y).abs();
-
-            if diff < TOLERANCE {
+            let dy = (start.y - end.y).abs();
+            if dy < TOLERANCE {
                 return true; // Already horizontal
             }
 
-            // Move both points to the middle Y
+            let len = ((end.x - start.x).powi(2) + (end.y - start.y).powi(2)).sqrt();
+            let mid_x = (start.x + end.x) / 2.0;
+            let mid_y = (start.y + end.y) / 2.0;
+            let half = len / 2.0;
+
             if let Some(SketchElement::Line { start: s, end: e, .. }) =
                 sketch.elements.get_mut(element_idx)
             {
+                s.x = mid_x - half;
                 s.y = mid_y;
+                e.x = mid_x + half;
                 e.y = mid_y;
             }
             false
         }
-        _ => true, // Not a line, consider satisfied
+        _ => true,
     }
 }
 
-/// Make a line vertical (start.x == end.x)
+/// Make a line vertical (start.x == end.x), preserving line length
 fn apply_vertical(sketch: &mut Sketch, element_idx: usize) -> bool {
     let elem = match sketch.elements.get(element_idx) {
         Some(e) => e.clone(),
@@ -108,18 +112,23 @@ fn apply_vertical(sketch: &mut Sketch, element_idx: usize) -> bool {
 
     match elem {
         SketchElement::Line { start, end, .. } => {
-            let mid_x = (start.x + end.x) / 2.0;
-            let diff = (start.x - end.x).abs();
-
-            if diff < TOLERANCE {
+            let dx = (start.x - end.x).abs();
+            if dx < TOLERANCE {
                 return true;
             }
+
+            let len = ((end.x - start.x).powi(2) + (end.y - start.y).powi(2)).sqrt();
+            let mid_x = (start.x + end.x) / 2.0;
+            let mid_y = (start.y + end.y) / 2.0;
+            let half = len / 2.0;
 
             if let Some(SketchElement::Line { start: s, end: e, .. }) =
                 sketch.elements.get_mut(element_idx)
             {
                 s.x = mid_x;
+                s.y = mid_y - half;
                 e.x = mid_x;
+                e.y = mid_y + half;
             }
             false
         }
