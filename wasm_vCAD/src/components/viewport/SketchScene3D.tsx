@@ -460,7 +460,31 @@ export function SketchScene3D() {
     setElements, updateDrawing, updateSnapPoints,
   ])
 
-  const handlePointerUp = useCallback((_e: ThreeEvent<PointerEvent>) => {
+  const handlePointerUp = useCallback((e: ThreeEvent<PointerEvent>) => {
+    // Right-click on pointerup (not pointerdown) to avoid race condition where
+    // ContextMenu's mousedown-close listener fires after we open the new menu.
+    // pointerup fires after mousedown, so the old menu is already closed.
+    if (e.button === 2 && !isDraggingPoint) {
+      const sketchPoint = worldToSketch(e.point, sketchPlane, faceCoordSystem)
+
+      if ((tool === 'polyline' || tool === 'spline') && isDrawing && polylinePoints.length > 0) {
+        finishPolyline()
+        return
+      }
+
+      const elementId = findElementAtPoint(sketchPoint)
+      if (elementId) {
+        if (!selectedElementIds.includes(elementId)) {
+          clearSelection()
+          toggleElementSelection(elementId)
+        }
+        setContextMenu({ x: e.nativeEvent.clientX, y: e.nativeEvent.clientY, elementId })
+      } else {
+        setToolsContextMenu({ x: e.nativeEvent.clientX, y: e.nativeEvent.clientY })
+      }
+      return
+    }
+
     if (isDraggingPoint) {
       if (constraints.length > 0) {
         try {
@@ -481,33 +505,10 @@ export function SketchScene3D() {
     if (isDrawing && tool !== 'polyline' && tool !== 'spline') {
       finishDrawing()
     }
-  }, [isDraggingPoint, constraints, elements, sketchPlane, isDrawing, tool,
-      setElements, saveToHistory, finishDrawing])
-
-  const handleContextMenu = useCallback((e: ThreeEvent<MouseEvent>) => {
-    e.stopPropagation()
-
-    const nativeEvent = e.nativeEvent
-    const sketchPoint = worldToSketch(e.point, sketchPlane, faceCoordSystem)
-
-    if ((tool === 'polyline' || tool === 'spline') && isDrawing && polylinePoints.length > 0) {
-      finishPolyline()
-      return
-    }
-
-    const elementId = findElementAtPoint(sketchPoint)
-
-    if (elementId) {
-      if (!selectedElementIds.includes(elementId)) {
-        clearSelection()
-        toggleElementSelection(elementId)
-      }
-      setContextMenu({ x: nativeEvent.clientX, y: nativeEvent.clientY, elementId })
-    } else {
-      setToolsContextMenu({ x: nativeEvent.clientX, y: nativeEvent.clientY })
-    }
   }, [
-    sketchPlane, tool, isDrawing, polylinePoints, selectedElementIds,
+    isDraggingPoint, constraints, elements, wasmPlane, isDrawing, tool,
+    setElements, saveToHistory, finishDrawing,
+    sketchPlane, faceCoordSystem, polylinePoints, selectedElementIds,
     findElementAtPoint, clearSelection, toggleElementSelection,
     finishPolyline, setContextMenu, setToolsContextMenu,
   ])
@@ -755,7 +756,6 @@ export function SketchScene3D() {
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
-        onContextMenu={handleContextMenu as any}
       >
         <planeGeometry args={[1000, 1000]} />
         <meshBasicMaterial visible={false} side={THREE.DoubleSide} />
