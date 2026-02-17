@@ -546,6 +546,9 @@ export function SketchScene3D() {
         case 'concentric': return c.type === 'concentric' &&
           ((c.element1 === elementIndex && c.element2 === secondElementIndex) ||
            (c.element1 === secondElementIndex && c.element2 === elementIndex))
+        case 'symmetric': return c.type === 'symmetric' &&
+          ((c.element1 === elementIndex && c.element2 === secondElementIndex) ||
+           (c.element1 === secondElementIndex && c.element2 === elementIndex))
         default: return false
       }
     })
@@ -577,6 +580,12 @@ export function SketchScene3D() {
           if (secondElementIndex !== undefined)
             addConstraint({ type: 'concentric', element1: elementIndex, element2: secondElementIndex })
           break
+        case 'symmetric': {
+          const axis = useSketchStore.getState().symmetryAxis
+          if (secondElementIndex !== undefined && axis !== null)
+            addConstraint({ type: 'symmetric', element1: elementIndex, element2: secondElementIndex, axis })
+          break
+        }
       }
     }
 
@@ -639,6 +648,7 @@ export function SketchScene3D() {
         case 'equal': return c.type === 'equal' && (c.element1 === elementIndex || c.element2 === elementIndex)
         case 'tangent': return c.type === 'tangent' && (c.element1 === elementIndex || c.element2 === elementIndex)
         case 'concentric': return c.type === 'concentric' && (c.element1 === elementIndex || c.element2 === elementIndex)
+        case 'symmetric': return c.type === 'symmetric' && (c.element1 === elementIndex || c.element2 === elementIndex)
         default: return false
       }
     })
