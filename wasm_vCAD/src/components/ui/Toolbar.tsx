@@ -18,6 +18,7 @@ export function Toolbar() {
   const scene = useSceneStore((s) => s.scene)
   const setScene = useSceneStore((s) => s.setScene)
   const startSketch = useSketchStore((s) => s.startSketch)
+  const sketchActive = useSketchStore((s) => s.active)
   const addFeature = useSceneStore((s) => s.addFeature)
   const [showPlaneDialog, setShowPlaneDialog] = useState(false)
   const [pendingBodyId, setPendingBodyId] = useState<string | null>(null)
@@ -288,71 +289,75 @@ export function Toolbar() {
         <span className="text-sm">Сохранить</span>
       </button>
 
-      <div className="w-px h-6 bg-cad-border mx-1"></div>
+      {!sketchActive && (
+        <>
+          <div className="w-px h-6 bg-cad-border mx-1"></div>
 
-      <button
-        onClick={handleCreateCube}
-        className="px-3 py-1.5 bg-cad-hover hover:bg-cad-accent/20 rounded flex items-center gap-2 transition-colors"
-        title="Create Cube"
-      >
-        <Box size={18} />
-        <span className="text-sm">Cube</span>
-      </button>
+          <button
+            onClick={handleCreateCube}
+            className="px-3 py-1.5 bg-cad-hover hover:bg-cad-accent/20 rounded flex items-center gap-2 transition-colors"
+            title="Create Cube"
+          >
+            <Box size={18} />
+            <span className="text-sm">Cube</span>
+          </button>
 
-      <button
-        onClick={handleCreateCylinder}
-        className="px-3 py-1.5 bg-cad-hover hover:bg-cad-accent/20 rounded flex items-center gap-2 transition-colors"
-        title="Create Cylinder"
-      >
-        <Circle size={18} />
-        <span className="text-sm">Cylinder</span>
-      </button>
+          <button
+            onClick={handleCreateCylinder}
+            className="px-3 py-1.5 bg-cad-hover hover:bg-cad-accent/20 rounded flex items-center gap-2 transition-colors"
+            title="Create Cylinder"
+          >
+            <Circle size={18} />
+            <span className="text-sm">Cylinder</span>
+          </button>
 
-      <button
-        onClick={handleCreateSphere}
-        className="px-3 py-1.5 bg-cad-hover hover:bg-cad-accent/20 rounded flex items-center gap-2 transition-colors"
-        title="Create Sphere"
-      >
-        <CircleDot size={18} />
-        <span className="text-sm">Sphere</span>
-      </button>
+          <button
+            onClick={handleCreateSphere}
+            className="px-3 py-1.5 bg-cad-hover hover:bg-cad-accent/20 rounded flex items-center gap-2 transition-colors"
+            title="Create Sphere"
+          >
+            <CircleDot size={18} />
+            <span className="text-sm">Sphere</span>
+          </button>
 
-      <div className="w-px h-6 bg-cad-border mx-2"></div>
+          <div className="w-px h-6 bg-cad-border mx-2"></div>
 
-      <button
-        onClick={handleNewSketch}
-        className="px-3 py-1.5 bg-cad-hover hover:bg-cad-accent/20 rounded flex items-center gap-2 transition-colors"
-        title="New Sketch"
-      >
-        <Square size={18} />
-        <span className="text-sm">Sketch</span>
-      </button>
+          <button
+            onClick={handleNewSketch}
+            className="px-3 py-1.5 bg-cad-hover hover:bg-cad-accent/20 rounded flex items-center gap-2 transition-colors"
+            title="New Sketch"
+          >
+            <Square size={18} />
+            <span className="text-sm">Sketch</span>
+          </button>
 
-      <button
-        onClick={handleToggleFaceSelection}
-        className={`px-3 py-1.5 rounded flex items-center gap-2 transition-colors ${
-          faceSelectionActive
-            ? 'bg-cad-accent text-white'
-            : 'bg-cad-hover hover:bg-cad-accent/20'
-        }`}
-        title="Select Face (click on a face to create sketch)"
-      >
-        <MousePointer2 size={18} />
-        <span className="text-sm">Select Face</span>
-      </button>
+          <button
+            onClick={handleToggleFaceSelection}
+            className={`px-3 py-1.5 rounded flex items-center gap-2 transition-colors ${
+              faceSelectionActive
+                ? 'bg-cad-accent text-white'
+                : 'bg-cad-hover hover:bg-cad-accent/20'
+            }`}
+            title="Select Face (click on a face to create sketch)"
+          >
+            <MousePointer2 size={18} />
+            <span className="text-sm">Select Face</span>
+          </button>
 
-      <button
-        onClick={handleToggleEdgeSelection}
-        className={`px-3 py-1.5 rounded flex items-center gap-2 transition-colors ${
-          edgeSelectionActive
-            ? 'bg-cad-accent text-white'
-            : 'bg-cad-hover hover:bg-cad-accent/20'
-        }`}
-        title="Select Edge (right-click on an edge to create sketch)"
-      >
-        <GitBranch size={18} />
-        <span className="text-sm">Select Edge</span>
-      </button>
+          <button
+            onClick={handleToggleEdgeSelection}
+            className={`px-3 py-1.5 rounded flex items-center gap-2 transition-colors ${
+              edgeSelectionActive
+                ? 'bg-cad-accent text-white'
+                : 'bg-cad-hover hover:bg-cad-accent/20'
+            }`}
+            title="Select Edge (right-click on an edge to create sketch)"
+          >
+            <GitBranch size={18} />
+            <span className="text-sm">Select Edge</span>
+          </button>
+        </>
+      )}
 
       <div className="flex-1" />
 
