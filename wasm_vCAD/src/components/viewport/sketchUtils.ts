@@ -7,20 +7,6 @@ import type { Point2D, SketchElement, Sketch, SketchConstraint } from '@/types/s
 import { engine } from '@/wasm/engine'
 import { distance2D } from '@/utils/mathUtils'
 
-export function screenToWorld(
-  screenX: number,
-  screenY: number,
-  canvasWidth: number,
-  canvasHeight: number,
-  zoom: number,
-  panX: number,
-  panY: number
-): Point2D {
-  const x = ((screenX - canvasWidth / 2) / zoom) - panX
-  const y = (-(screenY - canvasHeight / 2) / zoom) - panY
-  return { x, y }
-}
-
 export function findElementAtPoint(
   point: Point2D,
   elements: SketchElement[],

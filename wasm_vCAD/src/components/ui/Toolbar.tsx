@@ -9,6 +9,7 @@ import { useEffect, useState } from 'react'
 import { PlaneSelectDialog } from '@/components/dialogs/PlaneSelectDialog'
 import { OpenProjectDialog } from '@/components/dialogs/OpenProjectDialog'
 import { saveSceneToFile, loadSceneFromFile } from '@/utils/fileOperations'
+import { preloadManifold } from '@/utils/manifoldCSG'
 
 export function Toolbar() {
   const addBody = useSceneStore((s) => s.addBody)
@@ -17,10 +18,12 @@ export function Toolbar() {
   const setScene = useSceneStore((s) => s.setScene)
   const startSketch = useSketchStore((s) => s.startSketch)
   const addFeature = useSceneStore((s) => s.addFeature)
-
   const [showPlaneDialog, setShowPlaneDialog] = useState(false)
   const [pendingBodyId, setPendingBodyId] = useState<string | null>(null)
   const [showOpenProjectDialog, setShowOpenProjectDialog] = useState(false)
+
+  // Preload manifold-3d WASM on first render so first CSG is instant
+  useEffect(() => { preloadManifold() }, [])
 
   const faceSelectionActive = useFaceSelectionStore((s) => s.active)
   const startFaceSelection = useFaceSelectionStore((s) => s.startFaceSelection)
@@ -344,6 +347,7 @@ export function Toolbar() {
         <GitBranch size={18} />
         <span className="text-sm">Select Edge</span>
       </button>
+
     </div>
     </>
   )

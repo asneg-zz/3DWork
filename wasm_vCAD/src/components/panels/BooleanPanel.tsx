@@ -1,15 +1,14 @@
 import { Minus, Plus, Merge } from 'lucide-react'
+import { useState } from 'react'
 import { useBooleanStore } from '@/stores/booleanStore'
 import { useSceneStore } from '@/stores/sceneStore'
-import { engine } from '@/wasm/engine'
-// ARCHITECTURE: Boolean operations are in WASM (Rust)
-// TypeScript only handles UI - no geometric calculations!
 
 export function BooleanPanel() {
   const { active, operation, selectedBodies } = useBooleanStore()
   const { startBoolean, cancel } = useBooleanStore()
   const bodies = useSceneStore((s) => s.scene.bodies)
-  const addBody = useSceneStore((s) => s.addBody)
+  const performBoolean = useSceneStore((s) => s.performBoolean)
+  const [pending, setPending] = useState(false)
 
   if (!active) {
     return (
@@ -47,71 +46,17 @@ export function BooleanPanel() {
     )
   }
 
-  const handleApply = () => {
-    if (selectedBodies.length !== 2) {
-      alert('Please select exactly 2 bodies')
-      return
-    }
-
-    const body1 = bodies.find(b => b.id === selectedBodies[0])
-    const body2 = bodies.find(b => b.id === selectedBodies[1])
-
-    if (!body1 || !body2) return
-
+  const handleApply = async () => {
+    if (selectedBodies.length !== 2 || !operation) return
+    setPending(true)
     try {
-      // ARCHITECTURE: Call WASM for Boolean operations
-      // TypeScript only handles UI and API calls
-      let resultId: string
-
-      switch (operation) {
-        case 'union':
-          resultId = engine.booleanUnion(body1.id, body2.id)
-          break
-        case 'difference':
-          resultId = engine.booleanDifference(body1.id, body2.id)
-          break
-        case 'intersection':
-          resultId = engine.booleanIntersection(body1.id, body2.id)
-          break
-        default:
-          return
-      }
-
-      const operationName = operation === 'union' ? 'Union' :
-                           operation === 'difference' ? 'Difference' : 'Intersection'
-
-      console.log(`${operationName} operation completed: ${resultId}`)
-
-      // TODO: Get actual result geometry from WASM
-      // For now, create placeholder
-      addBody({
-        id: resultId,
-        name: `${operationName}(${body1.name}, ${body2.name})`,
-        visible: true,
-        features: [
-          {
-            id: crypto.randomUUID(),
-            type: 'primitive',
-            name: operationName,
-            primitive: {
-              type: 'cube',
-              width: 1,
-              height: 1,
-              depth: 1
-            },
-            transform: {
-              position: [0, 0, 0],
-              rotation: [0, 0, 0],
-              scale: [1, 1, 1]
-            }
-          }
-        ]
-      })
-
+      await performBoolean(selectedBodies[0], selectedBodies[1], operation)
       cancel()
-    } catch (error) {
-      console.error('Boolean operation failed:', error)
-      alert('Boolean operation failed. See console for details.')
+    } catch (err) {
+      console.error('Boolean operation failed:', err)
+      alert(`Boolean ${operation} failed: ${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setPending(false)
     }
   }
 
@@ -123,8 +68,11 @@ export function BooleanPanel() {
 
       <div className="space-y-3">
         <div>
-          <p className="text-xs text-cad-muted mb-2">
+          <p className="text-xs text-cad-muted mb-1">
             Select 2 bodies: {selectedBodies.length}/2
+          </p>
+          <p className="text-xs text-cad-muted/60 mb-2">
+            Click on bodies in viewport or scene tree
           </p>
           <div className="text-xs text-cad-muted space-y-1">
             {selectedBodies.map((id, index) => {
@@ -141,10 +89,10 @@ export function BooleanPanel() {
         <div className="flex gap-2">
           <button
             onClick={handleApply}
-            disabled={selectedBodies.length !== 2}
+            disabled={selectedBodies.length !== 2 || pending}
             className="flex-1 px-3 py-2 bg-cad-accent text-white rounded disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Apply
+            {pending ? '...' : 'Apply'}
           </button>
 
           <button

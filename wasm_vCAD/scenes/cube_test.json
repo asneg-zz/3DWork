@@ -1,0 +1,41 @@
+{
+  "version": 2,
+  "bodies": [
+    {
+      "id": "b1",
+      "name": "Куб",
+      "visible": true,
+      "features": [
+        {
+          "id": "f1",
+          "feature_type": "base_primitive",
+          "name": "Cube",
+          "primitive": {
+            "type": "cube",
+            "width": 1,
+            "height": 1,
+            "depth": 1
+          },
+          "transform": {
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "body_operations": []
+}

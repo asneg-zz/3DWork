@@ -1,6 +1,8 @@
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
-import type { SceneDescription, Body, Feature } from '@/types/scene'
+import type { SceneDescription, Body, Feature, BooleanOperation } from '@/types/scene'
+import { performCSG, serializeGeometry } from '@/utils/manifoldCSG'
+import { geometryCache } from '@/utils/geometryCache'
 
 interface SceneState {
   scene: SceneDescription
@@ -24,6 +26,13 @@ interface SceneState {
 
   /** Replace the entire scene (used when loading a file) */
   setScene: (scene: SceneDescription) => void
+
+  /**
+   * Perform a CSG boolean operation between two selected bodies.
+   * Creates a new body with the result and hides the source bodies.
+   * Requires both body geometries to be registered in geometryCache.
+   */
+  performBoolean: (bodyId1: string, bodyId2: string, operation: BooleanOperation) => Promise<void>
 }
 
 export const useSceneStore = create<SceneState>()(
@@ -110,5 +119,58 @@ export const useSceneStore = create<SceneState>()(
         state.selectedBodyIds = []
         state.selectedFeatureId = null
       }),
+
+    performBoolean: async (bodyId1, bodyId2, operation) => {
+      const geoA = geometryCache.get(bodyId1)
+      const geoB = geometryCache.get(bodyId2)
+
+      if (!geoA || !geoB) {
+        throw new Error(
+          `Boolean ${operation}: geometry not found in cache for bodies ${bodyId1}, ${bodyId2}`
+        )
+      }
+
+      const resultGeo = await performCSG(geoA, geoB, operation)
+      const { vertices, indices } = serializeGeometry(resultGeo)
+
+      const opLabels: Record<BooleanOperation, string> = {
+        union:        'Union',
+        difference:   'Difference',
+        intersection: 'Intersection',
+      }
+
+      const newBodyId = crypto.randomUUID()
+      const newFeatureId = crypto.randomUUID()
+
+      const newBody: Body = {
+        id: newBodyId,
+        name: opLabels[operation],
+        visible: true,
+        features: [{
+          id: newFeatureId,
+          type: 'boolean',
+          name: `${opLabels[operation]} (2 тела)`,
+          boolean_operation: operation,
+          boolean_body_ids: [bodyId1, bodyId2],
+          cached_mesh_vertices: vertices,
+          cached_mesh_indices:  indices,
+        }],
+      }
+
+      set((state) => {
+        // Add result body
+        state.scene.bodies.push(newBody)
+
+        // Hide source bodies
+        for (const body of state.scene.bodies) {
+          if (body.id === bodyId1 || body.id === bodyId2) {
+            body.visible = false
+          }
+        }
+
+        state.selectedBodyIds = [newBodyId]
+        state.selectedFeatureId = null
+      })
+    },
   }))
 )

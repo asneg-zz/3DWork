@@ -1,0 +1,161 @@
+{
+  "version": 2,
+  "bodies": [
+    {
+      "id": "body-001",
+      "name": "Тело",
+      "visible": true,
+      "features": [
+        {
+          "type": "base_primitive",
+          "id": "feat-cube-001",
+          "primitive": {
+            "type": "cube",
+            "width": 2,
+            "height": 1.5,
+            "depth": 1
+          },
+          "transform": {
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        {
+          "type": "sketch",
+          "id": "sketch-001",
+          "sketch": {
+            "plane": "XY",
+            "offset": 0.75,
+            "elements": [
+              {
+                "type": "line",
+                "id": "el-1",
+                "start": {
+                  "x": -0.5,
+                  "y": -0.5
+                },
+                "end": {
+                  "x": 0.5,
+                  "y": -0.5
+                }
+              },
+              {
+                "type": "line",
+                "id": "el-2",
+                "start": {
+                  "x": 0.5,
+                  "y": -0.5
+                },
+                "end": {
+                  "x": 0.5,
+                  "y": 0.5
+                }
+              },
+              {
+                "type": "line",
+                "id": "el-3",
+                "start": {
+                  "x": 0.5,
+                  "y": 0.5
+                },
+                "end": {
+                  "x": -0.5,
+                  "y": 0.5
+                }
+              },
+              {
+                "type": "line",
+                "id": "el-4",
+                "start": {
+                  "x": -0.5,
+                  "y": 0.5
+                },
+                "end": {
+                  "x": -0.5,
+                  "y": -0.5
+                }
+              }
+            ]
+          },
+          "transform": {
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        {
+          "type": "sketch",
+          "id": "7eba93c5-9766-4b6b-bfe7-c8ee271e57b7",
+          "sketch": {
+            "plane": "XY",
+            "offset": 0,
+            "elements": [
+              {
+                "type": "rectangle",
+                "id": "52789135-55bd-439a-b9db-8c44e45a7f95",
+                "corner": {
+                  "x": -0.5,
+                  "y": 0
+                },
+                "width": 1,
+                "height": 0.5
+              }
+            ]
+          },
+          "transform": {
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        {
+          "type": "extrude",
+          "id": "dae91c17-36f8-47f5-b4cc-086d55868fd1",
+          "sketch_id": "7eba93c5-9766-4b6b-bfe7-c8ee271e57b7",
+          "height": 4,
+          "height_backward": 0,
+          "draft_angle": 0,
+          "cut": false
+        }
+      ]
+    }
+  ],
+  "body_operations": []
+}

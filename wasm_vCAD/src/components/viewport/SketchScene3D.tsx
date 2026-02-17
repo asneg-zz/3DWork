@@ -1,5 +1,5 @@
 /**
- * SketchScene3D - Sketch editor integrated into 3D viewport
+ * SketchScene3D - Sketch editor integrated into 3D viewport.
  * Renders sketch elements as Three.js objects and handles pointer events
  * via ray-plane intersection. Replaces the 2D HTML Canvas SketchCanvas.
  */
@@ -8,13 +8,11 @@ import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import * as THREE from 'three'
 import type { ThreeEvent } from '@react-three/fiber'
 import { useThree } from '@react-three/fiber'
-import { Html } from '@react-three/drei'
 import { useSketchStore } from '@/stores/sketchStore'
 import { useSketchUIStore } from '@/stores/sketchUIStore'
-import type { Point2D, SketchElement, SketchPlane, SnapPoint, FaceCoordSystem } from '@/types/scene'
+import type { Point2D, SketchElement, SnapPoint } from '@/types/scene'
 import {
   findElementAtPoint as findElementUtil,
-  getElementControlPoints,
   hitTestControlPoints,
   updateElementPoint,
   createSketchForWasm,
@@ -24,508 +22,14 @@ import {
 import * as SketchOps from './sketchOperations'
 import { engine } from '@/wasm/engine'
 
-// ─── Coordinate utilities ────────────────────────────────────────────────────
+// Sub-modules
+import { sketchToWorld, worldToSketch, planeRotation, planePosition } from './sketch3D/coords'
+import { SketchElements3D, SketchControlPoints3D } from './sketch3D/SketchElements3D'
+import { SnapIndicator3D } from './sketch3D/SnapIndicator3D'
+import { SketchPreview3D } from './sketch3D/SketchPreview3D'
 
-export function sketchToWorld(
-  x: number,
-  y: number,
-  plane: SketchPlane,
-  offset: number,
-  fcs?: FaceCoordSystem | null
-): THREE.Vector3 {
-  if (plane === 'CUSTOM' && fcs) {
-    const o = new THREE.Vector3(...fcs.origin)
-    const u = new THREE.Vector3(...fcs.uAxis)
-    const v = new THREE.Vector3(...fcs.vAxis)
-    return o.clone().addScaledVector(u, x).addScaledVector(v, y)
-  }
-  switch (plane) {
-    case 'XY': return new THREE.Vector3(x, y, offset)
-    case 'XZ': return new THREE.Vector3(x, offset, y)
-    case 'YZ': return new THREE.Vector3(offset, x, y)
-    default:   return new THREE.Vector3(x, y, offset)
-  }
-}
-
-export function worldToSketch(
-  point: THREE.Vector3,
-  plane: SketchPlane,
-  fcs?: FaceCoordSystem | null
-): Point2D {
-  if (plane === 'CUSTOM' && fcs) {
-    const o = new THREE.Vector3(...fcs.origin)
-    const u = new THREE.Vector3(...fcs.uAxis)
-    const v = new THREE.Vector3(...fcs.vAxis)
-    const p = point.clone().sub(o)
-    return { x: p.dot(u), y: p.dot(v) }
-  }
-  switch (plane) {
-    case 'XY': return { x: point.x, y: point.y }
-    case 'XZ': return { x: point.x, y: point.z }
-    case 'YZ': return { x: point.y, y: point.z }
-    default:   return { x: point.x, y: point.y }
-  }
-}
-
-// Rotation for the interaction plane mesh
-// For CUSTOM planes, computes Euler from face normal
-function planeRotation(plane: SketchPlane, fcs?: FaceCoordSystem | null): [number, number, number] {
-  if (plane === 'CUSTOM' && fcs) {
-    const target = new THREE.Vector3(...fcs.normal).normalize()
-    const q = new THREE.Quaternion().setFromUnitVectors(
-      new THREE.Vector3(0, 0, 1), // default planeGeometry normal
-      target
-    )
-    const euler = new THREE.Euler().setFromQuaternion(q)
-    return [euler.x, euler.y, euler.z]
-  }
-  switch (plane) {
-    case 'XY': return [0, 0, 0]
-    case 'XZ': return [-Math.PI / 2, 0, 0]
-    case 'YZ': return [0, Math.PI / 2, 0]
-    default:   return [0, 0, 0]
-  }
-}
-
-// Position of the interaction plane.
-// Offset slightly toward the camera so it's hit before the body face (avoids z-fighting).
-const PLANE_EPSILON = 0.004
-
-function planePosition(
-  plane: SketchPlane,
-  offset: number,
-  fcs?: FaceCoordSystem | null
-): [number, number, number] {
-  if (plane === 'CUSTOM' && fcs) {
-    const n = new THREE.Vector3(...fcs.normal)
-    const o = new THREE.Vector3(...fcs.origin)
-    const pos = o.clone().addScaledVector(n, PLANE_EPSILON)
-    return [pos.x, pos.y, pos.z]
-  }
-  switch (plane) {
-    case 'XY': return [0, 0, offset + PLANE_EPSILON]
-    case 'XZ': return [0, offset + PLANE_EPSILON, 0]
-    case 'YZ': return [offset + PLANE_EPSILON, 0, 0]
-    default:   return [0, 0, offset + PLANE_EPSILON]
-  }
-}
-
-// ─── Element → 3D points ─────────────────────────────────────────────────────
-
-function elementToPoints3D(
-  element: SketchElement,
-  plane: SketchPlane,
-  offset: number,
-  fcs?: FaceCoordSystem | null
-): THREE.Vector3[] {
-  const s = (x: number, y: number) => sketchToWorld(x, y, plane, offset, fcs)
-
-  switch (element.type) {
-    case 'line':
-      if (element.start && element.end) {
-        return [s(element.start.x, element.start.y), s(element.end.x, element.end.y)]
-      }
-      break
-
-    case 'circle': {
-      if (element.center && element.radius !== undefined) {
-        const pts: THREE.Vector3[] = []
-        const segs = 64
-        for (let i = 0; i <= segs; i++) {
-          const a = (i / segs) * Math.PI * 2
-          pts.push(s(
-            element.center.x + Math.cos(a) * element.radius,
-            element.center.y + Math.sin(a) * element.radius
-          ))
-        }
-        return pts
-      }
-      break
-    }
-
-    case 'arc': {
-      if (element.center && element.radius !== undefined &&
-          element.start_angle !== undefined && element.end_angle !== undefined) {
-        const pts: THREE.Vector3[] = []
-        const segs = 48
-        let startA = element.start_angle
-        let endA = element.end_angle
-        // Ensure arc goes in right direction
-        if (endA < startA) endA += Math.PI * 2
-        for (let i = 0; i <= segs; i++) {
-          const a = startA + (i / segs) * (endA - startA)
-          pts.push(s(
-            element.center.x + Math.cos(a) * element.radius,
-            element.center.y + Math.sin(a) * element.radius
-          ))
-        }
-        return pts
-      }
-      break
-    }
-
-    case 'rectangle': {
-      if (element.corner && element.width !== undefined && element.height !== undefined) {
-        const { corner: c, width: w, height: h } = element
-        return [
-          s(c.x, c.y),
-          s(c.x + w, c.y),
-          s(c.x + w, c.y + h),
-          s(c.x, c.y + h),
-          s(c.x, c.y),
-        ]
-      }
-      break
-    }
-
-    case 'polyline':
-    case 'spline':
-      if (element.points && element.points.length >= 2) {
-        return element.points.map(p => s(p.x, p.y))
-      }
-      break
-
-    case 'dimension':
-      // Dimensions are rendered via Html overlay, skip here
-      break
-  }
-
-  return []
-}
-
-// ─── Sub-components ──────────────────────────────────────────────────────────
-
-interface SketchElement3DProps {
-  element: SketchElement
-  isSelected: boolean
-  isConstruction: boolean
-  isSymmetryAxis: boolean
-  plane: SketchPlane
-  offset: number
-  fcs?: FaceCoordSystem | null
-}
-
-function SketchElement3D({ element, isSelected, isConstruction, isSymmetryAxis, plane, offset, fcs }: SketchElement3DProps) {
-  const points = useMemo(
-    () => elementToPoints3D(element, plane, offset, fcs),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [JSON.stringify(element), plane, offset, fcs]
-  )
-
-  let color = '#e0e0e0'
-  if (isSelected) color = '#4ade80'
-  else if (isSymmetryAxis) color = '#8b5cf6'
-  else if (isConstruction) color = '#fbbf24'
-
-  const lineObject = useMemo(() => {
-    if (points.length < 2) return null
-    const geo = new THREE.BufferGeometry().setFromPoints(points)
-    const mat = new THREE.LineBasicMaterial({ color })
-    return new THREE.Line(geo, mat)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [points, color])
-
-  if (!lineObject) return null
-
-  return <primitive object={lineObject} />
-}
-
-interface SketchElements3DProps {
-  elements: SketchElement[]
-  selectedIds: string[]
-  construction: boolean[]
-  symmetryAxis: number | null
-  plane: SketchPlane
-  offset: number
-  fcs?: FaceCoordSystem | null
-}
-
-function SketchElements3D({ elements, selectedIds, construction, symmetryAxis, plane, offset, fcs }: SketchElements3DProps) {
-  return (
-    <>
-      {elements.map((element, index) => (
-        <SketchElement3D
-          key={element.id}
-          element={element}
-          isSelected={selectedIds.includes(element.id)}
-          isConstruction={construction[index] ?? false}
-          isSymmetryAxis={symmetryAxis === index}
-          plane={plane}
-          offset={offset}
-          fcs={fcs}
-        />
-      ))}
-    </>
-  )
-}
-
-interface ControlPoint3DProps {
-  position: THREE.Vector3
-  isHovered: boolean
-}
-
-function ControlPoint3D({ position, isHovered }: ControlPoint3DProps) {
-  const color = isHovered ? '#22c55e' : '#4ade80'
-  return (
-    <mesh position={position}>
-      <boxGeometry args={[0.06, 0.06, 0.06]} />
-      <meshBasicMaterial color={color} />
-    </mesh>
-  )
-}
-
-interface SketchControlPoints3DProps {
-  elements: SketchElement[]
-  selectedIds: string[]
-  hoveredPoint: { elementId: string; pointIndex: number } | null
-  plane: SketchPlane
-  offset: number
-  fcs?: FaceCoordSystem | null
-}
-
-function SketchControlPoints3D({ elements, selectedIds, hoveredPoint, plane, offset, fcs }: SketchControlPoints3DProps) {
-  const selectedElements = elements.filter(e => selectedIds.includes(e.id))
-
-  return (
-    <>
-      {selectedElements.map(element => {
-        const controlPoints = getElementControlPoints(element)
-        return controlPoints.map(cp => {
-          const pos3D = sketchToWorld(cp.position.x, cp.position.y, plane, offset, fcs)
-          const isHovered = hoveredPoint?.elementId === element.id && hoveredPoint?.pointIndex === cp.pointIndex
-          return (
-            <ControlPoint3D
-              key={`${element.id}-${cp.pointIndex}`}
-              position={pos3D}
-              isHovered={isHovered}
-            />
-          )
-        })
-      })}
-    </>
-  )
-}
-
-// ─── Snap indicator visuals (matching 2D canvas color scheme) ────────────────
-
-const SNAP_CFG: Record<string, { color: string; label: string }> = {
-  endpoint:     { color: '#22c55e', label: 'Конец' },
-  midpoint:     { color: '#3b82f6', label: 'Середина' },
-  center:       { color: '#ef4444', label: 'Центр' },
-  quadrant:     { color: '#8b5cf6', label: 'Квадрант' },
-  grid:         { color: '#64748b', label: 'Сетка' },
-  intersection: { color: '#fbbf24', label: 'Пересечение' },
-}
-
-/**
- * Build line point-arrays for a snap shape (all in 3D world space).
- * Returns one or two arrays (two for shapes drawn as two separate lines).
- */
-function buildSnapLines(
-  snapType: string,
-  cx: number, cy: number,
-  size: number,
-  plane: SketchPlane, offset: number, fcs?: FaceCoordSystem | null
-): THREE.Vector3[][] {
-  const at = (dx: number, dy: number) => sketchToWorld(cx + dx, cy + dy, plane, offset, fcs)
-  switch (snapType) {
-    case 'endpoint':
-      // Green square
-      return [[at(-size,-size), at(size,-size), at(size,size), at(-size,size), at(-size,-size)]]
-    case 'midpoint': {
-      // Blue upward triangle
-      const h = size * 1.732
-      return [[at(-size, -h / 3), at(size, -h / 3), at(0, 2 * h / 3), at(-size, -h / 3)]]
-    }
-    case 'center':
-    case 'intersection':
-      // Red / amber X cross
-      return [
-        [at(-size, -size), at(size,  size)],
-        [at( size, -size), at(-size, size)],
-      ]
-    case 'quadrant':
-      // Purple diamond
-      return [[at(0,-size), at(size,0), at(0,size), at(-size,0), at(0,-size)]]
-    default:
-      // Gray crosshair (grid or unknown)
-      return [
-        [at(-size, 0), at(size, 0)],
-        [at(0, -size), at(0,  size)],
-      ]
-  }
-}
-
-interface SingleSnapMarkerProps {
-  sp: SnapPoint
-  isActive: boolean
-  size: number
-  plane: SketchPlane
-  offset: number
-  fcs?: FaceCoordSystem | null
-}
-
-function SingleSnapMarker({ sp, isActive, size, plane, offset, fcs }: SingleSnapMarkerProps) {
-  const cfg = SNAP_CFG[sp.snapType] ?? { color: '#ffff00', label: sp.snapType }
-
-  const lines = useMemo(() => {
-    const arrays = buildSnapLines(sp.snapType, sp.point.x, sp.point.y, size, plane, offset, fcs)
-    const mat = new THREE.LineBasicMaterial({ color: cfg.color })
-    return arrays.map(pts => new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), mat))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sp.snapType, sp.point.x, sp.point.y, size, cfg.color, plane, offset, fcs])
-
-  const pos3D = useMemo(
-    () => sketchToWorld(sp.point.x, sp.point.y, plane, offset, fcs),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [sp.point.x, sp.point.y, plane, offset, fcs]
-  )
-
-  return (
-    <group renderOrder={999}>
-      {lines.map((obj, i) => <primitive key={i} object={obj} />)}
-      {isActive && (
-        <Html position={pos3D} style={{ pointerEvents: 'none', userSelect: 'none' }}>
-          <span style={{
-            color: cfg.color,
-            background: 'rgba(8,8,20,0.82)',
-            padding: '1px 6px',
-            fontSize: '10px',
-            fontFamily: 'monospace',
-            borderRadius: '3px',
-            whiteSpace: 'nowrap',
-            display: 'block',
-            marginTop: '-18px',
-            marginLeft: '10px',
-            border: `1px solid ${cfg.color}44`,
-          }}>
-            {cfg.label}
-          </span>
-        </Html>
-      )}
-    </group>
-  )
-}
-
-interface SnapIndicator3DProps {
-  snapPoints: SnapPoint[]
-  plane: SketchPlane
-  offset: number
-  fcs?: FaceCoordSystem | null
-}
-
-function SnapIndicator3D({ snapPoints, plane, offset, fcs }: SnapIndicator3DProps) {
-  const { camera } = useThree()
-
-  if (snapPoints.length === 0) return null
-
-  // Scale indicator size with camera distance so it stays readable at any zoom
-  const baseSize = Math.max(0.018, camera.position.length() * 0.007)
-
-  return (
-    <>
-      {snapPoints.slice(0, 6).map((sp, i) => (
-        <SingleSnapMarker
-          key={`${sp.snapType}-${sp.point.x.toFixed(4)}-${sp.point.y.toFixed(4)}`}
-          sp={sp}
-          isActive={i === 0}
-          size={baseSize * (i === 0 ? 1.0 : 0.6)}
-          plane={plane}
-          offset={offset}
-          fcs={fcs}
-        />
-      ))}
-    </>
-  )
-}
-
-interface SketchPreview3DProps {
-  tool: string | null
-  isDrawing: boolean
-  startPoint: Point2D | null
-  currentPoint: Point2D | null
-  arcMidPoint: Point2D | null
-  polylinePoints: Point2D[]
-  plane: SketchPlane
-  offset: number
-  fcs?: FaceCoordSystem | null
-}
-
-function SketchPreview3D({ tool, isDrawing, startPoint, currentPoint, arcMidPoint, polylinePoints, plane, offset, fcs }: SketchPreview3DProps) {
-  const s = useCallback((x: number, y: number) => sketchToWorld(x, y, plane, offset, fcs), [plane, offset, fcs])
-
-  const geometry = useMemo(() => {
-    if (!isDrawing || !currentPoint) return null
-
-    let points: THREE.Vector3[] = []
-
-    switch (tool) {
-      case 'line':
-        if (startPoint) {
-          points = [s(startPoint.x, startPoint.y), s(currentPoint.x, currentPoint.y)]
-        }
-        break
-
-      case 'circle':
-        if (startPoint) {
-          const dx = currentPoint.x - startPoint.x
-          const dy = currentPoint.y - startPoint.y
-          const r = Math.sqrt(dx * dx + dy * dy)
-          const segs = 64
-          for (let i = 0; i <= segs; i++) {
-            const a = (i / segs) * Math.PI * 2
-            points.push(s(startPoint.x + Math.cos(a) * r, startPoint.y + Math.sin(a) * r))
-          }
-        }
-        break
-
-      case 'rectangle':
-        if (startPoint) {
-          const w = currentPoint.x - startPoint.x
-          const h = currentPoint.y - startPoint.y
-          points = [
-            s(startPoint.x, startPoint.y),
-            s(startPoint.x + w, startPoint.y),
-            s(startPoint.x + w, startPoint.y + h),
-            s(startPoint.x, startPoint.y + h),
-            s(startPoint.x, startPoint.y),
-          ]
-        }
-        break
-
-      case 'arc':
-        if (startPoint && arcMidPoint) {
-          // Draw arc from start through mid to current
-          // Simple preview: line from start through midpoint to current
-          points = [s(startPoint.x, startPoint.y), s(arcMidPoint.x, arcMidPoint.y), s(currentPoint.x, currentPoint.y)]
-        } else if (startPoint) {
-          points = [s(startPoint.x, startPoint.y), s(currentPoint.x, currentPoint.y)]
-        }
-        break
-
-      case 'polyline':
-      case 'spline':
-        if (polylinePoints.length > 0) {
-          points = polylinePoints.map(p => s(p.x, p.y))
-          points.push(s(currentPoint.x, currentPoint.y))
-        }
-        break
-    }
-
-    if (points.length < 2) return null
-    return new THREE.BufferGeometry().setFromPoints(points)
-  }, [tool, isDrawing, startPoint, currentPoint, arcMidPoint, polylinePoints, s])
-
-  const previewLine = useMemo(() => {
-    if (!geometry) return null
-    const mat = new THREE.LineBasicMaterial({ color: '#4a9eff' })
-    return new THREE.Line(geometry, mat)
-  }, [geometry])
-
-  if (!previewLine) return null
-
-  return <primitive object={previewLine} />
-}
+// Re-export coordinate utilities for external consumers (Viewport3D, etc.)
+export { sketchToWorld, worldToSketch }
 
 // ─── Main SketchScene3D component ────────────────────────────────────────────
 
@@ -680,7 +184,6 @@ export function SketchScene3D() {
     try {
       const sketch = createSketchForWasm(elements, wasmPlane)
       const sketchJson = JSON.stringify(sketch)
-      // Scale snap radius with camera distance so it stays consistent at any zoom level
       const snapRadius = Math.max(0.015, camera.position.length() * 0.005)
       const settingsJson = JSON.stringify({
         enabled: true,
@@ -708,7 +211,6 @@ export function SketchScene3D() {
   const handlePointerDown = useCallback((e: ThreeEvent<PointerEvent>) => {
     e.stopPropagation()
 
-    // Right button handled by context menu
     if (e.button === 2) return
 
     const sketchPoint = worldToSketch(e.point, sketchPlane, faceCoordSystem)
@@ -911,7 +413,6 @@ export function SketchScene3D() {
     const sketchPoint = worldToSketch(e.point, sketchPlane, faceCoordSystem)
     setCursorSketchPoint(sketchPoint)
 
-    // Update snap points from WASM
     updateSnapPoints(sketchPoint)
 
     // Dragging control point
@@ -989,7 +490,6 @@ export function SketchScene3D() {
     const nativeEvent = e.nativeEvent
     const sketchPoint = worldToSketch(e.point, sketchPlane, faceCoordSystem)
 
-    // Finish polyline on right click
     if ((tool === 'polyline' || tool === 'spline') && isDrawing && polylinePoints.length > 0) {
       finishPolyline()
       return
@@ -1012,7 +512,6 @@ export function SketchScene3D() {
     finishPolyline, setContextMenu, setToolsContextMenu,
   ])
 
-  // Expose functions needed by SketchDialogs3D via store helpers
   const handleAddConstraint = useCallback((constraintType: string, elementId: string, secondElementId?: string) => {
     const element = elements.find(el => el.id === elementId)
     if (!element) return
@@ -1096,7 +595,6 @@ export function SketchScene3D() {
     }, 0)
   }, [elements, constraints, sketchPlane, addConstraint, setElements])
 
-  // Store additional ops for dialogs
   const handleOffset = useCallback((elementId: string, distance: number) => {
     const clickPoint = cursorSketchPoint || { x: 0, y: 0 }
     const newElements = SketchOps.offsetElement(elements, elementId, distance, clickPoint.x, clickPoint.y, wasmPlane)

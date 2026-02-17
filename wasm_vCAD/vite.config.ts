@@ -81,7 +81,7 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    exclude: ['vcad-engine']
+    exclude: ['vcad-engine', 'manifold-3d']
   },
   build: {
     target: 'esnext'

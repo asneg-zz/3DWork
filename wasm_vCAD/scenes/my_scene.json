@@ -1,0 +1,101 @@
+{
+  "version": 2,
+  "bodies": [
+    {
+      "id": "body-001",
+      "name": "Тело",
+      "visible": true,
+      "features": [
+        {
+          "id": "feat-cube-001",
+          "type": "base_primitive",
+          "name": "Cube",
+          "primitive": {
+            "type": "cube",
+            "width": 2,
+            "height": 1.5,
+            "depth": 1
+          },
+          "transform": {
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        {
+          "id": "sketch-001",
+          "type": "sketch",
+          "name": "Эскиз (XY)",
+          "sketch": {
+            "plane": "XY",
+            "offset": 0.75,
+            "elements": [
+              {
+                "id": "el-1",
+                "type": "line",
+                "start": {
+                  "x": -0.5,
+                  "y": -0.5
+                },
+                "end": {
+                  "x": 0.5,
+                  "y": -0.5
+                }
+              },
+              {
+                "id": "el-2",
+                "type": "line",
+                "start": {
+                  "x": 0.5,
+                  "y": -0.5
+                },
+                "end": {
+                  "x": 0.5,
+                  "y": 0.5
+                }
+              },
+              {
+                "id": "el-3",
+                "type": "line",
+                "start": {
+                  "x": 0.5,
+                  "y": 0.5
+                },
+                "end": {
+                  "x": -0.5,
+                  "y": 0.5
+                }
+              },
+              {
+                "id": "el-4",
+                "type": "line",
+                "start": {
+                  "x": -0.5,
+                  "y": 0.5
+                },
+                "end": {
+                  "x": -0.5,
+                  "y": -0.5
+                }
+              }
+            ],
+            "constraints": []
+          }
+        }
+      ]
+    }
+  ],
+  "body_operations": []
+}

@@ -137,7 +137,9 @@ export interface ExtrudeParams {
   draft_angle: number
 }
 
-export type FeatureType = 'primitive' | 'sketch' | 'extrude' | 'cut' | 'revolve' | 'fillet' | 'chamfer'
+export type FeatureType = 'primitive' | 'sketch' | 'extrude' | 'cut' | 'revolve' | 'fillet' | 'chamfer' | 'boolean'
+
+export type BooleanOperation = 'union' | 'difference' | 'intersection'
 
 export interface Feature {
   id: string
@@ -164,6 +166,12 @@ export interface Feature {
   edge_ids?: string[]
   radius?: number
   distance?: number
+
+  // Boolean CSG
+  boolean_operation?: BooleanOperation
+  boolean_body_ids?: string[]       // Source body IDs (for reference)
+  cached_mesh_vertices?: number[]   // Serialized position array
+  cached_mesh_indices?: number[]    // Serialized index array
 }
 
 export interface Body {
