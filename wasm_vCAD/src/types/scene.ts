@@ -25,7 +25,20 @@ export interface SnapSettings {
   snapRadius: number  // In world units
 }
 
-export type SketchPlane = 'XY' | 'XZ' | 'YZ'
+export type SketchPlane = 'XY' | 'XZ' | 'YZ' | 'CUSTOM'
+
+/**
+ * Full coordinate system for an arbitrary face.
+ * Used when the face is not axis-aligned.
+ * origin + x*uAxis + y*vAxis = 3D point on the face.
+ * Extrusion goes along `normal`.
+ */
+export interface FaceCoordSystem {
+  origin: [number, number, number]  // Face center (world space)
+  normal: [number, number, number]  // Face normal (unit vector, pointing outward)
+  uAxis:  [number, number, number]  // Sketch X direction (unit vector in face plane)
+  vAxis:  [number, number, number]  // Sketch Y direction (unit vector in face plane)
+}
 
 export interface Transform {
   position: [number, number, number]
@@ -111,6 +124,7 @@ export interface Sketch {
   offset: number
   elements: SketchElement[]
   face_normal?: [number, number, number]
+  face_coord_system?: FaceCoordSystem  // Full coordinate system for inclined/arbitrary faces
   construction?: boolean[]  // Flags for construction geometry (parallel to elements)
   revolve_axis?: number     // Index of element marked as revolve axis
   symmetry_axis?: number    // Index of element marked as symmetry/mirror axis

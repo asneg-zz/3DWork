@@ -8,7 +8,7 @@ import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import { useFaceSelectionStore } from '@/stores/faceSelectionStore'
 import { useEdgeSelectionStore } from '@/stores/edgeSelectionStore'
-import type { Feature, Body, SketchPlane } from '@/types/scene'
+import type { Feature, Body, SketchPlane, FaceCoordSystem } from '@/types/scene'
 
 interface FaceHighlightProps {
   feature: Feature
@@ -17,7 +17,8 @@ interface FaceHighlightProps {
 }
 
 /**
- * Determine sketch plane from face normal
+ * Determine sketch plane from face normal (axis-aligned faces only)
+ * Returns null for inclined faces
  */
 function normalToPlane(normal: THREE.Vector3): SketchPlane | null {
   const x = Math.abs(normal.x)
@@ -37,7 +38,7 @@ function normalToPlane(normal: THREE.Vector3): SketchPlane | null {
 }
 
 /**
- * Calculate plane offset from point and plane
+ * Calculate plane offset from point and plane (axis-aligned only)
  */
 function calculateOffset(point: THREE.Vector3, plane: SketchPlane): number {
   switch (plane) {
@@ -47,6 +48,32 @@ function calculateOffset(point: THREE.Vector3, plane: SketchPlane): number {
       return point.y
     case 'YZ':
       return point.x
+    case 'CUSTOM':
+      return 0
+  }
+}
+
+/**
+ * Compute a full FaceCoordSystem from a face center and normal.
+ * Works for any face orientation including inclined faces.
+ */
+function computeFaceCoordSystem(
+  faceCenter: THREE.Vector3,
+  faceNormal: THREE.Vector3
+): FaceCoordSystem {
+  // Pick a reference vector not parallel to normal
+  const ref = Math.abs(faceNormal.dot(new THREE.Vector3(0, 1, 0))) < 0.9
+    ? new THREE.Vector3(0, 1, 0)
+    : new THREE.Vector3(1, 0, 0)
+
+  const uAxis = new THREE.Vector3().crossVectors(ref, faceNormal).normalize()
+  const vAxis = new THREE.Vector3().crossVectors(faceNormal, uAxis).normalize()
+
+  return {
+    origin: [faceCenter.x, faceCenter.y, faceCenter.z],
+    normal: [faceNormal.x, faceNormal.y, faceNormal.z],
+    uAxis:  [uAxis.x, uAxis.y, uAxis.z],
+    vAxis:  [vAxis.x, vAxis.y, vAxis.z],
   }
 }
 
@@ -246,18 +273,16 @@ export function FaceHighlight({ feature, body, geometry }: FaceHighlightProps) {
             new THREE.Matrix3().getNormalMatrix(meshRef.current.matrixWorld)
           ).normalize()
 
-          const plane = normalToPlane(worldNormal)
-          if (plane) {
-            const offset = calculateOffset(intersection.point, plane)
+          const plane = normalToPlane(worldNormal) ?? 'CUSTOM'
+          const offset = plane !== 'CUSTOM' ? calculateOffset(intersection.point, plane) : 0
 
-            setHoveredFace({
-              bodyId: body.id,
-              featureId: feature.id,
-              faceType: 'side',
-              plane,
-              offset
-            })
-          }
+          setHoveredFace({
+            bodyId: body.id,
+            featureId: feature.id,
+            faceType: 'side',
+            plane,
+            offset
+          })
         }
       }
     } else if (hoveredFaceData !== null) {
@@ -271,27 +296,28 @@ export function FaceHighlight({ feature, body, geometry }: FaceHighlightProps) {
       return
     }
 
-    // Transform normal to world space
+    // Transform normal and center to world space
     const worldNormal = hoveredFaceData.normal.clone().applyMatrix3(
       new THREE.Matrix3().getNormalMatrix(meshRef.current.matrixWorld)
     ).normalize()
 
-    const plane = normalToPlane(worldNormal)
-    if (!plane) {
-      console.warn('[FaceHighlight] Could not determine sketch plane from face normal:', worldNormal)
-      return
-    }
-
-    // Calculate offset from face center
     const worldCenter = hoveredFaceData.center.clone().applyMatrix4(meshRef.current.matrixWorld)
-    const offset = calculateOffset(worldCenter, plane)
+
+    // Always compute a full FaceCoordSystem (works for any face orientation)
+    const faceCoordSystem = computeFaceCoordSystem(worldCenter, worldNormal)
+
+    // Determine plane type (axis-aligned or CUSTOM for inclined faces)
+    const axisPlane = normalToPlane(worldNormal)
+    const plane: SketchPlane = axisPlane ?? 'CUSTOM'
+    const offset = axisPlane ? calculateOffset(worldCenter, axisPlane) : 0
 
     const faceData = {
       bodyId: body.id,
       featureId: feature.id,
       faceType: 'side' as const,
       plane,
-      offset
+      offset,
+      faceCoordSystem,
     }
 
     selectFace(faceData)

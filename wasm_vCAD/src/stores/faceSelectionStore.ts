@@ -4,7 +4,7 @@
 
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
-import type { SketchPlane } from '@/types/scene'
+import type { SketchPlane, FaceCoordSystem } from '@/types/scene'
 
 interface SelectedFace {
   bodyId: string
@@ -12,6 +12,7 @@ interface SelectedFace {
   faceType: 'top' | 'bottom' | 'side'
   plane: SketchPlane
   offset: number
+  faceCoordSystem?: FaceCoordSystem | null
 }
 
 interface FaceSelectionState {

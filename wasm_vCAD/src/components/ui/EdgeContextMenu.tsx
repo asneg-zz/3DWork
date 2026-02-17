@@ -38,8 +38,8 @@ export function EdgeContextMenu() {
   const handleCreateSketch = () => {
     const { edge } = contextMenu
 
-    // Create sketch on determined plane
-    const sketchId = engine.createSketch(edge.plane)
+    // Create sketch on determined plane (edge planes are always axis-aligned)
+    const sketchId = engine.createSketch(edge.plane === 'CUSTOM' ? 'XY' : edge.plane)
 
     // Start sketch mode
     startSketch(edge.bodyId, sketchId, edge.plane, edge.offset)

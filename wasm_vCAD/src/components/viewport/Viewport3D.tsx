@@ -1,10 +1,11 @@
 import { Canvas } from '@react-three/fiber'
-import { OrbitControls, Grid, GizmoHelper, GizmoViewport } from '@react-three/drei'
+import { OrbitControls, Grid, GizmoHelper, GizmoViewport, Environment } from '@react-three/drei'
 import { Suspense } from 'react'
 import { useSketchStore } from '@/stores/sketchStore'
 import { SceneObjects } from './SceneObjects'
 import { SketchScene3D } from './SketchScene3D'
 import { SketchDialogs3D } from './SketchDialogs3D'
+import { SketchCameraController } from './SketchCameraController'
 
 export function Viewport3D() {
   const sketchActive = useSketchStore((s) => s.active)
@@ -12,13 +13,36 @@ export function Viewport3D() {
   return (
     <div className="w-full h-full bg-cad-bg relative">
       <Canvas
+        shadows
         camera={{ position: [5, 5, 5], fov: 50 }}
         gl={{ antialias: true }}
       >
         <Suspense fallback={null}>
-          <ambientLight intensity={0.5} />
-          <directionalLight position={[10, 10, 5]} intensity={1} />
-          <directionalLight position={[-10, -10, -5]} intensity={0.3} />
+          {/* Environment map for PBR reflections */}
+          <Environment preset="warehouse" background={false} />
+
+          <ambientLight intensity={0.3} />
+
+          {/* Main key light with shadows */}
+          <directionalLight
+            position={[8, 14, 6]}
+            intensity={1.8}
+            castShadow
+            shadow-mapSize={[2048, 2048]}
+            shadow-camera-near={0.1}
+            shadow-camera-far={60}
+            shadow-camera-left={-12}
+            shadow-camera-right={12}
+            shadow-camera-top={12}
+            shadow-camera-bottom={-12}
+            shadow-bias={-0.001}
+          />
+
+          {/* Fill light from opposite side */}
+          <directionalLight position={[-6, 4, -8]} intensity={0.4} />
+
+          {/* Camera animation controller */}
+          <SketchCameraController />
 
           {/* Scene objects - always visible */}
           <SceneObjects />

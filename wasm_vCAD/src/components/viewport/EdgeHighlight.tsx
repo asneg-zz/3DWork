@@ -120,6 +120,8 @@ function calculateOffset(point: THREE.Vector3, plane: SketchPlane): number {
       return point.y
     case 'YZ':
       return point.x
+    default:
+      return 0
   }
 }
 

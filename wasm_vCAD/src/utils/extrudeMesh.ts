@@ -3,7 +3,7 @@
  * Ported from desktop version: crates/gui/src/extrude.rs
  */
 
-import type { SketchElement, SketchPlane } from '@/types/scene'
+import type { SketchElement, SketchPlane, FaceCoordSystem } from '@/types/scene'
 import * as THREE from 'three'
 
 interface Point2D {
@@ -12,23 +12,45 @@ interface Point2D {
 }
 
 /**
- * Convert 2D sketch point to 3D coordinates based on plane
+ * Convert 2D sketch point to 3D coordinates based on plane, offset, and optional FCS
  */
-function sketchTo3D(x: number, y: number, plane: SketchPlane): [number, number, number] {
+function sketchTo3D(
+  x: number,
+  y: number,
+  plane: SketchPlane,
+  offset: number,
+  fcs?: FaceCoordSystem | null
+): [number, number, number] {
+  if (plane === 'CUSTOM' && fcs) {
+    // origin + x*uAxis + y*vAxis
+    return [
+      fcs.origin[0] + x * fcs.uAxis[0] + y * fcs.vAxis[0],
+      fcs.origin[1] + x * fcs.uAxis[1] + y * fcs.vAxis[1],
+      fcs.origin[2] + x * fcs.uAxis[2] + y * fcs.vAxis[2],
+    ]
+  }
   switch (plane) {
     case 'XY':
-      return [x, y, 0]
+      return [x, y, offset]
     case 'XZ':
-      return [x, 0, y]
+      return [x, offset, y]
     case 'YZ':
-      return [0, x, y]
+      return [offset, x, y]
+    default:
+      return [x, y, offset]
   }
 }
 
 /**
  * Get plane normal vector
  */
-function getPlaneNormal(plane: SketchPlane): [number, number, number] {
+function getPlaneNormal(
+  plane: SketchPlane,
+  fcs?: FaceCoordSystem | null
+): [number, number, number] {
+  if (plane === 'CUSTOM' && fcs) {
+    return [fcs.normal[0], fcs.normal[1], fcs.normal[2]]
+  }
   switch (plane) {
     case 'XY':
       return [0, 0, 1]
@@ -36,6 +58,8 @@ function getPlaneNormal(plane: SketchPlane): [number, number, number] {
       return [0, 1, 0]
     case 'YZ':
       return [1, 0, 0]
+    default:
+      return [0, 0, 1]
   }
 }
 
@@ -106,30 +130,111 @@ function elementToPoints(element: SketchElement, segments: number = 32): Point2D
   return points
 }
 
+const COINCIDENCE_TOL = 0.001
+
+function ptEq(a: Point2D, b: Point2D): boolean {
+  return Math.abs(a.x - b.x) < COINCIDENCE_TOL && Math.abs(a.y - b.y) < COINCIDENCE_TOL
+}
+
 /**
- * Extract closed 2D profiles from sketch elements
- * For now, treats each element as a separate profile
+ * Chain open segments (lines, arcs) into closed loops.
+ * Each segment is an ordered array of points (start → ... → end).
+ */
+function chainSegments(segments: Point2D[][]): Point2D[][] {
+  const used = new Array(segments.length).fill(false)
+  const loops: Point2D[][] = []
+
+  for (let start = 0; start < segments.length; start++) {
+    if (used[start]) continue
+
+    const chain: Point2D[] = [...segments[start]]
+    used[start] = true
+
+    // Keep extending the chain until no more connected segment found
+    let progress = true
+    while (progress) {
+      progress = false
+      const tail = chain[chain.length - 1]
+
+      for (let i = 0; i < segments.length; i++) {
+        if (used[i]) continue
+        const seg = segments[i]
+
+        if (ptEq(seg[0], tail)) {
+          chain.push(...seg.slice(1))
+          used[i] = true
+          progress = true
+          break
+        } else if (ptEq(seg[seg.length - 1], tail)) {
+          chain.push(...[...seg].reverse().slice(1))
+          used[i] = true
+          progress = true
+          break
+        }
+      }
+    }
+
+    if (chain.length < 3) continue
+
+    const first = chain[0]
+    const last = chain[chain.length - 1]
+    const closeDist = Math.sqrt((first.x - last.x) ** 2 + (first.y - last.y) ** 2)
+
+    // Accept if closed or nearly closed (within 0.01 units)
+    if (closeDist > 0.01) continue
+
+    if (!ptEq(first, last)) chain.push({ ...first })
+    loops.push(chain)
+  }
+
+  return loops
+}
+
+/**
+ * Extract closed 2D profiles from sketch elements.
+ * Handles both single closed elements (circle, rectangle, closed polyline)
+ * and multi-segment closed contours assembled from connected lines/arcs.
  */
 function extractProfiles(elements: SketchElement[]): Point2D[][] {
   const profiles: Point2D[][] = []
+  const openSegments: Point2D[][] = []
 
   for (const element of elements) {
+    if (element.type === 'dimension') continue
+
     const points = elementToPoints(element)
-    if (points.length >= 3) {
-      // Ensure the profile is closed
-      const first = points[0]
-      const last = points[points.length - 1]
-      const distance = Math.sqrt(
-        Math.pow(last.x - first.x, 2) + Math.pow(last.y - first.y, 2)
-      )
+    if (points.length < 2) continue
 
-      if (distance > 0.001) {
-        // Close the profile if not already closed
-        points.push({ ...first })
-      }
-
-      profiles.push(points)
+    // Circles are already closed loops — use directly
+    if (element.type === 'circle') {
+      if (points.length >= 3) profiles.push(points)
+      continue
     }
+
+    // Rectangles are closed polygons — close and use directly
+    if (element.type === 'rectangle') {
+      if (points.length >= 3) {
+        if (!ptEq(points[0], points[points.length - 1])) points.push({ ...points[0] })
+        profiles.push(points)
+      }
+      continue
+    }
+
+    // Closed polyline/spline — use directly
+    if ((element.type === 'polyline' || element.type === 'spline') && points.length >= 3) {
+      if (ptEq(points[0], points[points.length - 1])) {
+        profiles.push(points)
+        continue
+      }
+    }
+
+    // Everything else (lines, arcs, open polylines) — collect for chaining
+    openSegments.push(points)
+  }
+
+  // Chain open segments into closed loops (e.g. triangle from 3 lines)
+  if (openSegments.length > 0) {
+    profiles.push(...chainSegments(openSegments))
   }
 
   return profiles
@@ -142,10 +247,12 @@ export function generateExtrudeMesh(
   elements: SketchElement[],
   plane: SketchPlane,
   height: number,
-  heightBackward: number = 0
+  heightBackward: number = 0,
+  offset: number = 0,
+  fcs?: FaceCoordSystem | null
 ): THREE.BufferGeometry {
   const profiles = extractProfiles(elements)
-  const normal = getPlaneNormal(plane)
+  const normal = getPlaneNormal(plane, fcs)
   const totalHeight = height + heightBackward
 
   // Extrusion vector
@@ -166,8 +273,8 @@ export function generateExtrudeMesh(
     const n = profile.length
     if (n < 3) continue
 
-    // Convert 2D profile to 3D bottom points
-    const bottom3D = profile.map(p => sketchTo3D(p.x, p.y, plane))
+    // Convert 2D profile to 3D bottom points (with plane offset or FCS)
+    const bottom3D = profile.map(p => sketchTo3D(p.x, p.y, plane, offset, fcs))
 
     // Calculate top points
     const top3D = bottom3D.map(p => [

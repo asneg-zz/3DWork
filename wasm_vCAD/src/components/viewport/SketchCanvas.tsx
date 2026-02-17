@@ -65,6 +65,8 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
   const saveToHistory = useSketchStore((s) => s.saveToHistory)
   const setElements = useSketchStore((s) => s.setElements)
   const sketchPlane = useSketchStore((s) => s.plane)
+  // For WASM calls that only accept axis-aligned planes, fall back to 'XY' for CUSTOM
+  const wasmPlane = (sketchPlane === 'CUSTOM' ? 'XY' : sketchPlane) as 'XY' | 'XZ' | 'YZ'
   const toggleConstruction = useSketchStore((s) => s.toggleConstruction)
   const isConstruction = useSketchStore((s) => s.isConstruction)
   const setSymmetryAxis = useSketchStore((s) => s.setSymmetryAxis)
@@ -132,7 +134,7 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
 
   // Find element at point (wrapper with sketch plane)
   const findElementAtPoint = (point: Point2D): string | null => {
-    return findElementUtil(point, elements, sketchPlane)
+    return findElementUtil(point, elements, wasmPlane)
   }
 
   // Draw everything
@@ -758,7 +760,7 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
 
               if (currentConstraints.length > 0) {
                 try {
-                  const sketch = createSketchForWasm(currentElements, sketchPlane, currentConstraints)
+                  const sketch = createSketchForWasm(currentElements, wasmPlane, currentConstraints)
                   const resultJson = engine.solveConstraints(JSON.stringify(sketch))
                   const elementsWithIds = processWasmResult(resultJson, currentElements)
                   setElements(elementsWithIds, true)
@@ -837,7 +839,7 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
         if (elementIndex >= 0) {
           try {
             // Create sketch object for WASM
-            const sketch = createSketchForWasm(elements, sketchPlane)
+            const sketch = createSketchForWasm(elements, wasmPlane)
             const resultJson = engine.trimElement(JSON.stringify(sketch), elementIndex, worldPoint.x, worldPoint.y)
             const elementsWithIds = processWasmResult(resultJson)
 
@@ -975,7 +977,7 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
     // Get snap points from WASM
     if (!isPanning && elements.length > 0) {
       try {
-        const sketch = createSketchForWasm(elements, sketchPlane)
+        const sketch = createSketchForWasm(elements, wasmPlane)
         const sketchJson = JSON.stringify(sketch)
         const settingsJson = JSON.stringify({
           enabled: true,
@@ -1034,7 +1036,7 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
         // Apply constraint solver in real-time if constraints exist
         if (constraints.length > 0) {
           try {
-            const sketch = createSketchForWasm(newElements, sketchPlane, constraints)
+            const sketch = createSketchForWasm(newElements, wasmPlane, constraints)
             const resultJson = engine.solveConstraints(JSON.stringify(sketch))
             // CRITICAL: Preserve original IDs when updating from WASM
             const elementsWithIds = processWasmResult(resultJson, newElements)
@@ -1085,7 +1087,7 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
       // Apply constraint solver after dragging a control point (via WASM)
       if (constraints.length > 0) {
         try {
-          const sketch = createSketchForWasm(elements, sketchPlane, constraints)
+          const sketch = createSketchForWasm(elements, wasmPlane, constraints)
           const resultJson = engine.solveConstraints(JSON.stringify(sketch))
           // CRITICAL: Preserve original IDs when updating from WASM
           const elementsWithIds = processWasmResult(resultJson, elements)
@@ -1174,12 +1176,12 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
 
   const handleOffset = (elementId: string, distance: number) => {
     const clickPoint = cursorWorldPoint || { x: 0, y: 0 }
-    const newElements = SketchOps.offsetElement(elements, elementId, distance, clickPoint.x, clickPoint.y, sketchPlane)
+    const newElements = SketchOps.offsetElement(elements, elementId, distance, clickPoint.x, clickPoint.y, wasmPlane)
     setElements(newElements)
   }
 
   const handleMirror = (elementId: string, axis: 'horizontal' | 'vertical' | 'custom') => {
-    const newElements = SketchOps.mirrorElement(elements, elementId, axis, symmetryAxis, sketchPlane)
+    const newElements = SketchOps.mirrorElement(elements, elementId, axis, symmetryAxis, wasmPlane)
     if (newElements) {
       setElements(newElements)
     } else {
@@ -1188,12 +1190,12 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
   }
 
   const handleLinearPattern = (elementId: string, count: number, dx: number, dy: number) => {
-    const newElements = SketchOps.linearPattern(elements, elementId, count, dx, dy, sketchPlane)
+    const newElements = SketchOps.linearPattern(elements, elementId, count, dx, dy, wasmPlane)
     setElements(newElements)
   }
 
   const handleCircularPattern = (elementId: string, count: number, centerX: number, centerY: number, angle: number) => {
-    const newElements = SketchOps.circularPattern(elements, elementId, count, centerX, centerY, angle, sketchPlane)
+    const newElements = SketchOps.circularPattern(elements, elementId, count, centerX, centerY, angle, wasmPlane)
     setElements(newElements)
   }
 
@@ -1297,7 +1299,7 @@ export function SketchCanvas({ width, height }: SketchCanvasProps) {
 
       if (currentConstraints.length > 0) {
         try {
-          const sketch = createSketchForWasm(currentElements, sketchPlane, currentConstraints)
+          const sketch = createSketchForWasm(currentElements, wasmPlane, currentConstraints)
           const resultJson = engine.solveConstraints(JSON.stringify(sketch))
           // CRITICAL: Preserve original IDs when updating from WASM
           const elementsWithIds = processWasmResult(resultJson, currentElements)

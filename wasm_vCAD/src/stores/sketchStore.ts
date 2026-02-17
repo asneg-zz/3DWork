@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
-import type { SketchElement, Point2D, SketchPlane, SnapSettings, SnapPoint, SketchConstraint } from '@/types/scene'
+import type { SketchElement, Point2D, SketchPlane, SnapSettings, SnapPoint, SketchConstraint, FaceCoordSystem } from '@/types/scene'
 import { engine } from '@/wasm/engine'
 
 interface SketchState {
@@ -13,7 +13,8 @@ interface SketchState {
 
   // Plane type and offset
   plane: SketchPlane
-  planeOffset: number  // Offset along plane normal
+  planeOffset: number           // Offset along plane normal (axis-aligned planes)
+  faceCoordSystem: FaceCoordSystem | null  // Set for inclined / arbitrary faces
 
   // Elements in current sketch
   elements: SketchElement[]
@@ -53,7 +54,7 @@ interface SketchState {
   selectedElementIds: string[]
 
   // Actions
-  startSketch: (bodyId: string, sketchId: string, plane: SketchPlane, planeOffset?: number) => void
+  startSketch: (bodyId: string, sketchId: string, plane: SketchPlane, planeOffset?: number, faceCoordSystem?: FaceCoordSystem | null) => void
   loadSketch: (bodyId: string, sketchId: string, plane: SketchPlane, elements: SketchElement[], planeOffset?: number) => void
   exitSketch: () => void
   setTool: (tool: SketchState['tool']) => void
@@ -149,6 +150,7 @@ export const useSketchStore = create<SketchState>()(
       bodyId: null,
       plane: 'XY',
       planeOffset: 0,
+      faceCoordSystem: null,
       elements: [],
       construction: [],
       revolveAxis: null,
@@ -178,13 +180,14 @@ export const useSketchStore = create<SketchState>()(
       panY: 0,
       selectedElementIds: [],
 
-    startSketch: (bodyId, sketchId, plane, planeOffset = 0) =>
+    startSketch: (bodyId, sketchId, plane, planeOffset = 0, faceCoordSystem = null) =>
       set((state) => {
         state.active = true
         state.bodyId = bodyId
         state.sketchId = sketchId
         state.plane = plane
         state.planeOffset = planeOffset
+        state.faceCoordSystem = faceCoordSystem
         state.elements = []
         state.construction = []
         state.revolveAxis = null
@@ -225,6 +228,7 @@ export const useSketchStore = create<SketchState>()(
         state.active = false
         state.bodyId = null
         state.sketchId = null
+        state.faceCoordSystem = null
         state.elements = []
         state.construction = []
         state.revolveAxis = null

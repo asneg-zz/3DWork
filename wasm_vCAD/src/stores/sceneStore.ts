@@ -21,6 +21,9 @@ interface SceneState {
   clearSelection: () => void
 
   selectFeature: (featureId: string | null) => void
+
+  /** Replace the entire scene (used when loading a file) */
+  setScene: (scene: SceneDescription) => void
 }
 
 export const useSceneStore = create<SceneState>()(
@@ -99,6 +102,13 @@ export const useSceneStore = create<SceneState>()(
     selectFeature: (featureId) =>
       set((state) => {
         state.selectedFeatureId = featureId
+      }),
+
+    setScene: (scene) =>
+      set((state) => {
+        state.scene = scene
+        state.selectedBodyIds = []
+        state.selectedFeatureId = null
       }),
   }))
 )

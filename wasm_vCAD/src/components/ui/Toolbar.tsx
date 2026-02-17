@@ -1,16 +1,26 @@
-import { Box, Circle, CircleDot, Square, MousePointer2, GitBranch } from 'lucide-react'
+import { Box, Circle, CircleDot, Square, MousePointer2, GitBranch, Save, FolderOpen } from 'lucide-react'
 import { useSceneStore } from '@/stores/sceneStore'
 import { useSketchStore } from '@/stores/sketchStore'
 import { useFaceSelectionStore } from '@/stores/faceSelectionStore'
 import { useEdgeSelectionStore } from '@/stores/edgeSelectionStore'
 import { engine } from '@/wasm/engine'
-import type { Body } from '@/types/scene'
-import { useEffect } from 'react'
+import type { Body, SketchPlane, FaceCoordSystem } from '@/types/scene'
+import { useEffect, useState } from 'react'
+import { PlaneSelectDialog } from '@/components/dialogs/PlaneSelectDialog'
+import { OpenProjectDialog } from '@/components/dialogs/OpenProjectDialog'
+import { saveSceneToFile, loadSceneFromFile } from '@/utils/fileOperations'
 
 export function Toolbar() {
   const addBody = useSceneStore((s) => s.addBody)
   const bodies = useSceneStore((s) => s.scene.bodies)
+  const scene = useSceneStore((s) => s.scene)
+  const setScene = useSceneStore((s) => s.setScene)
   const startSketch = useSketchStore((s) => s.startSketch)
+  const addFeature = useSceneStore((s) => s.addFeature)
+
+  const [showPlaneDialog, setShowPlaneDialog] = useState(false)
+  const [pendingBodyId, setPendingBodyId] = useState<string | null>(null)
+  const [showOpenProjectDialog, setShowOpenProjectDialog] = useState(false)
 
   const faceSelectionActive = useFaceSelectionStore((s) => s.active)
   const startFaceSelection = useFaceSelectionStore((s) => s.startFaceSelection)
@@ -23,7 +33,12 @@ export function Toolbar() {
   // Listen for face selection events
   useEffect(() => {
     const handleFaceSelect = (event: CustomEvent) => {
-      const { bodyId, plane, offset } = event.detail
+      const { bodyId, plane, offset, faceCoordSystem } = event.detail as {
+        bodyId: string
+        plane: SketchPlane
+        offset: number
+        faceCoordSystem?: FaceCoordSystem | null
+      }
 
       // Find the body
       const body = bodies.find(b => b.id === bodyId)
@@ -33,15 +48,19 @@ export function Toolbar() {
       }
 
       // Create new sketch on selected face
-      const sketchId = engine.createSketch(plane)
+      const sketchId = engine.createSketch(plane === 'CUSTOM' ? 'XY' : plane)
 
-      // Start sketch mode with offset
-      startSketch(bodyId, sketchId, plane, offset)
+      // Start sketch mode with offset and optional FCS for inclined faces
+      startSketch(bodyId, sketchId, plane, offset, faceCoordSystem ?? null)
 
       // Exit face selection mode
       exitFaceSelection()
 
-      console.log('[Toolbar] Created sketch on', plane, 'plane at offset', offset.toFixed(3))
+      if (plane === 'CUSTOM') {
+        console.log('[Toolbar] Created sketch on inclined face with FCS')
+      } else {
+        console.log('[Toolbar] Created sketch on', plane, 'plane at offset', offset.toFixed(3))
+      }
     }
 
     window.addEventListener('face-selected' as any, handleFaceSelect as EventListener)
@@ -135,22 +154,64 @@ export function Toolbar() {
     addBody(body)
   }
 
-  const handleNewSketch = () => {
-    // Create a new body for the sketch
-    const bodyId = crypto.randomUUID()
-    const sketchId = engine.createSketch('XY')
+  const handleSave = async () => {
+    await saveSceneToFile(scene)
+  }
 
+  const handleOpen = async () => {
+    const loaded = await loadSceneFromFile()
+    if (loaded) {
+      setScene(loaded)
+    }
+  }
+
+  const handleNewSketch = () => {
+    // Create empty body immediately (visible in scene tree)
+    const bodyId = crypto.randomUUID()
     const body: Body = {
       id: bodyId,
-      name: 'Sketch',
+      name: 'Тело',
       visible: true,
       features: []
     }
-
     addBody(body)
+    setPendingBodyId(bodyId)
 
-    // Start sketch mode immediately
-    startSketch(bodyId, sketchId, 'XY')
+    // Ask user which plane to draw on
+    setShowPlaneDialog(true)
+  }
+
+  const handlePlaneSelected = (plane: SketchPlane) => {
+    if (!pendingBodyId) return
+
+    const sketchId = engine.createSketch(plane === 'CUSTOM' ? 'XY' : plane)
+
+    // Add sketch feature to the body
+    addFeature(pendingBodyId, {
+      id: sketchId,
+      type: 'sketch',
+      name: `Эскиз (${plane})`,
+      sketch: {
+        id: sketchId,
+        elements: [],
+        plane,
+        offset: 0,
+      }
+    })
+
+    // Enter sketch mode
+    startSketch(pendingBodyId, sketchId, plane, 0)
+    setPendingBodyId(null)
+    setShowPlaneDialog(false)
+  }
+
+  const handlePlaneDialogClose = () => {
+    // If user cancels, remove the empty body
+    if (pendingBodyId) {
+      useSceneStore.getState().removeBody(pendingBodyId)
+      setPendingBodyId(null)
+    }
+    setShowPlaneDialog(false)
   }
 
   const handleToggleFaceSelection = () => {
@@ -178,7 +239,48 @@ export function Toolbar() {
   }
 
   return (
+    <>
+    <PlaneSelectDialog
+      isOpen={showPlaneDialog}
+      onClose={handlePlaneDialogClose}
+      onConfirm={handlePlaneSelected}
+    />
+    <OpenProjectDialog
+      isOpen={showOpenProjectDialog}
+      onClose={() => setShowOpenProjectDialog(false)}
+      onLoad={(scene) => { setScene(scene) }}
+    />
     <div className="h-12 bg-cad-surface border-b border-cad-border px-4 flex items-center gap-2">
+      {/* File operations */}
+      <button
+        onClick={handleOpen}
+        className="px-3 py-1.5 bg-cad-hover hover:bg-cad-accent/20 rounded flex items-center gap-2 transition-colors"
+        title="Открыть сцену (Ctrl+O)"
+      >
+        <FolderOpen size={18} />
+        <span className="text-sm">Открыть</span>
+      </button>
+
+      <button
+        onClick={() => setShowOpenProjectDialog(true)}
+        className="px-3 py-1.5 bg-cad-hover hover:bg-cad-accent/20 rounded flex items-center gap-2 transition-colors"
+        title="Открыть файл из каталога scenes/ проекта"
+      >
+        <FolderOpen size={18} className="text-cad-accent" />
+        <span className="text-sm">Из проекта</span>
+      </button>
+
+      <button
+        onClick={handleSave}
+        className="px-3 py-1.5 bg-cad-hover hover:bg-cad-accent/20 rounded flex items-center gap-2 transition-colors"
+        title="Сохранить сцену (Ctrl+S)"
+      >
+        <Save size={18} />
+        <span className="text-sm">Сохранить</span>
+      </button>
+
+      <div className="w-px h-6 bg-cad-border mx-1"></div>
+
       <button
         onClick={handleCreateCube}
         className="px-3 py-1.5 bg-cad-hover hover:bg-cad-accent/20 rounded flex items-center gap-2 transition-colors"
@@ -243,5 +345,6 @@ export function Toolbar() {
         <span className="text-sm">Select Edge</span>
       </button>
     </div>
+    </>
   )
 }

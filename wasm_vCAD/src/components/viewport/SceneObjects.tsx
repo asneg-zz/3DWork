@@ -43,7 +43,7 @@ function PrimitiveFeature({ feature, body, isSelected }: { feature: Feature; bod
     scale: [1, 1, 1]
   }
 
-  const color = isSelected ? '#4a9eff' : '#808080'
+  const color = isSelected ? '#4cb2e5' : '#7a9fc0'
 
   // Generate geometry from WASM (memoized per feature)
   const geometry = useMemo(() => {
@@ -102,18 +102,19 @@ function PrimitiveFeature({ feature, body, isSelected }: { feature: Feature; bod
       rotation={transform.rotation as [number, number, number]}
       scale={transform.scale as [number, number, number]}
     >
-      <mesh geometry={geometry}>
+      <mesh geometry={geometry} castShadow receiveShadow>
         <meshStandardMaterial
+          key={color}
           color={color}
-          metalness={0.3}
-          roughness={0.4}
+          metalness={0.1}
+          roughness={0.5}
         />
 
         {/* Wireframe overlay when selected */}
         {isSelected && !edgeSelectionActive && (
           <mesh geometry={geometry}>
             <meshBasicMaterial
-              color="#4a9eff"
+              color="#4cb2e5"
               wireframe
               transparent
               opacity={0.5}
@@ -143,7 +144,7 @@ function PrimitiveFeature({ feature, body, isSelected }: { feature: Feature; bod
 function ExtrudeFeature({ feature, body, isSelected }: { feature: Feature; body: Body; isSelected: boolean }) {
   const edgeSelectionActive = useEdgeSelectionStore((s) => s.active)
 
-  const color = isSelected ? '#4a9eff' : '#808080'
+  const color = isSelected ? '#4cb2e5' : '#7a9fc0'
 
   // Get extrude parameters
   const height = feature.extrude_params?.height || 1
@@ -166,7 +167,9 @@ function ExtrudeFeature({ feature, body, isSelected }: { feature: Feature; body:
         sketchFeature.sketch.elements,
         sketchFeature.sketch.plane,
         height,
-        heightBackward
+        heightBackward,
+        sketchFeature.sketch.offset ?? 0,
+        sketchFeature.sketch.face_coord_system ?? null
       )
     } catch (error) {
       console.error('Failed to generate extrude mesh:', error)
@@ -177,18 +180,19 @@ function ExtrudeFeature({ feature, body, isSelected }: { feature: Feature; body:
 
   return (
     <group>
-      <mesh geometry={geometry}>
+      <mesh geometry={geometry} castShadow receiveShadow>
         <meshStandardMaterial
+          key={color}
           color={color}
-          metalness={0.3}
-          roughness={0.4}
+          metalness={0.1}
+          roughness={0.5}
         />
 
         {/* Wireframe overlay when selected */}
         {isSelected && !edgeSelectionActive && (
           <mesh geometry={geometry}>
             <meshBasicMaterial
-              color="#4a9eff"
+              color="#4cb2e5"
               wireframe
               transparent
               opacity={0.5}

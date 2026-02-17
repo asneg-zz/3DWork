@@ -9,6 +9,8 @@ export function useSketchExtrude() {
   const sketchBodyId = useSketchStore((s) => s.bodyId)
   const sketchId = useSketchStore((s) => s.sketchId)
   const plane = useSketchStore((s) => s.plane)
+  const planeOffset = useSketchStore((s) => s.planeOffset)
+  const faceCoordSystem = useSketchStore((s) => s.faceCoordSystem)
   const elements = useSketchStore((s) => s.elements)
   const constraints = useSketchStore((s) => s.constraints)
   const construction = useSketchStore((s) => s.construction)
@@ -76,10 +78,11 @@ export function useSketchExtrude() {
           sketch: {
             id: sketchId,
             plane,
-            offset: 0.0,
+            offset: planeOffset,
             elements: [...elements],
             construction,
             constraints: constraints.length > 0 ? [...constraints] : undefined,
+            face_coord_system: faceCoordSystem ?? undefined,
           }
         }
 
