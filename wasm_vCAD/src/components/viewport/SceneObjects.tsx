@@ -2,6 +2,7 @@ import { useSceneStore } from '@/stores/sceneStore'
 import { useEdgeSelectionStore } from '@/stores/edgeSelectionStore'
 import { useFaceSelectionStore } from '@/stores/faceSelectionStore'
 import { useBooleanStore } from '@/stores/booleanStore'
+import { useSettingsStore } from '@/stores/settingsStore'
 import { useMemo, useEffect, useCallback } from 'react'
 import * as THREE from 'three'
 import { engine } from '@/wasm/engine'
@@ -40,7 +41,8 @@ function createGeometryFromMeshData(meshData: MeshData): THREE.BufferGeometry {
 // ─── Boolean feature component ────────────────────────────────────────────────
 
 function BooleanFeature({ feature, body, isSelected }: { feature: Feature; body: Body; isSelected: boolean }) {
-  const color = isSelected ? '#4cb2e5' : '#7a9fc0'
+  const { bodyOpacity, bodyColor, selectionColor } = useSettingsStore()
+  const color = isSelected ? selectionColor : bodyColor
 
   const geometry = useMemo(() => {
     if (!feature.cached_mesh_vertices || !feature.cached_mesh_indices) {
@@ -62,12 +64,12 @@ function BooleanFeature({ feature, body, isSelected }: { feature: Feature; body:
 
   return (
     <group>
-      {/* transparent ghost fill — gives shape depth without solid mesh */}
+      {/* transparent ghost fill */}
       <mesh geometry={geometry}>
         <meshBasicMaterial
           color={color}
           transparent
-          opacity={0.08}
+          opacity={bodyOpacity}
           side={THREE.DoubleSide}
           depthWrite={false}
         />
@@ -161,7 +163,8 @@ function BodyObject({ body, isSelected }: { body: Body; isSelected: boolean }) {
 
 function PrimitiveFeatureWithCache(props: { feature: Feature; body: Body; isSelected: boolean }) {
   const { feature, body, isSelected } = props
-  const color = isSelected ? '#4cb2e5' : '#7a9fc0'
+  const { bodyOpacity, bodyColor, selectionColor } = useSettingsStore()
+  const color = isSelected ? selectionColor : bodyColor
 
   const geometry = useMemo(() => {
     if (!feature.primitive) return new THREE.BoxGeometry(1, 1, 1)
@@ -219,7 +222,7 @@ function PrimitiveFeatureWithCache(props: { feature: Feature; body: Body; isSele
         <meshBasicMaterial
           color={color}
           transparent
-          opacity={0.08}
+          opacity={bodyOpacity}
           side={THREE.DoubleSide}
           depthWrite={false}
         />
@@ -236,7 +239,8 @@ function PrimitiveFeatureWithCache(props: { feature: Feature; body: Body; isSele
 
 function ExtrudeFeatureWithCache(props: { feature: Feature; body: Body; isSelected: boolean }) {
   const { feature, body, isSelected } = props
-  const color = isSelected ? '#4cb2e5' : '#7a9fc0'
+  const { bodyOpacity, bodyColor, selectionColor } = useSettingsStore()
+  const color = isSelected ? selectionColor : bodyColor
 
   const height = feature.extrude_params?.height || 1
   const heightBackward = feature.extrude_params?.height_backward || 0
@@ -274,7 +278,7 @@ function ExtrudeFeatureWithCache(props: { feature: Feature; body: Body; isSelect
         <meshBasicMaterial
           color={color}
           transparent
-          opacity={0.08}
+          opacity={bodyOpacity}
           side={THREE.DoubleSide}
           depthWrite={false}
         />

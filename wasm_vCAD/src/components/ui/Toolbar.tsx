@@ -1,4 +1,4 @@
-import { Box, Circle, CircleDot, Square, MousePointer2, GitBranch, Save, FolderOpen } from 'lucide-react'
+import { Box, Circle, CircleDot, Square, MousePointer2, GitBranch, Save, FolderOpen, Settings } from 'lucide-react'
 import { useSceneStore } from '@/stores/sceneStore'
 import { useSketchStore } from '@/stores/sketchStore'
 import { useFaceSelectionStore } from '@/stores/faceSelectionStore'
@@ -8,6 +8,7 @@ import type { Body, SketchPlane, FaceCoordSystem } from '@/types/scene'
 import { useEffect, useState } from 'react'
 import { PlaneSelectDialog } from '@/components/dialogs/PlaneSelectDialog'
 import { OpenProjectDialog } from '@/components/dialogs/OpenProjectDialog'
+import { SettingsDialog } from '@/components/dialogs/SettingsDialog'
 import { saveSceneToFile, loadSceneFromFile } from '@/utils/fileOperations'
 import { preloadManifold } from '@/utils/manifoldCSG'
 
@@ -21,6 +22,7 @@ export function Toolbar() {
   const [showPlaneDialog, setShowPlaneDialog] = useState(false)
   const [pendingBodyId, setPendingBodyId] = useState<string | null>(null)
   const [showOpenProjectDialog, setShowOpenProjectDialog] = useState(false)
+  const [showSettingsDialog, setShowSettingsDialog] = useState(false)
 
   // Preload manifold-3d WASM on first render so first CSG is instant
   useEffect(() => { preloadManifold() }, [])
@@ -253,6 +255,10 @@ export function Toolbar() {
       onClose={() => setShowOpenProjectDialog(false)}
       onLoad={(scene) => { setScene(scene) }}
     />
+    <SettingsDialog
+      isOpen={showSettingsDialog}
+      onClose={() => setShowSettingsDialog(false)}
+    />
     <div className="h-12 bg-cad-surface border-b border-cad-border px-4 flex items-center gap-2">
       {/* File operations */}
       <button
@@ -346,6 +352,17 @@ export function Toolbar() {
       >
         <GitBranch size={18} />
         <span className="text-sm">Select Edge</span>
+      </button>
+
+      <div className="flex-1" />
+
+      <button
+        onClick={() => setShowSettingsDialog(true)}
+        className="px-3 py-1.5 bg-cad-hover hover:bg-cad-accent/20 rounded flex items-center gap-2 transition-colors"
+        title="Настройки"
+      >
+        <Settings size={18} />
+        <span className="text-sm">Настройки</span>
       </button>
 
     </div>
