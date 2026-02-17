@@ -220,7 +220,14 @@ export function SketchScene3D() {
     // Coincident constraint point selection mode
     if (selectingCoincidentPoints) {
       const pointHit = hitTestControlPoints(sketchPoint, elements, elements.map(el => el.id), 0.3)
-      if (pointHit) {
+      // Filter out UI-only handles that the Rust solver doesn't know about:
+      // line pointIndex=2 is the midpoint drag handle, circle pointIndex=1 is the radius handle
+      const hitElement = pointHit ? elements.find(el => el.id === pointHit.elementId) : null
+      const isValidCoincidentPoint = pointHit && hitElement && !(
+        (hitElement.type === 'line' && pointHit.pointIndex === 2) ||
+        (hitElement.type === 'circle' && pointHit.pointIndex === 1)
+      )
+      if (isValidCoincidentPoint && pointHit) {
         if (!coincidentPoint1) {
           setCoincidentPoint1({ elementId: pointHit.elementId, pointIndex: pointHit.pointIndex })
         } else {
