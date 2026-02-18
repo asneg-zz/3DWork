@@ -1,6 +1,7 @@
 import { Canvas } from '@react-three/fiber'
 import { OrbitControls, Grid, GizmoHelper, GizmoViewport, Environment } from '@react-three/drei'
 import { Suspense } from 'react'
+import * as THREE from 'three'
 import { useSketchStore } from '@/stores/sketchStore'
 import { SceneObjects } from './SceneObjects'
 import { SketchScene3D } from './SketchScene3D'
@@ -66,12 +67,23 @@ export function Viewport3D() {
             />
           )}
 
-          {/* Camera controls - disable rotate/pan in sketch mode */}
+          {/* Camera controls
+               3D mode  : left=rotate, middle=zoom, right=pan (default)
+               Sketch mode: left=draw (blocked), middle=rotate, right=pan */}
           <OrbitControls
             makeDefault
-            enableRotate={!sketchActive}
-            enablePan={!sketchActive}
+            enableRotate={true}
+            enablePan={true}
             enableZoom={true}
+            mouseButtons={sketchActive ? {
+              LEFT: undefined,
+              MIDDLE: THREE.MOUSE.ROTATE,
+              RIGHT: THREE.MOUSE.PAN,
+            } : {
+              LEFT: THREE.MOUSE.ROTATE,
+              MIDDLE: THREE.MOUSE.DOLLY,
+              RIGHT: THREE.MOUSE.PAN,
+            }}
           />
 
           {/* Gizmo */}
@@ -105,13 +117,16 @@ export function Viewport3D() {
         <div className="absolute top-4 left-4 bg-cad-surface/90 border border-cad-border rounded px-3 py-2 text-sm">
           <div className="text-cad-accent">Sketch Mode</div>
           <div className="text-xs text-cad-muted mt-1">
-            <kbd className="bg-cad-bg px-1 rounded">Scroll</kbd> Zoom
+            <kbd className="bg-cad-bg px-1 rounded">ЛКМ</kbd> Рисование
           </div>
           <div className="text-xs text-cad-muted">
-            <kbd className="bg-cad-bg px-1 rounded">Right Click</kbd> Menu
+            <kbd className="bg-cad-bg px-1 rounded">СКМ</kbd> Вращение
           </div>
           <div className="text-xs text-cad-muted">
-            <kbd className="bg-cad-bg px-1 rounded">Escape</kbd> Exit tool
+            <kbd className="bg-cad-bg px-1 rounded">Scroll</kbd> Масштаб
+          </div>
+          <div className="text-xs text-cad-muted">
+            <kbd className="bg-cad-bg px-1 rounded">Escape</kbd> Выход
           </div>
         </div>
       )}
