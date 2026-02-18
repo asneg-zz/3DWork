@@ -1,4 +1,4 @@
-import { MousePointer, Minus, Circle, Square, Check, X, Undo, Redo, Spline, Scissors, CornerUpRight, CopyPlus, FlipHorizontal, GitBranch, Waves, Pencil, Ruler, Box } from 'lucide-react'
+import { MousePointer, Minus, Circle, Square, Check, X, Undo, Redo, Spline, Scissors, CornerUpRight, CopyPlus, FlipHorizontal, GitBranch, Waves, Pencil, Ruler, Box, MinusSquare } from 'lucide-react'
 import { useState } from 'react'
 import { useSketchStore } from '@/stores/sketchStore'
 import { useSketchSave } from '@/hooks/useSketchSave'
@@ -15,6 +15,7 @@ export function SketchToolbar() {
   const { extrudeAndExit, cutAndExit, getExistingExtrudeParams } = useSketchExtrude()
 
   const [extrudeDialogOpen, setExtrudeDialogOpen] = useState(false)
+  const [extrudeDialogCutMode, setExtrudeDialogCutMode] = useState(false)
   const [extrudeParams, setExtrudeParams] = useState<{
     height: number
     heightBackward: number
@@ -22,7 +23,6 @@ export function SketchToolbar() {
   } | null>(null)
 
   const handleOpenExtrudeDialog = () => {
-    // Load existing parameters if extrude already exists
     const existing = getExistingExtrudeParams()
     if (existing) {
       setExtrudeParams({
@@ -33,6 +33,13 @@ export function SketchToolbar() {
     } else {
       setExtrudeParams(null)
     }
+    setExtrudeDialogCutMode(false)
+    setExtrudeDialogOpen(true)
+  }
+
+  const handleOpenCutDialog = () => {
+    setExtrudeParams(null)
+    setExtrudeDialogCutMode(true)
     setExtrudeDialogOpen(true)
   }
 
@@ -137,10 +144,20 @@ export function SketchToolbar() {
         onClick={handleOpenExtrudeDialog}
         disabled={!hasElements}
         className="px-3 py-1.5 bg-blue-600 text-white rounded flex items-center gap-2 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-        title="Extrude sketch to 3D"
+        title="Выдавить эскиз в 3D тело"
       >
         <Box size={16} />
-        <span className="text-sm">Extrude</span>
+        <span className="text-sm">Выдавить</span>
+      </button>
+
+      <button
+        onClick={handleOpenCutDialog}
+        disabled={!hasElements}
+        className="px-3 py-1.5 bg-red-700 text-white rounded flex items-center gap-2 hover:bg-red-800 disabled:opacity-50 disabled:cursor-not-allowed"
+        title="Вырезать эскиз из тела (CSG разность)"
+      >
+        <MinusSquare size={16} />
+        <span className="text-sm">Вырезать</span>
       </button>
 
       <div className="w-px h-6 bg-cad-border mx-2"></div>
@@ -175,6 +192,7 @@ export function SketchToolbar() {
         initialHeight={extrudeParams?.height}
         initialHeightBackward={extrudeParams?.heightBackward}
         initialDraftAngle={extrudeParams?.draftAngle}
+        initialIsCut={extrudeDialogCutMode}
       />
     </div>
   )

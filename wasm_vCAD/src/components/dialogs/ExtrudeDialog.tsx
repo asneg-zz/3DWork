@@ -13,6 +13,7 @@ export interface ExtrudeDialogProps {
   initialHeight?: number
   initialHeightBackward?: number
   initialDraftAngle?: number
+  initialIsCut?: boolean
 }
 
 export function ExtrudeDialog({
@@ -21,7 +22,8 @@ export function ExtrudeDialog({
   onConfirm,
   initialHeight,
   initialHeightBackward,
-  initialDraftAngle
+  initialDraftAngle,
+  initialIsCut = false,
 }: ExtrudeDialogProps) {
   const [isCut, setIsCut] = useState(false)
   const [height, setHeight] = useState(initialHeight ?? 1.0)
@@ -53,15 +55,21 @@ export function ExtrudeDialog({
     setDraftAngle(0.0)
   }
 
-  // Reset to extrude mode when dialog opens
+  // Sync state when dialog opens
   useEffect(() => {
     if (isOpen) {
-      setIsCut(false)
-      setHeight(initialHeight ?? 1.0)
-      setHeightBackward(initialHeightBackward ?? 0.0)
-      setDraftAngle(initialDraftAngle ?? 0.0)
+      setIsCut(initialIsCut)
+      if (initialIsCut) {
+        setHeight(1000)
+        setHeightBackward(1000)
+        setDraftAngle(0)
+      } else {
+        setHeight(initialHeight ?? 1.0)
+        setHeightBackward(initialHeightBackward ?? 0.0)
+        setDraftAngle(initialDraftAngle ?? 0.0)
+      }
     }
-  }, [isOpen, initialHeight, initialHeightBackward, initialDraftAngle])
+  }, [isOpen, initialHeight, initialHeightBackward, initialDraftAngle, initialIsCut])
 
   if (!isOpen) return null
 
