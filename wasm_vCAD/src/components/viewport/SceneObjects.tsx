@@ -46,6 +46,8 @@ function createGeometryFromMeshData(meshData: MeshData): THREE.BufferGeometry {
 function BooleanFeature({ feature, body, isSelected }: { feature: Feature; body: Body; isSelected: boolean }) {
   const { bodyOpacity, bodyColor, selectionColor } = useSettingsStore()
   const color = isSelected ? selectionColor : bodyColor
+  // When opaque: darken edges so they contrast with the fill; when transparent: same as fill
+  const edgeColor = bodyOpacity >= 1 ? new THREE.Color(color).multiplyScalar(0.45) : color
 
   const geometry = useMemo(() => {
     if (!feature.cached_mesh_vertices || !feature.cached_mesh_indices) {
@@ -82,7 +84,7 @@ function BooleanFeature({ feature, body, isSelected }: { feature: Feature; body:
       </mesh>
       {/* visible edges */}
       <lineSegments geometry={edgesGeometry}>
-        <lineBasicMaterial color={color} />
+        <lineBasicMaterial color={edgeColor} />
       </lineSegments>
       <FaceHighlight feature={feature} body={body} geometry={geometry} />
       <EdgeHighlight feature={feature} body={body} geometry={geometry} />
@@ -95,6 +97,8 @@ function BooleanFeature({ feature, body, isSelected }: { feature: Feature; body:
 function CutFeature({ feature, body, isSelected }: { feature: Feature; body: Body; isSelected: boolean }) {
   const { bodyOpacity, bodyColor, selectionColor } = useSettingsStore()
   const color = isSelected ? selectionColor : bodyColor
+  // When opaque: darken edges so they contrast with the fill; when transparent: same as fill
+  const edgeColor = bodyOpacity >= 1 ? new THREE.Color(color).multiplyScalar(0.45) : color
 
   const geometry = useMemo(() => {
     if (!feature.cached_mesh_vertices || !feature.cached_mesh_indices) {
@@ -129,7 +133,7 @@ function CutFeature({ feature, body, isSelected }: { feature: Feature; body: Bod
         />
       </mesh>
       <lineSegments geometry={edgesGeometry}>
-        <lineBasicMaterial color={color} />
+        <lineBasicMaterial color={edgeColor} />
       </lineSegments>
       <FaceHighlight feature={feature} body={body} geometry={geometry} />
       <EdgeHighlight feature={feature} body={body} geometry={geometry} />
@@ -267,6 +271,8 @@ function PrimitiveFeatureWithCache(props: { feature: Feature; body: Body; isSele
   const { feature, body, isSelected } = props
   const { bodyOpacity, bodyColor, selectionColor } = useSettingsStore()
   const color = isSelected ? selectionColor : bodyColor
+  // When opaque: darken edges so they contrast with the fill; when transparent: same as fill
+  const edgeColor = bodyOpacity >= 1 ? new THREE.Color(color).multiplyScalar(0.45) : color
 
   const geometry = useMemo(() => {
     if (!feature.primitive) return new THREE.BoxGeometry(1, 1, 1)
@@ -334,7 +340,7 @@ function PrimitiveFeatureWithCache(props: { feature: Feature; body: Body; isSele
       </mesh>
       {/* visible edges */}
       <lineSegments geometry={edgesGeometry}>
-        <lineBasicMaterial color={color} />
+        <lineBasicMaterial color={edgeColor} />
       </lineSegments>
       <FaceHighlight feature={feature} body={body} geometry={geometry} />
       <EdgeHighlight feature={feature} body={body} geometry={geometry} />
@@ -346,6 +352,8 @@ function ExtrudeFeatureWithCache(props: { feature: Feature; body: Body; isSelect
   const { feature, body, isSelected } = props
   const { bodyOpacity, bodyColor, selectionColor } = useSettingsStore()
   const color = isSelected ? selectionColor : bodyColor
+  // When opaque: darken edges so they contrast with the fill; when transparent: same as fill
+  const edgeColor = bodyOpacity >= 1 ? new THREE.Color(color).multiplyScalar(0.45) : color
 
   const height = feature.extrude_params?.height || 1
   const heightBackward = feature.extrude_params?.height_backward || 0
@@ -393,7 +401,7 @@ function ExtrudeFeatureWithCache(props: { feature: Feature; body: Body; isSelect
       </mesh>
       {/* visible edges */}
       <lineSegments geometry={edgesGeometry}>
-        <lineBasicMaterial color={color} />
+        <lineBasicMaterial color={edgeColor} />
       </lineSegments>
       <FaceHighlight feature={feature} body={body} geometry={geometry} />
       <EdgeHighlight feature={feature} body={body} geometry={geometry} />
