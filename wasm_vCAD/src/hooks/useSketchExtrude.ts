@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { useSceneStore } from '@/stores/sceneStore'
 import { useSketchStore } from '@/stores/sketchStore'
 import { engine } from '@/wasm/engine'
-import { performCSGCut, serializeGeometry, deserializeGeometry } from '@/utils/manifoldCSG'
+import { performCSG, performCSGCut, serializeGeometry, deserializeGeometry } from '@/utils/manifoldCSG'
 import { generateExtrudeMesh } from '@/utils/extrudeMesh'
 import { geometryCache } from '@/utils/geometryCache'
 import { useNotificationStore } from '@/stores/notificationStore'
@@ -62,7 +62,7 @@ export function useSketchExtrude() {
     return null
   }
 
-  const extrudeAndExit = (height: number, heightBackward: number, draftAngle: number) => {
+  const extrudeAndExit = async (height: number, heightBackward: number, draftAngle: number) => {
     if (!sketchBodyId || !sketchId) {
       exitSketch()
       return
@@ -103,39 +103,95 @@ export function useSketchExtrude() {
           f => f.type === 'extrude' && f.sketch_id === sketchId
         )
 
-        if (existingExtrude) {
-          // Update existing extrude parameters
-          const updatedExtrudeFeature = {
-            ...existingExtrude,
-            name: `Extrude ${height.toFixed(2)}`,
-            extrude_params: {
-              height,
-              height_backward: heightBackward,
-              draft_angle: draftAngle
-            }
-          }
-          updateFeature(sketchBodyId, existingExtrude.id, updatedExtrudeFeature)
-        } else {
-          // Create new extrude feature
-          const extrudeId = engine.extrudeSketch(sketchId, height, heightBackward, draftAngle)
+        // Find the last feature with cached geometry (cut or boss extrude)
+        const lastCachedFeature = [...body.features].reverse().find(
+          f => (f.type === 'cut' || f.type === 'extrude') && f.cached_mesh_vertices && f.cached_mesh_indices
+        )
 
-          const extrudeFeature = {
+        if (existingExtrude) {
+          // Update existing extrude
+          if (existingExtrude.cached_mesh_vertices && existingExtrude.cached_mesh_indices) {
+            // Re-edit boss extrude: redo CSG union from base geometry
+            let baseGeo: THREE.BufferGeometry | null = null
+            if (existingExtrude.base_mesh_vertices && existingExtrude.base_mesh_indices) {
+              baseGeo = deserializeGeometry({
+                vertices: existingExtrude.base_mesh_vertices,
+                indices: existingExtrude.base_mesh_indices,
+              })
+            } else {
+              baseGeo = geometryCache.get(sketchBodyId) ?? null
+            }
+            if (baseGeo) {
+              const extrudeGeo = generateExtrudeMesh(elements, plane, height, heightBackward, planeOffset, faceCoordSystem ?? null)
+              const resultGeo = await performCSG(baseGeo, extrudeGeo, 'union')
+              const { vertices, indices } = serializeGeometry(resultGeo)
+              updateFeature(sketchBodyId, existingExtrude.id, {
+                ...existingExtrude,
+                name: `Extrude ${height.toFixed(2)}`,
+                extrude_params: { height, height_backward: heightBackward, draft_angle: draftAngle },
+                cached_mesh_vertices: vertices,
+                cached_mesh_indices: indices,
+              })
+            } else {
+              updateFeature(sketchBodyId, existingExtrude.id, {
+                ...existingExtrude,
+                name: `Extrude ${height.toFixed(2)}`,
+                extrude_params: { height, height_backward: heightBackward, draft_angle: draftAngle },
+              })
+            }
+          } else {
+            // Simple extrude update (no cached mesh)
+            updateFeature(sketchBodyId, existingExtrude.id, {
+              ...existingExtrude,
+              name: `Extrude ${height.toFixed(2)}`,
+              extrude_params: { height, height_backward: heightBackward, draft_angle: draftAngle },
+            })
+          }
+        } else if (lastCachedFeature) {
+          // Body already has cached geometry (from cuts or previous boss extrudes).
+          // Perform CSG union so the new extrude merges with the existing solid.
+          const bodyGeo = deserializeGeometry({
+            vertices: lastCachedFeature.cached_mesh_vertices!,
+            indices: lastCachedFeature.cached_mesh_indices!,
+          })
+          const { vertices: baseV, indices: baseI } = serializeGeometry(bodyGeo)
+
+          const extrudeGeo = generateExtrudeMesh(elements, plane, height, heightBackward, planeOffset, faceCoordSystem ?? null)
+          const resultGeo = await performCSG(bodyGeo, extrudeGeo, 'union')
+          const { vertices, indices } = serializeGeometry(resultGeo)
+
+          const extrudeId = engine.extrudeSketch(sketchId, height, heightBackward, draftAngle)
+          const extrudeFeature: Feature = {
             id: extrudeId,
             type: 'extrude' as const,
             name: `Extrude ${height.toFixed(2)}`,
             sketch_id: sketchId,
-            extrude_params: {
-              height,
-              height_backward: heightBackward,
-              draft_angle: draftAngle
-            }
+            extrude_params: { height, height_backward: heightBackward, draft_angle: draftAngle },
+            cached_mesh_vertices: vertices,
+            cached_mesh_indices: indices,
+            base_mesh_vertices: baseV,
+            base_mesh_indices: baseI,
           }
-
+          addFeature(sketchBodyId, extrudeFeature)
+        } else {
+          // Simple extrude on body without cached geometry
+          const extrudeId = engine.extrudeSketch(sketchId, height, heightBackward, draftAngle)
+          const extrudeFeature: Feature = {
+            id: extrudeId,
+            type: 'extrude' as const,
+            name: `Extrude ${height.toFixed(2)}`,
+            sketch_id: sketchId,
+            extrude_params: { height, height_backward: heightBackward, draft_angle: draftAngle },
+          }
           addFeature(sketchBodyId, extrudeFeature)
         }
       }
     } catch (error) {
       console.error('Extrude operation failed:', error)
+      useNotificationStore.getState().show(
+        'Ошибка выдавливания: ' + (error instanceof Error ? error.message : String(error)),
+        'error'
+      )
     } finally {
       // Always exit sketch mode, even if extrude fails
       exitSketch()

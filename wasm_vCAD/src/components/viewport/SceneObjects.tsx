@@ -99,16 +99,24 @@ function useRebuildUncachedCuts(bodies: Body[]) {
               bodyGeo = buildPrimitiveGeo(feature.primitive)
 
             } else if (feature.type === 'extrude') {
-              const sk = body.features.find(f => f.id === feature.sketch_id)
-              if (sk?.type === 'sketch' && sk.sketch) {
-                bodyGeo = generateExtrudeMesh(
-                  sk.sketch.elements,
-                  sk.sketch.plane,
-                  feature.extrude_params?.height ?? 1,
-                  feature.extrude_params?.height_backward ?? 0,
-                  sk.sketch.offset ?? 0,
-                  sk.sketch.face_coord_system ?? null
-                )
+              if (feature.cached_mesh_vertices && feature.cached_mesh_indices) {
+                // Boss extrude: use cached CSG-union result as the running geometry
+                bodyGeo = deserializeGeometry({
+                  vertices: feature.cached_mesh_vertices,
+                  indices: feature.cached_mesh_indices,
+                })
+              } else {
+                const sk = body.features.find(f => f.id === feature.sketch_id)
+                if (sk?.type === 'sketch' && sk.sketch) {
+                  bodyGeo = generateExtrudeMesh(
+                    sk.sketch.elements,
+                    sk.sketch.plane,
+                    feature.extrude_params?.height ?? 1,
+                    feature.extrude_params?.height_backward ?? 0,
+                    sk.sketch.offset ?? 0,
+                    sk.sketch.face_coord_system ?? null
+                  )
+                }
               }
 
             } else if (feature.type === 'cut') {
@@ -347,16 +355,16 @@ function BodyObject({ body, isSelected }: { body: Body; isSelected: boolean }) {
     )
   }, [body.id, body.features])
 
-  // If the body has a cut feature with a cached mesh, render only that
-  // (it represents body minus the cut tool — no need to also render primitive/extrude)
-  const lastCutFeature = [...body.features].reverse().find(
-    f => f.type === 'cut' && f.cached_mesh_vertices && f.cached_mesh_indices
+  // If the body has a cut or boss-extrude feature with a cached mesh, render only that.
+  // CutFeature renders from cached_mesh_vertices, so it works for both cuts and boss extrudes.
+  const lastCachedFeature = [...body.features].reverse().find(
+    f => (f.type === 'cut' || f.type === 'extrude') && f.cached_mesh_vertices && f.cached_mesh_indices
   )
 
   return (
     <group onClick={handleBodyClick as any} onContextMenu={handleContextMenu as any}>
-      {lastCutFeature ? (
-        <CutFeature feature={lastCutFeature} body={body} isSelected={isSelected} />
+      {lastCachedFeature ? (
+        <CutFeature feature={lastCachedFeature} body={body} isSelected={isSelected} />
       ) : (
         body.features.map(feature => {
           if (feature.type === 'primitive' && feature.primitive) {
