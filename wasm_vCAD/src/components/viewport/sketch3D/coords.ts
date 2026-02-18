@@ -74,7 +74,8 @@ export function planeRotation(plane: SketchPlane, fcs?: FaceCoordSystem | null):
  * Position of the interaction plane.
  * Offset slightly toward the camera so it's hit before the body face.
  */
-const PLANE_EPSILON = 0.004
+/** Small epsilon so rendered sketch geometry floats above body faces (prevents Z-fighting). */
+export const PLANE_EPSILON = 0.004
 
 export function planePosition(
   plane: SketchPlane,

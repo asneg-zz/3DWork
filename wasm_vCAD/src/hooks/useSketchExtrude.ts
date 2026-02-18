@@ -1,7 +1,9 @@
+import * as THREE from 'three'
 import { useSceneStore } from '@/stores/sceneStore'
 import { useSketchStore } from '@/stores/sketchStore'
 import { engine } from '@/wasm/engine'
 import { performCSGCut, serializeGeometry, deserializeGeometry } from '@/utils/manifoldCSG'
+import { generateExtrudeMesh } from '@/utils/extrudeMesh'
 import { geometryCache } from '@/utils/geometryCache'
 import { useNotificationStore } from '@/stores/notificationStore'
 import type { Feature } from '@/types/scene'
@@ -183,19 +185,47 @@ export function useSketchExtrude() {
 
       let bodyGeo
       if (existingCut) {
-        // UPDATE existing cut: re-use stored pre-cut geometry to avoid cutting from already-cut mesh
-        if (!existingCut.base_mesh_vertices || !existingCut.base_mesh_indices) {
-          useNotificationStore.getState().show(
-            'Нет базовой геометрии для обновления выреза.',
-            'warning'
-          )
-          exitSketch()
-          return
+        // UPDATE existing cut: re-use stored pre-cut geometry to avoid cutting from already-cut mesh.
+        if (existingCut.base_mesh_vertices && existingCut.base_mesh_indices) {
+          bodyGeo = deserializeGeometry({
+            vertices: existingCut.base_mesh_vertices,
+            indices: existingCut.base_mesh_indices,
+          })
+        } else {
+          // base_mesh not yet populated (race with useRebuildUncachedCuts) — rebuild by replaying
+          // all features that precede this cut in the feature list.
+          let rebuiltBase: THREE.BufferGeometry | null = null
+          for (const f of body.features) {
+            if (f.id === existingCut.id) break
+            if (f.type === 'extrude') {
+              const sk = body.features.find(bf => bf.id === f.sketch_id)
+              if (sk?.type === 'sketch' && sk.sketch) {
+                rebuiltBase = generateExtrudeMesh(
+                  sk.sketch.elements,
+                  sk.sketch.plane,
+                  f.extrude_params?.height ?? 1,
+                  f.extrude_params?.height_backward ?? 0,
+                  sk.sketch.offset ?? 0,
+                  sk.sketch.face_coord_system ?? null,
+                )
+              }
+            } else if (f.type === 'cut' && f.cached_mesh_vertices && f.cached_mesh_indices) {
+              rebuiltBase = deserializeGeometry({
+                vertices: f.cached_mesh_vertices,
+                indices: f.cached_mesh_indices,
+              })
+            }
+          }
+          if (!rebuiltBase) {
+            useNotificationStore.getState().show(
+              'Нет базовой геометрии для обновления выреза.',
+              'warning'
+            )
+            exitSketch()
+            return
+          }
+          bodyGeo = rebuiltBase
         }
-        bodyGeo = deserializeGeometry({
-          vertices: existingCut.base_mesh_vertices,
-          indices: existingCut.base_mesh_indices,
-        })
       } else {
         // CREATE new cut: body must have geometry in cache
         bodyGeo = geometryCache.get(sketchBodyId)

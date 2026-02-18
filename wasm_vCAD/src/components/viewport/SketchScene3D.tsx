@@ -23,7 +23,7 @@ import * as SketchOps from './sketchOperations'
 import { engine } from '@/wasm/engine'
 
 // Sub-modules
-import { sketchToWorld, worldToSketch, planeRotation, planePosition } from './sketch3D/coords'
+import { sketchToWorld, worldToSketch, planeRotation, planePosition, PLANE_EPSILON } from './sketch3D/coords'
 import { SketchElements3D, SketchControlPoints3D } from './sketch3D/SketchElements3D'
 import { SnapIndicator3D } from './sketch3D/SnapIndicator3D'
 import { SketchPreview3D } from './sketch3D/SketchPreview3D'
@@ -697,23 +697,40 @@ export function SketchScene3D() {
   const rot = planeRotation(sketchPlane, faceCoordSystem)
   const pos = planePosition(sketchPlane, planeOffset, faceCoordSystem)
 
+  // Offset visual elements slightly above the face to prevent Z-fighting with the body surface.
+  // planePosition() already adds PLANE_EPSILON for the interaction mesh; we reuse the same value.
+  const renderOffset = sketchPlane !== 'CUSTOM' ? planeOffset + PLANE_EPSILON : planeOffset
+  const renderFcs = useMemo(() => {
+    if (!faceCoordSystem || sketchPlane !== 'CUSTOM') return faceCoordSystem
+    const n = faceCoordSystem.normal
+    return {
+      ...faceCoordSystem,
+      origin: [
+        faceCoordSystem.origin[0] + n[0] * PLANE_EPSILON,
+        faceCoordSystem.origin[1] + n[1] * PLANE_EPSILON,
+        faceCoordSystem.origin[2] + n[2] * PLANE_EPSILON,
+      ] as [number, number, number],
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [faceCoordSystem, sketchPlane])
+
   const xAxisLine = useMemo(() => new THREE.Line(
     new THREE.BufferGeometry().setFromPoints([
-      sketchToWorld(-20, 0, sketchPlane, planeOffset, faceCoordSystem),
-      sketchToWorld(20, 0, sketchPlane, planeOffset, faceCoordSystem),
+      sketchToWorld(-20, 0, sketchPlane, renderOffset, renderFcs),
+      sketchToWorld(20, 0, sketchPlane, renderOffset, renderFcs),
     ]),
     new THREE.LineBasicMaterial({ color: '#4a9eff' })
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  ), [sketchPlane, planeOffset, faceCoordSystem])
+  ), [sketchPlane, renderOffset, renderFcs])
 
   const yAxisLine = useMemo(() => new THREE.Line(
     new THREE.BufferGeometry().setFromPoints([
-      sketchToWorld(0, -20, sketchPlane, planeOffset, faceCoordSystem),
-      sketchToWorld(0, 20, sketchPlane, planeOffset, faceCoordSystem),
+      sketchToWorld(0, -20, sketchPlane, renderOffset, renderFcs),
+      sketchToWorld(0, 20, sketchPlane, renderOffset, renderFcs),
     ]),
     new THREE.LineBasicMaterial({ color: '#4ade80' })
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  ), [sketchPlane, planeOffset, faceCoordSystem])
+  ), [sketchPlane, renderOffset, renderFcs])
 
   return (
     <group>
@@ -735,8 +752,8 @@ export function SketchScene3D() {
         construction={construction}
         symmetryAxis={symmetryAxis}
         plane={sketchPlane}
-        offset={planeOffset}
-        fcs={faceCoordSystem}
+        offset={renderOffset}
+        fcs={renderFcs}
       />
 
       {/* Control points for selected elements */}
@@ -745,16 +762,16 @@ export function SketchScene3D() {
         selectedIds={selectedElementIds}
         hoveredPoint={hoveredControlPoint}
         plane={sketchPlane}
-        offset={planeOffset}
-        fcs={faceCoordSystem}
+        offset={renderOffset}
+        fcs={renderFcs}
       />
 
       {/* Snap indicator */}
       <SnapIndicator3D
         snapPoints={snapPoints}
         plane={sketchPlane}
-        offset={planeOffset}
-        fcs={faceCoordSystem}
+        offset={renderOffset}
+        fcs={renderFcs}
       />
 
       {/* Drawing preview */}
@@ -766,8 +783,8 @@ export function SketchScene3D() {
         arcMidPoint={arcMidPoint}
         polylinePoints={polylinePoints}
         plane={sketchPlane}
-        offset={planeOffset}
-        fcs={faceCoordSystem}
+        offset={renderOffset}
+        fcs={renderFcs}
       />
 
       {/* Invisible interaction plane - captures pointer events */}
