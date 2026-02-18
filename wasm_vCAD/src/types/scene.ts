@@ -170,8 +170,10 @@ export interface Feature {
   // Boolean CSG
   boolean_operation?: BooleanOperation
   boolean_body_ids?: string[]       // Source body IDs (for reference)
-  cached_mesh_vertices?: number[]   // Serialized position array
-  cached_mesh_indices?: number[]    // Serialized index array
+  cached_mesh_vertices?: number[]   // Serialized position array (result mesh)
+  cached_mesh_indices?: number[]    // Serialized index array (result mesh)
+  base_mesh_vertices?: number[]     // Pre-cut body geometry (for re-editing cuts)
+  base_mesh_indices?: number[]      // Pre-cut body geometry (for re-editing cuts)
 }
 
 export interface Body {

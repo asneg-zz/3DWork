@@ -2,7 +2,7 @@ import { useSceneStore } from '@/stores/sceneStore'
 import { useSketchStore } from '@/stores/sketchStore'
 import { engine } from '@/wasm/engine'
 import { generateExtrudeMesh } from '@/utils/extrudeMesh'
-import { performCSG, serializeGeometry } from '@/utils/manifoldCSG'
+import { performCSG, serializeGeometry, deserializeGeometry } from '@/utils/manifoldCSG'
 import { geometryCache } from '@/utils/geometryCache'
 import { useNotificationStore } from '@/stores/notificationStore'
 import type { Feature } from '@/types/scene'
@@ -179,18 +179,38 @@ export function useSketchExtrude() {
         addFeature(sketchBodyId, sketchFeature)
       }
 
-      // Get current body geometry from cache (must exist — body must be already extruded)
-      const bodyGeo = geometryCache.get(sketchBodyId)
-      if (!bodyGeo) {
-        useNotificationStore.getState().show(
-          'Вырез невозможен: тело не имеет геометрии. Сначала создайте выдавливание.',
-          'warning'
-        )
-        exitSketch()
-        return
+      // Check if a cut already exists for this sketch (only one allowed)
+      const existingCut = body.features.find(f => f.type === 'cut' && f.sketch_id === sketchId)
+
+      let bodyGeo
+      if (existingCut) {
+        // UPDATE existing cut: re-use stored pre-cut geometry to avoid cutting from already-cut mesh
+        if (!existingCut.base_mesh_vertices || !existingCut.base_mesh_indices) {
+          useNotificationStore.getState().show(
+            'Нет базовой геометрии для обновления выреза.',
+            'warning'
+          )
+          exitSketch()
+          return
+        }
+        bodyGeo = deserializeGeometry({
+          vertices: existingCut.base_mesh_vertices,
+          indices: existingCut.base_mesh_indices,
+        })
+      } else {
+        // CREATE new cut: body must have geometry in cache
+        bodyGeo = geometryCache.get(sketchBodyId)
+        if (!bodyGeo) {
+          useNotificationStore.getState().show(
+            'Вырез невозможен: тело не имеет геометрии. Сначала создайте выдавливание.',
+            'warning'
+          )
+          exitSketch()
+          return
+        }
       }
 
-      // Build cut tool mesh: extrude the sketch profile with specified depth
+      // Build cut tool mesh
       const cutToolGeo = generateExtrudeMesh(
         elements,
         plane,
@@ -204,21 +224,40 @@ export function useSketchExtrude() {
       const resultGeo = await performCSG(bodyGeo, cutToolGeo, 'difference')
       const { vertices, indices } = serializeGeometry(resultGeo)
 
-      const cutFeature: Feature = {
-        id: crypto.randomUUID(),
-        type: 'cut',
-        name: `Cut`,
-        sketch_id: sketchId,
-        extrude_params: {
-          height,
-          height_backward: heightBackward,
-          draft_angle: draftAngle,
-        },
-        cached_mesh_vertices: vertices,
-        cached_mesh_indices: indices,
-      }
+      if (existingCut) {
+        // Update existing cut feature (keep stored base_mesh intact)
+        updateFeature(sketchBodyId, existingCut.id, {
+          ...existingCut,
+          extrude_params: {
+            height,
+            height_backward: heightBackward,
+            draft_angle: draftAngle,
+          },
+          cached_mesh_vertices: vertices,
+          cached_mesh_indices: indices,
+        })
+      } else {
+        // Serialize base geometry for future re-edits
+        const { vertices: baseV, indices: baseI } = serializeGeometry(bodyGeo)
 
-      addFeature(sketchBodyId, cutFeature)
+        const cutFeature: Feature = {
+          id: crypto.randomUUID(),
+          type: 'cut',
+          name: `Cut`,
+          sketch_id: sketchId,
+          extrude_params: {
+            height,
+            height_backward: heightBackward,
+            draft_angle: draftAngle,
+          },
+          cached_mesh_vertices: vertices,
+          cached_mesh_indices: indices,
+          base_mesh_vertices: baseV,
+          base_mesh_indices: baseI,
+        }
+
+        addFeature(sketchBodyId, cutFeature)
+      }
     } catch (error) {
       console.error('Cut operation failed:', error)
       useNotificationStore.getState().show(

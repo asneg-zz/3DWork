@@ -4,6 +4,8 @@ import { useSceneStore } from '@/stores/sceneStore'
 import { useBooleanStore } from '@/stores/booleanStore'
 import { useSketchStore } from '@/stores/sketchStore'
 import { ContextMenu } from '@/components/ui/ContextMenu'
+import { ExtrudeDialog } from '@/components/dialogs/ExtrudeDialog'
+import { useFeatureEdit } from '@/hooks/useFeatureEdit'
 import type { Feature } from '@/types/scene'
 
 export function SceneTree() {
@@ -22,10 +24,18 @@ export function SceneTree() {
 
   const loadSketch = useSketchStore((s) => s.loadSketch)
 
+  const { editExtrudeFeature, editCutFeature } = useFeatureEdit()
+
   const [expandedBodyIds, setExpandedBodyIds] = useState<Set<string>>(new Set())
   const [contextMenu, setContextMenu] = useState<{
     x: number
     y: number
+    bodyId: string
+    feature: Feature
+  } | null>(null)
+
+  // Edit dialog state
+  const [editDialog, setEditDialog] = useState<{
     bodyId: string
     feature: Feature
   } | null>(null)
@@ -43,22 +53,18 @@ export function SceneTree() {
   }
 
   const handleSelectBody = (bodyId: string, event: React.MouseEvent) => {
-    // If Boolean mode is active, use Boolean selection
     if (booleanActive) {
       toggleBooleanSelection(bodyId)
       return
     }
 
-    // Normal selection mode
     if (event.ctrlKey || event.metaKey) {
-      // Multi-select
       if (selectedBodyIds.includes(bodyId)) {
         deselectBody(bodyId)
       } else {
         selectBody(bodyId)
       }
     } else {
-      // Single select
       clearSelection()
       selectBody(bodyId)
     }
@@ -107,6 +113,13 @@ export function SceneTree() {
     setContextMenu(null)
   }
 
+  const handleOpenEditDialog = () => {
+    if (!contextMenu) return
+    const { bodyId, feature } = contextMenu
+    setEditDialog({ bodyId, feature })
+    setContextMenu(null)
+  }
+
   const handleDeleteFeature = () => {
     if (!contextMenu) return
 
@@ -114,6 +127,12 @@ export function SceneTree() {
     removeFeature(bodyId, feature.id)
     setContextMenu(null)
   }
+
+  const isEditableFeature = (feature: Feature) =>
+    feature.type === 'extrude' || feature.type === 'cut'
+
+  const editDialogIsCut = editDialog?.feature.type === 'cut'
+  const editDialogInitialParams = editDialog?.feature.extrude_params
 
   return (
     <div className="p-3">
@@ -191,6 +210,12 @@ export function SceneTree() {
           y={contextMenu.y}
           items={[
             {
+              label: 'Редактировать',
+              icon: <Edit size={16} />,
+              onClick: handleOpenEditDialog,
+              disabled: !isEditableFeature(contextMenu.feature),
+            },
+            {
               label: 'Edit Sketch',
               icon: <Edit size={16} />,
               onClick: handleEditSketch,
@@ -204,6 +229,26 @@ export function SceneTree() {
             },
           ]}
           onClose={() => setContextMenu(null)}
+        />
+      )}
+
+      {editDialog && (
+        <ExtrudeDialog
+          isOpen={true}
+          onClose={() => setEditDialog(null)}
+          initialIsCut={editDialogIsCut}
+          initialHeight={editDialogInitialParams?.height}
+          initialHeightBackward={editDialogInitialParams?.height_backward}
+          initialDraftAngle={editDialogInitialParams?.draft_angle}
+          onConfirm={(height, heightBackward, draftAngle, isCut) => {
+            const { bodyId, feature } = editDialog
+            if (isCut || feature.type === 'cut') {
+              editCutFeature(bodyId, feature.id, height, heightBackward, draftAngle)
+            } else {
+              editExtrudeFeature(bodyId, feature.id, height, heightBackward, draftAngle)
+            }
+            setEditDialog(null)
+          }}
         />
       )}
     </div>
