@@ -11,7 +11,7 @@ import { engine } from '@/wasm/engine'
 import type { MeshData } from '@/types/mesh'
 import type { Feature, Body } from '@/types/scene'
 import { generateExtrudeMesh } from '@/utils/extrudeMesh'
-import { performCSG, serializeGeometry, deserializeGeometry } from '@/utils/manifoldCSG'
+import { performCSGCut, serializeGeometry, deserializeGeometry } from '@/utils/manifoldCSG'
 import { geometryCache } from '@/utils/geometryCache'
 import { normalToPlane, calculateOffset, computeFaceCoordSystem, computeGeometricFaceData } from '@/utils/faceUtils'
 import { FaceHighlight } from './FaceHighlight'
@@ -129,35 +129,20 @@ function useRebuildUncachedCuts(bodies: Body[]) {
               const sk = body.features.find(f => f.id === feature.sketch_id)
               if (sk?.type !== 'sketch' || !sk.sketch) continue
 
-              // Mirror the direction logic from useSketchExtrude.cutAndExit:
-              // if face normal aligns with plane positive normal → swap height↔heightBackward
-              let toolH  = feature.extrude_params?.height          ?? 1000
-              let toolHB = feature.extrude_params?.height_backward ?? 0
+              const toolH  = feature.extrude_params?.height          ?? 1000
+              const toolHB = feature.extrude_params?.height_backward ?? 0
               const fcs = sk.sketch.face_coord_system ?? null
-              if (fcs) {
-                const fn = fcs.normal
-                let dot = 0
-                const p = sk.sketch.plane
-                if (p === 'XY') dot = fn[2]
-                else if (p === 'XZ') dot = fn[1]
-                else if (p === 'YZ') dot = fn[0]
-                if (dot > 0) { const tmp = toolH; toolH = toolHB; toolHB = tmp }
-              } else if (sk.sketch.plane !== 'CUSTOM') {
-                // No fcs (desktop scene or toolbar sketch) → always swap for standard planes
-                const tmp = toolH; toolH = toolHB; toolHB = tmp
-              }
-
-              const cutTool = generateExtrudeMesh(
-                sk.sketch.elements,
-                sk.sketch.plane,
-                toolH,
-                toolHB,
-                sk.sketch.offset ?? 0,
-                fcs
-              )
 
               const baseGeo = bodyGeo
-              const result = await performCSG(baseGeo, cutTool, 'difference')
+              const result = await performCSGCut(
+                baseGeo,
+                sk.sketch.elements,
+                sk.sketch.plane,
+                sk.sketch.offset ?? 0,
+                fcs,
+                toolH,
+                toolHB,
+              )
 
               if (cancelled) break
 

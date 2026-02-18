@@ -1,8 +1,7 @@
 import { useSceneStore } from '@/stores/sceneStore'
 import { useSketchStore } from '@/stores/sketchStore'
 import { engine } from '@/wasm/engine'
-import { generateExtrudeMesh } from '@/utils/extrudeMesh'
-import { performCSG, serializeGeometry, deserializeGeometry } from '@/utils/manifoldCSG'
+import { performCSGCut, serializeGeometry, deserializeGeometry } from '@/utils/manifoldCSG'
 import { geometryCache } from '@/utils/geometryCache'
 import { useNotificationStore } from '@/stores/notificationStore'
 import type { Feature } from '@/types/scene'
@@ -210,55 +209,18 @@ export function useSketchExtrude() {
         }
       }
 
-      // Determine cut tool direction.
-      // The plane's positive normal points outward from the sketch face.
-      // To cut INTO the body we must go in the OPPOSITE direction.
-      //
-      // If the face outward normal aligns with the plane's positive normal
-      // (e.g. top face of a box: face normal = +Z = XY plane normal),
-      // the cut must travel in −normal, so we swap height↔heightBackward:
-      //   bottom = planeOffset − height * normal  (into body)
-      //   top    = planeOffset + heightBackward * normal  (above face, if any)
-      //
-      // If the face normal is opposite (e.g. bottom face: face normal = −Z),
-      // the cut already travels in +normal into the body — keep values as-is.
-      let toolHeight = height
-      let toolHeightBackward = heightBackward
-
-      if (faceCoordSystem) {
-        const fn = faceCoordSystem.normal  // world-space outward face normal
-        // Dot product with the plane's canonical positive normal
-        let dot = 0
-        if (plane === 'XY') dot = fn[2]       // plane normal = [0,0,1]
-        else if (plane === 'XZ') dot = fn[1]  // plane normal = [0,1,0]
-        else if (plane === 'YZ') dot = fn[0]  // plane normal = [1,0,0]
-
-        if (dot > 0) {
-          // Face normal same direction as plane normal → swap to cut downward
-          toolHeight = heightBackward
-          toolHeightBackward = height
-        }
-        // dot < 0: face normal opposite → +normal goes into body, keep as-is
-      } else if (plane !== 'CUSTOM') {
-        // No face coord system = sketch plane selected from toolbar.
-        // Standard convention: cuts go in -normal direction (into body from outer face).
-        // XY → -Z (downward), XZ → -Y (into front face), YZ → -X (into side face).
-        toolHeight = heightBackward
-        toolHeightBackward = height
-      }
-
-      // Build cut tool mesh
-      const cutToolGeo = generateExtrudeMesh(
+      // CSG difference using Manifold's native extrude for the cut tool.
+      // The cut tool always spans height in +normal and heightBackward in -normal,
+      // so it passes through the body in both directions (through-all cut).
+      const resultGeo = await performCSGCut(
+        bodyGeo,
         elements,
         plane,
-        toolHeight,
-        toolHeightBackward,
         planeOffset,
-        faceCoordSystem ?? null
+        faceCoordSystem ?? null,
+        height,
+        heightBackward,
       )
-
-      // CSG difference: body - cut tool
-      const resultGeo = await performCSG(bodyGeo, cutToolGeo, 'difference')
       const { vertices, indices } = serializeGeometry(resultGeo)
 
       if (existingCut) {

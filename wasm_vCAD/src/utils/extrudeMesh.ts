@@ -136,6 +136,57 @@ function ptEq(a: Point2D, b: Point2D): boolean {
   return Math.abs(a.x - b.x) < COINCIDENCE_TOL && Math.abs(a.y - b.y) < COINCIDENCE_TOL
 }
 
+// ─── Public helpers for CSG ───────────────────────────────────────────────────
+
+/**
+ * Extract closed 2D profiles from sketch elements.
+ * Returns arrays of [u, v] points in sketch space.
+ * The closing point is excluded so profiles are suitable for Manifold CrossSection.
+ */
+export function extractProfiles2D(elements: SketchElement[]): [number, number][][] {
+  return extractProfiles(elements)
+    .map(profile => {
+      const n = (profile.length > 3 && ptEq(profile[0], profile[profile.length - 1]))
+        ? profile.length - 1
+        : profile.length
+      return profile.slice(0, n).map(p => [p.x, p.y] as [number, number])
+    })
+    .filter(p => p.length >= 3)
+}
+
+/**
+ * Returns the coordinate system of a sketch plane.
+ * origin: 3D world position at sketch origin (u=0, v=0)
+ * normal: extrusion direction (unit vector)
+ * uAxis: world direction corresponding to sketch u (x) axis
+ * vAxis: world direction corresponding to sketch v (y) axis
+ */
+export function getPlaneCoordSystem(
+  plane: SketchPlane,
+  offset: number,
+  fcs?: FaceCoordSystem | null
+): {
+  origin: [number, number, number]
+  normal: [number, number, number]
+  uAxis:  [number, number, number]
+  vAxis:  [number, number, number]
+} {
+  if (plane === 'CUSTOM' && fcs) {
+    return {
+      origin: [fcs.origin[0], fcs.origin[1], fcs.origin[2]],
+      normal: [fcs.normal[0], fcs.normal[1], fcs.normal[2]],
+      uAxis:  [fcs.uAxis[0],  fcs.uAxis[1],  fcs.uAxis[2]],
+      vAxis:  [fcs.vAxis[0],  fcs.vAxis[1],  fcs.vAxis[2]],
+    }
+  }
+  switch (plane) {
+    case 'XY': return { origin: [0, 0, offset], normal: [0, 0, 1], uAxis: [1, 0, 0], vAxis: [0, 1, 0] }
+    case 'XZ': return { origin: [0, offset, 0], normal: [0, 1, 0], uAxis: [1, 0, 0], vAxis: [0, 0, 1] }
+    case 'YZ': return { origin: [offset, 0, 0], normal: [1, 0, 0], uAxis: [0, 1, 0], vAxis: [0, 0, 1] }
+    default:   return { origin: [0, 0, offset], normal: [0, 0, 1], uAxis: [1, 0, 0], vAxis: [0, 1, 0] }
+  }
+}
+
 /**
  * Chain open segments (lines, arcs) into closed loops.
  * Each segment is an ordered array of points (start → ... → end).

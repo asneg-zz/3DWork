@@ -5,6 +5,8 @@
 
 import * as THREE from 'three'
 import type { ManifoldToplevel } from 'manifold-3d'
+import type { SketchElement, SketchPlane, FaceCoordSystem } from '@/types/scene'
+import { extractProfiles2D, getPlaneCoordSystem } from '@/utils/extrudeMesh'
 
 export type BooleanOp = 'union' | 'difference' | 'intersection'
 
@@ -140,12 +142,17 @@ export async function performCSG(
   const mA = new mod.Manifold(meshA)
   const mB = new mod.Manifold(meshB)
 
+  console.log('[CSG DEBUG] mA status:', mA.status(), 'numTri:', mA.numTri(), 'numVert:', mA.numVert())
+  console.log('[CSG DEBUG] mB status:', mB.status(), 'numTri:', mB.numTri(), 'numVert:', mB.numVert())
+
   let result: InstanceType<ManifoldToplevel['Manifold']>
   switch (operation) {
     case 'union':        result = mA.add(mB);       break
     case 'difference':   result = mA.subtract(mB);  break
     case 'intersection': result = mA.intersect(mB); break
   }
+
+  console.log('[CSG DEBUG] result status:', result.status(), 'isEmpty:', result.isEmpty(), 'numTri:', result.numTri())
 
   if (result.isEmpty()) {
     throw new Error(`CSG ${operation}: result is empty`)
@@ -178,4 +185,134 @@ export function deserializeGeometry(data: { vertices: number[]; indices: number[
   geo.setIndex(new THREE.BufferAttribute(new Uint32Array(data.indices), 1))
   geo.computeVertexNormals()
   return geo
+}
+
+// ─── Native Manifold cut (robust alternative) ─────────────────────────────────
+
+/**
+ * Build a Manifold solid from 2D sketch profiles using CrossSection.extrude().
+ * This is more robust than converting a Three.js mesh because Manifold generates
+ * the geometry internally and guarantees a valid 2-manifold result.
+ *
+ * The profiles are in sketch (u, v) coordinates. The function applies a 4×4
+ * column-major transform that maps:
+ *   local X → uAxis  (world direction)
+ *   local Y → vAxis  (world direction)
+ *   local Z → normal (world direction, = extrusion direction)
+ *   local origin → (origin − normal × heightBackward)  in world
+ */
+function buildManifoldFromProfiles(
+  mod: ManifoldToplevel,
+  profiles2D: [number, number][][],
+  origin: [number, number, number],
+  normal: [number, number, number],
+  uAxis:  [number, number, number],
+  vAxis:  [number, number, number],
+  height: number,
+  heightBackward: number,
+): InstanceType<ManifoldToplevel['Manifold']> {
+  const totalHeight = height + heightBackward
+
+  // Build each closed polygon as a CrossSection and union them all
+  let crossSection = new mod.CrossSection(profiles2D as [number, number][][])
+
+  // Extrude along local Z from 0 to totalHeight
+  let solid = crossSection.extrude(totalHeight)
+
+  // Translate backward inside local space so the profile plane is at
+  // the correct position in world space. The profile was at z=0 locally;
+  // we need it at world offset = origin − normal*heightBackward.
+  const tx = origin[0] - normal[0] * heightBackward
+  const ty = origin[1] - normal[1] * heightBackward
+  const tz = origin[2] - normal[2] * heightBackward
+
+  // Column-major 4×4 matrix mapping local (u, v, Z) → world (x, y, z):
+  //   col 0: [uAxis,  0]
+  //   col 1: [vAxis,  0]
+  //   col 2: [normal, 0]
+  //   col 3: [tx, ty, tz, 1]
+  const mat: [
+    number,number,number,number,
+    number,number,number,number,
+    number,number,number,number,
+    number,number,number,number
+  ] = [
+    uAxis[0],  uAxis[1],  uAxis[2],  0,
+    vAxis[0],  vAxis[1],  vAxis[2],  0,
+    normal[0], normal[1], normal[2], 0,
+    tx,        ty,        tz,        1,
+  ]
+
+  return solid.transform(mat)
+}
+
+/**
+ * Perform a CSG subtraction (body − cut tool) where the cut tool is built
+ * using Manifold's native CrossSection.extrude(). This is more robust than
+ * converting a Three.js geometry because it avoids mesh quality issues.
+ *
+ * @param bodyGeo  The body geometry (Three.js BufferGeometry from the scene).
+ * @param elements Sketch elements defining the cut profile.
+ * @param plane    Sketch plane identifier.
+ * @param offset   Plane offset (the distance along the normal axis).
+ * @param fcs      Face coordinate system (for CUSTOM plane; null otherwise).
+ * @param height   Extrusion distance in the +normal direction.
+ * @param heightBackward Extrusion distance in the −normal direction.
+ */
+export async function performCSGCut(
+  bodyGeo: THREE.BufferGeometry,
+  elements: SketchElement[],
+  plane: SketchPlane,
+  offset: number,
+  fcs: FaceCoordSystem | null,
+  height: number,
+  heightBackward: number,
+): Promise<THREE.BufferGeometry> {
+  const mod = await getWasm()
+
+  // ── Body: convert Three.js geometry → Manifold ──
+  const meshA = threeToManifoldMesh(mod, bodyGeo)
+  const mA = new mod.Manifold(meshA)
+
+  console.log('[CSG CUT] body status:', mA.status(), 'numTri:', mA.numTri(), 'numVert:', mA.numVert())
+
+  if (mA.status() !== 'NoError') {
+    throw new Error(`CSG cut: body mesh is not manifold (status ${mA.status()}). Try reloading the page.`)
+  }
+
+  // ── Cut tool: built natively via Manifold CrossSection ──
+  const profiles2D = extractProfiles2D(elements)
+  if (profiles2D.length === 0) {
+    throw new Error('CSG cut: no valid closed profile found in sketch elements')
+  }
+
+  const cs = getPlaneCoordSystem(plane, offset, fcs)
+
+  const mB = buildManifoldFromProfiles(
+    mod,
+    profiles2D,
+    cs.origin,
+    cs.normal,
+    cs.uAxis,
+    cs.vAxis,
+    height,
+    heightBackward,
+  )
+
+  console.log('[CSG CUT] tool status:', mB.status(), 'numTri:', mB.numTri(), 'numVert:', mB.numVert())
+
+  if (mB.status() !== 'NoError') {
+    throw new Error(`CSG cut: cut tool is not manifold (status ${mB.status()})`)
+  }
+
+  // ── Subtract ──
+  const result = mA.subtract(mB)
+
+  console.log('[CSG CUT] result status:', result.status(), 'isEmpty:', result.isEmpty(), 'numTri:', result.numTri())
+
+  if (result.isEmpty()) {
+    throw new Error('CSG cut: result is empty — cut tool may not intersect the body')
+  }
+
+  return manifoldMeshToThree(result.getMesh())
 }
