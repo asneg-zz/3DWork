@@ -12,7 +12,8 @@ interface Point2D {
 }
 
 /**
- * Convert 2D sketch point to 3D coordinates based on plane, offset, and optional FCS
+ * Convert 2D sketch point to 3D coordinates based on plane, offset, and optional FCS.
+ * Delegates to getPlaneCoordSystem to avoid duplicating plane logic.
  */
 function sketchTo3D(
   x: number,
@@ -21,46 +22,12 @@ function sketchTo3D(
   offset: number,
   fcs?: FaceCoordSystem | null
 ): [number, number, number] {
-  if (plane === 'CUSTOM' && fcs) {
-    // origin + x*uAxis + y*vAxis
-    return [
-      fcs.origin[0] + x * fcs.uAxis[0] + y * fcs.vAxis[0],
-      fcs.origin[1] + x * fcs.uAxis[1] + y * fcs.vAxis[1],
-      fcs.origin[2] + x * fcs.uAxis[2] + y * fcs.vAxis[2],
-    ]
-  }
-  switch (plane) {
-    case 'XY':
-      return [x, y, offset]
-    case 'XZ':
-      return [x, offset, y]
-    case 'YZ':
-      return [offset, x, y]
-    default:
-      return [x, y, offset]
-  }
-}
-
-/**
- * Get plane normal vector
- */
-function getPlaneNormal(
-  plane: SketchPlane,
-  fcs?: FaceCoordSystem | null
-): [number, number, number] {
-  if (plane === 'CUSTOM' && fcs) {
-    return [fcs.normal[0], fcs.normal[1], fcs.normal[2]]
-  }
-  switch (plane) {
-    case 'XY':
-      return [0, 0, 1]
-    case 'XZ':
-      return [0, 1, 0]
-    case 'YZ':
-      return [1, 0, 0]
-    default:
-      return [0, 0, 1]
-  }
+  const cs = getPlaneCoordSystem(plane, offset, fcs)
+  return [
+    cs.origin[0] + x * cs.uAxis[0] + y * cs.vAxis[0],
+    cs.origin[1] + x * cs.uAxis[1] + y * cs.vAxis[1],
+    cs.origin[2] + x * cs.uAxis[2] + y * cs.vAxis[2],
+  ]
 }
 
 /**
@@ -303,7 +270,7 @@ export function generateExtrudeMesh(
   fcs?: FaceCoordSystem | null
 ): THREE.BufferGeometry {
   const profiles = extractProfiles(elements)
-  const normal = getPlaneNormal(plane, fcs)
+  const normal = getPlaneCoordSystem(plane, 0, fcs).normal
   const totalHeight = height + heightBackward
 
   // Extrusion vector (always in +normal direction for totalHeight)

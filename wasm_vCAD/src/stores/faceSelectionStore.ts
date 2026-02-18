@@ -26,7 +26,6 @@ interface FaceSelectionState {
   startFaceSelection: () => void
   exitFaceSelection: () => void
   setHoveredFace: (face: SelectedFace | null) => void
-  selectFace: (face: SelectedFace) => void
 }
 
 export const useFaceSelectionStore = create<FaceSelectionState>()(
@@ -50,8 +49,5 @@ export const useFaceSelectionStore = create<FaceSelectionState>()(
       set((state) => {
         state.hoveredFace = face
       }),
-
-    selectFace: (_face) => {
-    },
   }))
 )

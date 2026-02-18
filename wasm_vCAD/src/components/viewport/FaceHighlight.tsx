@@ -165,7 +165,6 @@ function createFaceGeometry(
 export function FaceHighlight({ feature, body, geometry }: FaceHighlightProps) {
   const faceSelectionActive = useFaceSelectionStore((s) => s.active)
   const setHoveredFace = useFaceSelectionStore((s) => s.setHoveredFace)
-  const selectFace = useFaceSelectionStore((s) => s.selectFace)
   const edgeSelectionActive = useEdgeSelectionStore((s) => s.active)
 
   const meshRef = useRef<THREE.Mesh>(null)
@@ -259,8 +258,6 @@ export function FaceHighlight({ feature, body, geometry }: FaceHighlightProps) {
       offset,
       faceCoordSystem,
     }
-
-    selectFace(faceData)
 
     // Dispatch custom event to notify Toolbar
     const customEvent = new CustomEvent('face-selected', { detail: faceData })

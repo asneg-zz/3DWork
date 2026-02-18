@@ -142,17 +142,12 @@ export async function performCSG(
   const mA = new mod.Manifold(meshA)
   const mB = new mod.Manifold(meshB)
 
-  console.log('[CSG DEBUG] mA status:', mA.status(), 'numTri:', mA.numTri(), 'numVert:', mA.numVert())
-  console.log('[CSG DEBUG] mB status:', mB.status(), 'numTri:', mB.numTri(), 'numVert:', mB.numVert())
-
   let result: InstanceType<ManifoldToplevel['Manifold']>
   switch (operation) {
     case 'union':        result = mA.add(mB);       break
     case 'difference':   result = mA.subtract(mB);  break
     case 'intersection': result = mA.intersect(mB); break
   }
-
-  console.log('[CSG DEBUG] result status:', result.status(), 'isEmpty:', result.isEmpty(), 'numTri:', result.numTri())
 
   if (result.isEmpty()) {
     throw new Error(`CSG ${operation}: result is empty`)
@@ -274,8 +269,6 @@ export async function performCSGCut(
   const meshA = threeToManifoldMesh(mod, bodyGeo)
   const mA = new mod.Manifold(meshA)
 
-  console.log('[CSG CUT] body status:', mA.status(), 'numTri:', mA.numTri(), 'numVert:', mA.numVert())
-
   if (mA.status() !== 'NoError') {
     throw new Error(`CSG cut: body mesh is not manifold (status ${mA.status()}). Try reloading the page.`)
   }
@@ -299,16 +292,12 @@ export async function performCSGCut(
     heightBackward,
   )
 
-  console.log('[CSG CUT] tool status:', mB.status(), 'numTri:', mB.numTri(), 'numVert:', mB.numVert())
-
   if (mB.status() !== 'NoError') {
     throw new Error(`CSG cut: cut tool is not manifold (status ${mB.status()})`)
   }
 
   // ── Subtract ──
   const result = mA.subtract(mB)
-
-  console.log('[CSG CUT] result status:', result.status(), 'isEmpty:', result.isEmpty(), 'numTri:', result.numTri())
 
   if (result.isEmpty()) {
     throw new Error('CSG cut: result is empty — cut tool may not intersect the body')

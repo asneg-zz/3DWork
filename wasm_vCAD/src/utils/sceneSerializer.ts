@@ -26,11 +26,7 @@ import type {
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-function defaultTransform(): object {
-  return { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] }
-}
-
-function defaultTransformObj(): Transform {
+function defaultTransform(): Transform {
   return { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] }
 }
 
@@ -88,11 +84,12 @@ function serializeSketch(sketch: Sketch): object {
     offset: sketch.offset,
     elements: sketch.elements.map(serializeSketchElement),
   }
-  if (sketch.face_normal)                         s.face_normal   = sketch.face_normal
-  if (sketch.construction?.length)                s.construction  = sketch.construction
-  if (sketch.revolve_axis !== undefined)          s.revolve_axis  = sketch.revolve_axis
-  if (sketch.symmetry_axis !== undefined)         s.symmetry_axis = sketch.symmetry_axis
-  if (sketch.constraints?.length)                 s.constraints   = sketch.constraints
+  if (sketch.face_normal)                         s.face_normal        = sketch.face_normal
+  if (sketch.face_coord_system)                   s.face_coord_system  = sketch.face_coord_system
+  if (sketch.construction?.length)                s.construction       = sketch.construction
+  if (sketch.revolve_axis !== undefined)          s.revolve_axis       = sketch.revolve_axis
+  if (sketch.symmetry_axis !== undefined)         s.symmetry_axis      = sketch.symmetry_axis
+  if (sketch.constraints?.length)                 s.constraints        = sketch.constraints
   return s
 }
 
@@ -197,6 +194,7 @@ function deserializeSketch(s: any, id: string): Sketch {
     offset: s?.offset ?? 0,
     elements: (s?.elements ?? []) as SketchElement[],
     face_normal: s?.face_normal,
+    face_coord_system: s?.face_coord_system,
     construction: s?.construction,
     revolve_axis: s?.revolve_axis,
     symmetry_axis: s?.symmetry_axis,
@@ -215,7 +213,7 @@ function deserializeFeatures(features: any[]): Feature[] {
           type: 'primitive',
           name: capitalize(f.primitive?.type ?? 'Primitive'),
           primitive: deserializePrimitive(f.primitive),
-          transform: (f.transform as Transform) ?? defaultTransformObj(),
+          transform: (f.transform as Transform) ?? defaultTransform(),
         })
         break
 
