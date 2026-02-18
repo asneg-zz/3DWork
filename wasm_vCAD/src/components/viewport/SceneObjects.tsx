@@ -3,14 +3,17 @@ import { useEdgeSelectionStore } from '@/stores/edgeSelectionStore'
 import { useFaceSelectionStore } from '@/stores/faceSelectionStore'
 import { useBooleanStore } from '@/stores/booleanStore'
 import { useSettingsStore } from '@/stores/settingsStore'
+import { useViewportContextMenuStore } from '@/stores/viewportContextMenuStore'
 import { useMemo, useEffect, useCallback } from 'react'
 import * as THREE from 'three'
+import type { ThreeEvent } from '@react-three/fiber'
 import { engine } from '@/wasm/engine'
 import type { MeshData } from '@/types/mesh'
 import type { Feature, Body } from '@/types/scene'
 import { generateExtrudeMesh } from '@/utils/extrudeMesh'
 import { deserializeGeometry } from '@/utils/manifoldCSG'
 import { geometryCache } from '@/utils/geometryCache'
+import { normalToPlane, calculateOffset, computeFaceCoordSystem, computeGeometricFaceData } from '@/utils/faceUtils'
 import { FaceHighlight } from './FaceHighlight'
 import { EdgeHighlight } from './EdgeHighlight'
 
@@ -70,8 +73,11 @@ function BooleanFeature({ feature, body, isSelected }: { feature: Feature; body:
           color={color}
           transparent={bodyOpacity < 1}
           opacity={bodyOpacity}
-          side={THREE.DoubleSide}
+          side={bodyOpacity < 1 ? THREE.DoubleSide : THREE.FrontSide}
           depthWrite={bodyOpacity >= 1}
+          polygonOffset={true}
+          polygonOffsetFactor={1}
+          polygonOffsetUnits={1}
         />
       </mesh>
       {/* visible edges */}
@@ -115,8 +121,11 @@ function CutFeature({ feature, body, isSelected }: { feature: Feature; body: Bod
           color={color}
           transparent={bodyOpacity < 1}
           opacity={bodyOpacity}
-          side={THREE.DoubleSide}
+          side={bodyOpacity < 1 ? THREE.DoubleSide : THREE.FrontSide}
           depthWrite={bodyOpacity >= 1}
+          polygonOffset={true}
+          polygonOffsetFactor={1}
+          polygonOffsetUnits={1}
         />
       </mesh>
       <lineSegments geometry={edgesGeometry}>
@@ -164,6 +173,45 @@ function BodyObject({ body, isSelected }: { body: Body; isSelected: boolean }) {
   }, [body.id, faceSelectionActive, edgeSelectionActive, booleanActive,
       selectedBodyIds, selectBody, deselectBody, clearSelection, toggleBooleanSelection])
 
+  // Right-click → viewport context menu with face data
+  const handleContextMenu = useCallback((e: ThreeEvent<MouseEvent>) => {
+    e.stopPropagation()
+
+    const mesh = e.object as THREE.Mesh
+    const faceIndex = e.faceIndex
+
+    // Find a geometry-producing feature for featureId
+    const geomFeature = body.features.find(
+      f => f.type === 'extrude' || f.type === 'cut' || f.type === 'boolean' || f.type === 'primitive'
+    )
+
+    let faceInfo = undefined
+    if (faceIndex !== undefined && mesh?.geometry && geomFeature) {
+      const data = computeGeometricFaceData(mesh.geometry, faceIndex, mesh.matrixWorld)
+      if (data) {
+        const { worldNormal, worldCenter } = data
+        const axisPlane = normalToPlane(worldNormal)
+        const plane = axisPlane ?? 'CUSTOM'
+        const planeOffset = axisPlane ? calculateOffset(worldCenter, axisPlane) : 0
+        const faceCoordSystem = computeFaceCoordSystem(worldCenter, worldNormal)
+        faceInfo = {
+          bodyId: body.id,
+          featureId: geomFeature.id,
+          plane,
+          planeOffset,
+          faceCoordSystem,
+        }
+      }
+    }
+
+    useViewportContextMenuStore.getState().open(
+      e.nativeEvent.clientX,
+      e.nativeEvent.clientY,
+      body.id,
+      faceInfo
+    )
+  }, [body.id, body.features])
+
   // If the body has a cut feature with a cached mesh, render only that
   // (it represents body minus the cut tool — no need to also render primitive/extrude)
   const lastCutFeature = [...body.features].reverse().find(
@@ -171,7 +219,7 @@ function BodyObject({ body, isSelected }: { body: Body; isSelected: boolean }) {
   )
 
   return (
-    <group onClick={handleBodyClick as any}>
+    <group onClick={handleBodyClick as any} onContextMenu={handleContextMenu as any}>
       {lastCutFeature ? (
         <CutFeature feature={lastCutFeature} body={body} isSelected={isSelected} />
       ) : (
@@ -277,8 +325,11 @@ function PrimitiveFeatureWithCache(props: { feature: Feature; body: Body; isSele
           color={color}
           transparent={bodyOpacity < 1}
           opacity={bodyOpacity}
-          side={THREE.DoubleSide}
+          side={bodyOpacity < 1 ? THREE.DoubleSide : THREE.FrontSide}
           depthWrite={bodyOpacity >= 1}
+          polygonOffset={true}
+          polygonOffsetFactor={1}
+          polygonOffsetUnits={1}
         />
       </mesh>
       {/* visible edges */}
@@ -333,8 +384,11 @@ function ExtrudeFeatureWithCache(props: { feature: Feature; body: Body; isSelect
           color={color}
           transparent={bodyOpacity < 1}
           opacity={bodyOpacity}
-          side={THREE.DoubleSide}
+          side={bodyOpacity < 1 ? THREE.DoubleSide : THREE.FrontSide}
           depthWrite={bodyOpacity >= 1}
+          polygonOffset={true}
+          polygonOffsetFactor={1}
+          polygonOffsetUnits={1}
         />
       </mesh>
       {/* visible edges */}

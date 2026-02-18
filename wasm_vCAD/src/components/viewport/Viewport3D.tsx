@@ -6,6 +6,7 @@ import { SceneObjects } from './SceneObjects'
 import { SketchScene3D } from './SketchScene3D'
 import { SketchDialogs3D } from './SketchDialogs3D'
 import { SketchCameraController } from './SketchCameraController'
+import { ViewportContextMenu } from './ViewportContextMenu'
 
 export function Viewport3D() {
   const sketchActive = useSketchStore((s) => s.active)
@@ -82,6 +83,9 @@ export function Viewport3D() {
 
       {/* HTML overlays for sketch context menus and dialogs */}
       {sketchActive && <SketchDialogs3D />}
+
+      {/* 3D viewport right-click context menu */}
+      <ViewportContextMenu />
 
       {/* Overlay info - only in 3D mode */}
       {!sketchActive && (

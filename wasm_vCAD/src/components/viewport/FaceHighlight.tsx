@@ -8,73 +8,13 @@ import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import { useFaceSelectionStore } from '@/stores/faceSelectionStore'
 import { useEdgeSelectionStore } from '@/stores/edgeSelectionStore'
-import type { Feature, Body, SketchPlane, FaceCoordSystem } from '@/types/scene'
+import { normalToPlane, calculateOffset, computeFaceCoordSystem } from '@/utils/faceUtils'
+import type { Feature, Body, SketchPlane } from '@/types/scene'
 
 interface FaceHighlightProps {
   feature: Feature
   body: Body
   geometry: THREE.BufferGeometry
-}
-
-/**
- * Determine sketch plane from face normal (axis-aligned faces only)
- * Returns null for inclined faces
- */
-function normalToPlane(normal: THREE.Vector3): SketchPlane | null {
-  const x = Math.abs(normal.x)
-  const y = Math.abs(normal.y)
-  const z = Math.abs(normal.z)
-
-  // Find dominant axis
-  if (z > x && z > y && z > 0.9) {
-    return 'XY' // Normal points along Z axis
-  } else if (y > x && y > z && y > 0.9) {
-    return 'XZ' // Normal points along Y axis
-  } else if (x > y && x > z && x > 0.9) {
-    return 'YZ' // Normal points along X axis
-  }
-
-  return null
-}
-
-/**
- * Calculate plane offset from point and plane (axis-aligned only)
- */
-function calculateOffset(point: THREE.Vector3, plane: SketchPlane): number {
-  switch (plane) {
-    case 'XY':
-      return point.z
-    case 'XZ':
-      return point.y
-    case 'YZ':
-      return point.x
-    case 'CUSTOM':
-      return 0
-  }
-}
-
-/**
- * Compute a full FaceCoordSystem from a face center and normal.
- * Works for any face orientation including inclined faces.
- */
-function computeFaceCoordSystem(
-  faceCenter: THREE.Vector3,
-  faceNormal: THREE.Vector3
-): FaceCoordSystem {
-  // Pick a reference vector not parallel to normal
-  const ref = Math.abs(faceNormal.dot(new THREE.Vector3(0, 1, 0))) < 0.9
-    ? new THREE.Vector3(0, 1, 0)
-    : new THREE.Vector3(1, 0, 0)
-
-  const uAxis = new THREE.Vector3().crossVectors(ref, faceNormal).normalize()
-  const vAxis = new THREE.Vector3().crossVectors(faceNormal, uAxis).normalize()
-
-  return {
-    origin: [faceCenter.x, faceCenter.y, faceCenter.z],
-    normal: [faceNormal.x, faceNormal.y, faceNormal.z],
-    uAxis:  [uAxis.x, uAxis.y, uAxis.z],
-    vAxis:  [vAxis.x, vAxis.y, vAxis.z],
-  }
 }
 
 /**
