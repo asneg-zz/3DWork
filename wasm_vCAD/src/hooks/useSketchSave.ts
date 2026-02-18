@@ -8,13 +8,27 @@ export function useSketchSave() {
   const sketchBodyId = useSketchStore((s) => s.bodyId)
   const sketchId = useSketchStore((s) => s.sketchId)
   const plane = useSketchStore((s) => s.plane)
+  const planeOffset = useSketchStore((s) => s.planeOffset)
   const elements = useSketchStore((s) => s.elements)
+  const construction = useSketchStore((s) => s.construction)
+  const constraints = useSketchStore((s) => s.constraints)
+  const faceCoordSystem = useSketchStore((s) => s.faceCoordSystem)
   const exitSketch = useSketchStore((s) => s.exitSketch)
 
   const saveAndExit = () => {
     if (!sketchBodyId || !sketchId) {
       exitSketch()
       return
+    }
+
+    const sketchData = {
+      id: sketchId,
+      plane,
+      offset: planeOffset,
+      elements: [...elements],
+      construction: construction.length > 0 ? [...construction] : undefined,
+      constraints: constraints.length > 0 ? [...constraints] : undefined,
+      face_coord_system: faceCoordSystem ?? undefined,
     }
 
     // Check if this is a new sketch or editing existing
@@ -25,27 +39,13 @@ export function useSketchSave() {
       const existingFeature = body.features.find(f => f.id === sketchId)
 
       if (existingFeature) {
-        // Update existing sketch
-        updateFeature(sketchBodyId, sketchId, {
-          sketch: {
-            id: sketchId,
-            plane,
-            offset: 0.0,
-            elements: [...elements],
-          }
-        })
+        updateFeature(sketchBodyId, sketchId, { sketch: sketchData })
       } else {
-        // Add new sketch feature
         addFeature(sketchBodyId, {
           id: sketchId,
           type: 'sketch',
           name: `Sketch (${plane})`,
-          sketch: {
-            id: sketchId,
-            plane,
-            offset: 0.0,
-            elements: [...elements],
-          }
+          sketch: sketchData,
         })
       }
     }
