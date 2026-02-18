@@ -51,7 +51,7 @@ export function worldToSketch(
 
 // ─── Interaction plane helpers ────────────────────────────────────────────────
 
-/** Rotation for the invisible interaction plane mesh */
+/** Rotation for the invisible interaction plane mesh (PlaneGeometry default normal = +Z). */
 export function planeRotation(plane: SketchPlane, fcs?: FaceCoordSystem | null): [number, number, number] {
   if (plane === 'CUSTOM' && fcs) {
     const target = new THREE.Vector3(...fcs.normal).normalize()
@@ -67,6 +67,32 @@ export function planeRotation(plane: SketchPlane, fcs?: FaceCoordSystem | null):
     case 'XZ': return [-Math.PI / 2, 0, 0]
     case 'YZ': return [0, Math.PI / 2, 0]
     default:   return [0, 0, 0]
+  }
+}
+
+/**
+ * Rotation for the GridHelper (GridHelper default normal = +Y, lying in XZ).
+ * Different from planeRotation because GridHelper and PlaneGeometry have different defaults.
+ *   XY plane: rotate XZ→XY  = Rx(+90°)
+ *   XZ plane: no rotation   = identity
+ *   YZ plane: rotate XZ→YZ  = Rz(+90°)
+ *   CUSTOM:   rotate +Y → faceNormal
+ */
+export function gridHelperRotation(plane: SketchPlane, fcs?: FaceCoordSystem | null): [number, number, number] {
+  if (plane === 'CUSTOM' && fcs) {
+    const target = new THREE.Vector3(...fcs.normal).normalize()
+    const q = new THREE.Quaternion().setFromUnitVectors(
+      new THREE.Vector3(0, 1, 0), // GridHelper default normal
+      target
+    )
+    const euler = new THREE.Euler().setFromQuaternion(q)
+    return [euler.x, euler.y, euler.z]
+  }
+  switch (plane) {
+    case 'XY': return [Math.PI / 2, 0, 0]
+    case 'XZ': return [0, 0, 0]
+    case 'YZ': return [0, 0, Math.PI / 2]
+    default:   return [Math.PI / 2, 0, 0]
   }
 }
 

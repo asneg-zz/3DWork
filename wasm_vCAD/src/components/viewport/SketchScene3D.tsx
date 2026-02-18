@@ -23,7 +23,7 @@ import * as SketchOps from './sketchOperations'
 import { engine } from '@/wasm/engine'
 
 // Sub-modules
-import { sketchToWorld, worldToSketch, planeRotation, planePosition, PLANE_EPSILON } from './sketch3D/coords'
+import { sketchToWorld, worldToSketch, planeRotation, planePosition, gridHelperRotation, PLANE_EPSILON } from './sketch3D/coords'
 import { SketchElements3D, SketchControlPoints3D } from './sketch3D/SketchElements3D'
 import { SnapIndicator3D } from './sketch3D/SnapIndicator3D'
 import { SketchPreview3D } from './sketch3D/SketchPreview3D'
@@ -695,6 +695,7 @@ export function SketchScene3D() {
   // ─── Render ───────────────────────────────────────────────────────────────
 
   const rot = planeRotation(sketchPlane, faceCoordSystem)
+  const gridRot = gridHelperRotation(sketchPlane, faceCoordSystem)
   const pos = planePosition(sketchPlane, planeOffset, faceCoordSystem)
 
   // Offset visual elements slightly above the face to prevent Z-fighting with the body surface.
@@ -738,7 +739,7 @@ export function SketchScene3D() {
       <gridHelper
         args={[40, 40, '#2a2a3e', '#1e1e2e']}
         position={pos}
-        rotation={rot}
+        rotation={gridRot}
       />
 
       {/* Axes on sketch plane */}
