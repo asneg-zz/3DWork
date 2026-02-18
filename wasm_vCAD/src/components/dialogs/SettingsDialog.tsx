@@ -150,9 +150,9 @@ function DisplayTab() {
       <p className="text-xs text-cad-muted/70 mb-2">Тела</p>
 
       <SliderRow
-        label="Прозрачность заливки"
+        label="Непрозрачность заливки"
         value={s.bodyOpacity}
-        min={0} max={0.5} step={0.01}
+        min={0} max={1} step={0.01}
         onChange={v => s.set({ bodyOpacity: v })}
         format={v => `${Math.round(v * 100)}%`}
       />
@@ -289,9 +289,9 @@ function ViewportTab() {
       <p className="text-xs text-cad-muted/70 mb-2">Просмотр тел</p>
 
       <SliderRow
-        label="Прозрачность заливки"
+        label="Непрозрачность заливки"
         value={s.bodyOpacity}
-        min={0} max={0.5} step={0.01}
+        min={0} max={1} step={0.01}
         onChange={v => s.set({ bodyOpacity: v })}
         format={v => `${Math.round(v * 100)}%`}
       />

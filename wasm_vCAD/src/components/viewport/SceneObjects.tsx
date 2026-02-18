@@ -64,14 +64,14 @@ function BooleanFeature({ feature, body, isSelected }: { feature: Feature; body:
 
   return (
     <group>
-      {/* transparent ghost fill */}
+      {/* fill — transparent or solid depending on opacity setting */}
       <mesh geometry={geometry}>
         <meshBasicMaterial
           color={color}
-          transparent
+          transparent={bodyOpacity < 1}
           opacity={bodyOpacity}
           side={THREE.DoubleSide}
-          depthWrite={false}
+          depthWrite={bodyOpacity >= 1}
         />
       </mesh>
       {/* visible edges */}
@@ -217,14 +217,14 @@ function PrimitiveFeatureWithCache(props: { feature: Feature; body: Body; isSele
       rotation={transform.rotation as [number,number,number]}
       scale={transform.scale as [number,number,number]}
     >
-      {/* transparent ghost fill */}
+      {/* fill — transparent or solid depending on opacity setting */}
       <mesh geometry={geometry}>
         <meshBasicMaterial
           color={color}
-          transparent
+          transparent={bodyOpacity < 1}
           opacity={bodyOpacity}
           side={THREE.DoubleSide}
-          depthWrite={false}
+          depthWrite={bodyOpacity >= 1}
         />
       </mesh>
       {/* visible edges */}
@@ -273,14 +273,14 @@ function ExtrudeFeatureWithCache(props: { feature: Feature; body: Body; isSelect
 
   return (
     <group>
-      {/* transparent ghost fill */}
+      {/* fill — transparent or solid depending on opacity setting */}
       <mesh geometry={geometry}>
         <meshBasicMaterial
           color={color}
-          transparent
+          transparent={bodyOpacity < 1}
           opacity={bodyOpacity}
           side={THREE.DoubleSide}
-          depthWrite={false}
+          depthWrite={bodyOpacity >= 1}
         />
       </mesh>
       {/* visible edges */}
