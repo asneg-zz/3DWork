@@ -182,11 +182,22 @@ export const useSketchStore = create<SketchState>()(
 
     startSketch: (bodyId, sketchId, plane, planeOffset = 0, faceCoordSystem = null) =>
       set((state) => {
+        // faceCoordSystem.origin always contains the correct face center position.
+        // For axis-aligned planes planePosition/sketchToWorld only use planeOffset,
+        // so derive it from fcs.origin when available.
+        let effectivePlaneOffset = planeOffset
+        if (faceCoordSystem && plane !== 'CUSTOM') {
+          switch (plane) {
+            case 'XY': effectivePlaneOffset = faceCoordSystem.origin[2]; break
+            case 'XZ': effectivePlaneOffset = faceCoordSystem.origin[1]; break
+            case 'YZ': effectivePlaneOffset = faceCoordSystem.origin[0]; break
+          }
+        }
         state.active = true
         state.bodyId = bodyId
         state.sketchId = sketchId
         state.plane = plane
-        state.planeOffset = planeOffset
+        state.planeOffset = effectivePlaneOffset
         state.faceCoordSystem = faceCoordSystem
         state.elements = []
         state.construction = []
