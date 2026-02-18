@@ -128,12 +128,11 @@ function calculateOffset(point: THREE.Vector3, plane: SketchPlane): number {
 export function EdgeHighlight({ feature, body, geometry }: EdgeHighlightProps) {
   const edgeSelectionActive = useEdgeSelectionStore((s) => s.active)
   const setHoveredEdge = useEdgeSelectionStore((s) => s.setHoveredEdge)
-  const showContextMenu = useEdgeSelectionStore((s) => s.showContextMenu)
 
   const groupRef = useRef<THREE.Group>(null)
   const [hoveredEdge, setLocalHoveredEdge] = useState<Edge | null>(null)
 
-  const { raycaster, pointer, camera, gl } = useThree()
+  const { raycaster, pointer, camera } = useThree()
 
   // Extract all edges from geometry
   const edges = useMemo(() => extractEdges(geometry), [geometry])
@@ -187,39 +186,6 @@ export function EdgeHighlight({ feature, body, geometry }: EdgeHighlightProps) {
       setHoveredEdge(null)
     }
   })
-
-  const handleContextMenu = (event: MouseEvent) => {
-    if (!edgeSelectionActive || !hoveredEdge) return
-
-    event.preventDefault()
-    event.stopPropagation()
-
-    const plane = edgeToPlane(hoveredEdge)
-    const midpoint = new THREE.Vector3()
-      .addVectors(hoveredEdge.start, hoveredEdge.end)
-      .multiplyScalar(0.5)
-    const offset = calculateOffset(midpoint, plane)
-
-    showContextMenu(event.clientX, event.clientY, {
-      bodyId: body.id,
-      featureId: feature.id,
-      edgeStart: hoveredEdge.start.toArray(),
-      edgeEnd: hoveredEdge.end.toArray(),
-      plane,
-      offset
-    })
-  }
-
-  // Add context menu listener
-  useMemo(() => {
-    if (edgeSelectionActive) {
-      const canvas = gl.domElement
-      canvas.addEventListener('contextmenu', handleContextMenu as any)
-      return () => {
-        canvas.removeEventListener('contextmenu', handleContextMenu as any)
-      }
-    }
-  }, [edgeSelectionActive, hoveredEdge, gl.domElement])
 
   if (!edgeSelectionActive) {
     return null

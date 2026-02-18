@@ -15,12 +15,6 @@ interface SelectedEdge {
   offset: number
 }
 
-interface EdgeContextMenu {
-  x: number
-  y: number
-  edge: SelectedEdge
-}
-
 interface EdgeSelectionState {
   // Edge selection mode active
   active: boolean
@@ -28,50 +22,32 @@ interface EdgeSelectionState {
   // Currently hovered edge
   hoveredEdge: SelectedEdge | null
 
-  // Context menu
-  contextMenu: EdgeContextMenu | null
-
   // Actions
   startEdgeSelection: () => void
   exitEdgeSelection: () => void
   setHoveredEdge: (edge: SelectedEdge | null) => void
-  showContextMenu: (x: number, y: number, edge: SelectedEdge) => void
-  hideContextMenu: () => void
 }
 
 export const useEdgeSelectionStore = create<EdgeSelectionState>()(
   immer((set) => ({
     active: false,
     hoveredEdge: null,
-    contextMenu: null,
 
     startEdgeSelection: () =>
       set((state) => {
         state.active = true
         state.hoveredEdge = null
-        state.contextMenu = null
       }),
 
     exitEdgeSelection: () =>
       set((state) => {
         state.active = false
         state.hoveredEdge = null
-        state.contextMenu = null
       }),
 
     setHoveredEdge: (edge) =>
       set((state) => {
         state.hoveredEdge = edge
-      }),
-
-    showContextMenu: (x, y, edge) =>
-      set((state) => {
-        state.contextMenu = { x, y, edge }
-      }),
-
-    hideContextMenu: () =>
-      set((state) => {
-        state.contextMenu = null
       }),
   }))
 )
