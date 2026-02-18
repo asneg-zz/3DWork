@@ -1,6 +1,11 @@
 import { useSceneStore } from '@/stores/sceneStore'
 import { useSketchStore } from '@/stores/sketchStore'
 import { engine } from '@/wasm/engine'
+import { generateExtrudeMesh } from '@/utils/extrudeMesh'
+import { performCSG, serializeGeometry } from '@/utils/manifoldCSG'
+import { geometryCache } from '@/utils/geometryCache'
+import { useNotificationStore } from '@/stores/notificationStore'
+import type { Feature } from '@/types/scene'
 
 export function useSketchExtrude() {
   const updateFeature = useSceneStore((s) => s.updateFeature)
@@ -136,5 +141,94 @@ export function useSketchExtrude() {
     }
   }
 
-  return { extrudeAndExit, canExtrude, getExistingExtrudeParams }
+  const cutAndExit = async (height: number, heightBackward: number, draftAngle: number) => {
+    if (!sketchBodyId || !sketchId) {
+      exitSketch()
+      return
+    }
+
+    try {
+      const bodies = useSceneStore.getState().scene.bodies
+      const body = bodies.find(b => b.id === sketchBodyId)
+
+      if (!body) {
+        exitSketch()
+        return
+      }
+
+      // Save sketch feature first
+      const existingSketchFeature = body.features.find(f => f.id === sketchId)
+      const sketchFeature = {
+        id: sketchId,
+        type: 'sketch' as const,
+        name: `Sketch (${plane})`,
+        sketch: {
+          id: sketchId,
+          plane,
+          offset: planeOffset,
+          elements: [...elements],
+          construction,
+          constraints: constraints.length > 0 ? [...constraints] : undefined,
+          face_coord_system: faceCoordSystem ?? undefined,
+        }
+      }
+
+      if (existingSketchFeature) {
+        updateFeature(sketchBodyId, sketchId, sketchFeature)
+      } else {
+        addFeature(sketchBodyId, sketchFeature)
+      }
+
+      // Get current body geometry from cache (must exist — body must be already extruded)
+      const bodyGeo = geometryCache.get(sketchBodyId)
+      if (!bodyGeo) {
+        useNotificationStore.getState().show(
+          'Вырез невозможен: тело не имеет геометрии. Сначала создайте выдавливание.',
+          'warning'
+        )
+        exitSketch()
+        return
+      }
+
+      // Build cut tool mesh: extrude the sketch profile with specified depth
+      const cutToolGeo = generateExtrudeMesh(
+        elements,
+        plane,
+        height,
+        heightBackward,
+        planeOffset,
+        faceCoordSystem ?? null
+      )
+
+      // CSG difference: body - cut tool
+      const resultGeo = await performCSG(bodyGeo, cutToolGeo, 'difference')
+      const { vertices, indices } = serializeGeometry(resultGeo)
+
+      const cutFeature: Feature = {
+        id: crypto.randomUUID(),
+        type: 'cut',
+        name: `Cut`,
+        sketch_id: sketchId,
+        extrude_params: {
+          height,
+          height_backward: heightBackward,
+          draft_angle: draftAngle,
+        },
+        cached_mesh_vertices: vertices,
+        cached_mesh_indices: indices,
+      }
+
+      addFeature(sketchBodyId, cutFeature)
+    } catch (error) {
+      console.error('Cut operation failed:', error)
+      useNotificationStore.getState().show(
+        'Ошибка вырезания: ' + (error instanceof Error ? error.message : String(error)),
+        'error'
+      )
+    } finally {
+      exitSketch()
+    }
+  }
+
+  return { extrudeAndExit, cutAndExit, canExtrude, getExistingExtrudeParams }
 }

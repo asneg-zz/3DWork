@@ -9,7 +9,7 @@ import { BaseDialog } from './BaseDialog'
 export interface ExtrudeDialogProps {
   isOpen: boolean
   onClose: () => void
-  onConfirm: (height: number, heightBackward: number, draftAngle: number) => void
+  onConfirm: (height: number, heightBackward: number, draftAngle: number, isCut: boolean) => void
   initialHeight?: number
   initialHeightBackward?: number
   initialDraftAngle?: number
@@ -23,12 +23,27 @@ export function ExtrudeDialog({
   initialHeightBackward,
   initialDraftAngle
 }: ExtrudeDialogProps) {
+  const [isCut, setIsCut] = useState(false)
   const [height, setHeight] = useState(initialHeight ?? 1.0)
   const [heightBackward, setHeightBackward] = useState(initialHeightBackward ?? 0.0)
   const [draftAngle, setDraftAngle] = useState(initialDraftAngle ?? 0.0)
 
+  const handleModeChange = (cut: boolean) => {
+    setIsCut(cut)
+    if (cut) {
+      // Default "through all" for cut mode
+      setHeight(1000)
+      setHeightBackward(1000)
+      setDraftAngle(0)
+    } else {
+      setHeight(initialHeight ?? 1.0)
+      setHeightBackward(initialHeightBackward ?? 0.0)
+      setDraftAngle(initialDraftAngle ?? 0.0)
+    }
+  }
+
   const handleConfirm = () => {
-    onConfirm(height, heightBackward, draftAngle)
+    onConfirm(height, heightBackward, draftAngle, isCut)
     onClose()
   }
 
@@ -38,9 +53,10 @@ export function ExtrudeDialog({
     setDraftAngle(0.0)
   }
 
-  // Update state when initial values change (when dialog opens with existing values)
+  // Reset to extrude mode when dialog opens
   useEffect(() => {
     if (isOpen) {
+      setIsCut(false)
       setHeight(initialHeight ?? 1.0)
       setHeightBackward(initialHeightBackward ?? 0.0)
       setDraftAngle(initialDraftAngle ?? 0.0)
@@ -50,10 +66,28 @@ export function ExtrudeDialog({
   if (!isOpen) return null
 
   return (
-    <BaseDialog title="Выдавливание" isOpen={isOpen} onClose={onClose}>
+    <BaseDialog title={isCut ? 'Вырез' : 'Выдавливание'} isOpen={isOpen} onClose={onClose}>
       <div className="flex flex-col gap-4">
+        {/* Mode toggle */}
+        <div className="flex rounded border border-cad-border overflow-hidden">
+          <button
+            onClick={() => handleModeChange(false)}
+            className={`flex-1 py-1.5 text-sm transition-colors ${!isCut ? 'bg-blue-600 text-white' : 'bg-cad-surface text-cad-muted hover:bg-cad-hover'}`}
+          >
+            Выдавить
+          </button>
+          <button
+            onClick={() => handleModeChange(true)}
+            className={`flex-1 py-1.5 text-sm transition-colors ${isCut ? 'bg-red-600 text-white' : 'bg-cad-surface text-cad-muted hover:bg-cad-hover'}`}
+          >
+            Вырезать
+          </button>
+        </div>
+
         <div className="text-sm text-cad-text-secondary">
-          Настройте параметры выдавливания эскиза
+          {isCut
+            ? 'Вырез через всё тело (CSG разность)'
+            : 'Настройте параметры выдавливания эскиза'}
         </div>
 
         {/* Height (forward) */}
@@ -145,10 +179,10 @@ export function ExtrudeDialog({
           </button>
           <button
             onClick={handleConfirm}
-            disabled={height <= 0}
-            className="flex-1 px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={!isCut && height <= 0}
+            className={`flex-1 px-3 py-2 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed ${isCut ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'}`}
           >
-            Выдавить
+            {isCut ? 'Вырезать' : 'Выдавить'}
           </button>
         </div>
       </div>

@@ -84,6 +84,50 @@ function BooleanFeature({ feature, body, isSelected }: { feature: Feature; body:
   )
 }
 
+// ─── Cut feature component ─────────────────────────────────────────────────────
+
+function CutFeature({ feature, body, isSelected }: { feature: Feature; body: Body; isSelected: boolean }) {
+  const { bodyOpacity, bodyColor, selectionColor } = useSettingsStore()
+  const color = isSelected ? selectionColor : bodyColor
+
+  const geometry = useMemo(() => {
+    if (!feature.cached_mesh_vertices || !feature.cached_mesh_indices) {
+      return new THREE.BoxGeometry(1, 1, 1)
+    }
+    return deserializeGeometry({
+      vertices: feature.cached_mesh_vertices,
+      indices:  feature.cached_mesh_indices,
+    })
+  }, [feature.cached_mesh_vertices, feature.cached_mesh_indices])
+
+  const edgesGeometry = useMemo(() => new THREE.EdgesGeometry(geometry), [geometry])
+
+  // Register geometry in cache so subsequent cuts/booleans can use this body
+  useEffect(() => {
+    geometryCache.set(body.id, geometry)
+    return () => geometryCache.delete(body.id)
+  }, [body.id, geometry])
+
+  return (
+    <group>
+      <mesh geometry={geometry}>
+        <meshBasicMaterial
+          color={color}
+          transparent={bodyOpacity < 1}
+          opacity={bodyOpacity}
+          side={THREE.DoubleSide}
+          depthWrite={bodyOpacity >= 1}
+        />
+      </mesh>
+      <lineSegments geometry={edgesGeometry}>
+        <lineBasicMaterial color={color} />
+      </lineSegments>
+      <FaceHighlight feature={feature} body={body} geometry={geometry} />
+      <EdgeHighlight feature={feature} body={body} geometry={geometry} />
+    </group>
+  )
+}
+
 // ─── Body component (combines all features + registers body geometry in cache) ─
 
 function BodyObject({ body, isSelected }: { body: Body; isSelected: boolean }) {
@@ -120,41 +164,51 @@ function BodyObject({ body, isSelected }: { body: Body; isSelected: boolean }) {
   }, [body.id, faceSelectionActive, edgeSelectionActive, booleanActive,
       selectedBodyIds, selectBody, deselectBody, clearSelection, toggleBooleanSelection])
 
+  // If the body has a cut feature with a cached mesh, render only that
+  // (it represents body minus the cut tool — no need to also render primitive/extrude)
+  const lastCutFeature = [...body.features].reverse().find(
+    f => f.type === 'cut' && f.cached_mesh_vertices && f.cached_mesh_indices
+  )
+
   return (
     <group onClick={handleBodyClick as any}>
-      {body.features.map(feature => {
-        if (feature.type === 'primitive' && feature.primitive) {
-          return (
-            <PrimitiveFeatureWithCache
-              key={feature.id}
-              feature={feature}
-              body={body}
-              isSelected={isSelected}
-            />
-          )
-        }
-        if (feature.type === 'extrude') {
-          return (
-            <ExtrudeFeatureWithCache
-              key={feature.id}
-              feature={feature}
-              body={body}
-              isSelected={isSelected}
-            />
-          )
-        }
-        if (feature.type === 'boolean') {
-          return (
-            <BooleanFeature
-              key={feature.id}
-              feature={feature}
-              body={body}
-              isSelected={isSelected}
-            />
-          )
-        }
-        return null
-      })}
+      {lastCutFeature ? (
+        <CutFeature feature={lastCutFeature} body={body} isSelected={isSelected} />
+      ) : (
+        body.features.map(feature => {
+          if (feature.type === 'primitive' && feature.primitive) {
+            return (
+              <PrimitiveFeatureWithCache
+                key={feature.id}
+                feature={feature}
+                body={body}
+                isSelected={isSelected}
+              />
+            )
+          }
+          if (feature.type === 'extrude') {
+            return (
+              <ExtrudeFeatureWithCache
+                key={feature.id}
+                feature={feature}
+                body={body}
+                isSelected={isSelected}
+              />
+            )
+          }
+          if (feature.type === 'boolean') {
+            return (
+              <BooleanFeature
+                key={feature.id}
+                feature={feature}
+                body={body}
+                isSelected={isSelected}
+              />
+            )
+          }
+          return null
+        })
+      )}
     </group>
   )
 }

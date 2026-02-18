@@ -12,7 +12,7 @@ export function SketchToolbar() {
   const undo = useSketchStore((s) => s.undo)
   const redo = useSketchStore((s) => s.redo)
   const { saveAndExit, cancelAndExit } = useSketchSave()
-  const { extrudeAndExit, getExistingExtrudeParams } = useSketchExtrude()
+  const { extrudeAndExit, cutAndExit, getExistingExtrudeParams } = useSketchExtrude()
 
   const [extrudeDialogOpen, setExtrudeDialogOpen] = useState(false)
   const [extrudeParams, setExtrudeParams] = useState<{
@@ -164,8 +164,12 @@ export function SketchToolbar() {
       <ExtrudeDialog
         isOpen={extrudeDialogOpen}
         onClose={() => setExtrudeDialogOpen(false)}
-        onConfirm={(height, heightBackward, draftAngle) => {
-          extrudeAndExit(height, heightBackward, draftAngle)
+        onConfirm={(height, heightBackward, draftAngle, isCut) => {
+          if (isCut) {
+            cutAndExit(height, heightBackward, draftAngle)
+          } else {
+            extrudeAndExit(height, heightBackward, draftAngle)
+          }
           setExtrudeDialogOpen(false)
         }}
         initialHeight={extrudeParams?.height}
