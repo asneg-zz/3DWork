@@ -7,6 +7,7 @@ import { PropertyPanel } from './components/panels/PropertyPanel'
 import { BooleanPanel } from './components/panels/BooleanPanel'
 import { SketchPropertiesPanel } from './components/panels/SketchPropertiesPanel'
 import { EdgeContextMenu } from './components/ui/EdgeContextMenu'
+import { NotificationToast } from './components/ui/NotificationToast'
 import { Viewport3D } from './components/viewport/Viewport3D'
 
 function App() {
@@ -94,6 +95,9 @@ function App() {
 
       {/* Edge Context Menu */}
       <EdgeContextMenu />
+
+      {/* Global notifications (localStorage quota exceeded, etc.) */}
+      <NotificationToast />
     </div>
   )
 }
