@@ -270,12 +270,17 @@ export function generateExtrudeMesh(
   const indices: number[] = []
 
   for (const profile of profiles) {
-    const n = profile.length
+    // If the profile has a redundant closing point (last ≈ first), exclude it.
+    // Such a closing point causes degenerate zero-area triangles and non-manifold
+    // edges that make Manifold CSG reject the geometry.
+    const n = (profile.length > 3 && ptEq(profile[0], profile[profile.length - 1]))
+      ? profile.length - 1
+      : profile.length
     if (n < 3) continue
 
     // Convert 2D profile to 3D face points, then shift backward by heightBackward
     // so the tool spans from (faceOffset - heightBackward) to (faceOffset + height)
-    const bottom3D = profile.map(p => {
+    const bottom3D = profile.slice(0, n).map(p => {
       const fp = sketchTo3D(p.x, p.y, plane, offset, fcs)
       return [
         fp[0] - normal[0] * heightBackward,
