@@ -55,7 +55,7 @@ interface SketchState {
 
   // Actions
   startSketch: (bodyId: string, sketchId: string, plane: SketchPlane, planeOffset?: number, faceCoordSystem?: FaceCoordSystem | null) => void
-  loadSketch: (bodyId: string, sketchId: string, plane: SketchPlane, elements: SketchElement[], planeOffset?: number) => void
+  loadSketch: (bodyId: string, sketchId: string, plane: SketchPlane, elements: SketchElement[], planeOffset?: number, faceCoordSystem?: FaceCoordSystem | null, construction?: boolean[], constraints?: SketchConstraint[]) => void
   exitSketch: () => void
   setTool: (tool: SketchState['tool']) => void
 
@@ -212,15 +212,17 @@ export const useSketchStore = create<SketchState>()(
         historyIndex = -1
       }),
 
-    loadSketch: (bodyId, sketchId, plane, elements, planeOffset = 0) =>
+    loadSketch: (bodyId, sketchId, plane, elements, planeOffset = 0, faceCoordSystem = null, construction = [], constraints = []) =>
       set((state) => {
         state.active = true
         state.bodyId = bodyId
         state.sketchId = sketchId
         state.plane = plane
         state.planeOffset = planeOffset
+        state.faceCoordSystem = faceCoordSystem
         state.elements = [...elements]
-        state.construction = []  // Will be loaded from sketch data if available
+        state.construction = [...construction]
+        state.constraints = [...constraints]
         state.revolveAxis = null
         state.symmetryAxis = null
         state.tool = 'select'

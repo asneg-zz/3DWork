@@ -107,7 +107,11 @@ export function SceneTree() {
         bodyId,
         feature.id,
         feature.sketch.plane,
-        feature.sketch.elements
+        feature.sketch.elements,
+        feature.sketch.offset ?? 0,
+        feature.sketch.face_coord_system ?? null,
+        feature.sketch.construction ?? [],
+        feature.sketch.constraints ?? [],
       )
     }
     setContextMenu(null)
