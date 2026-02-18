@@ -142,6 +142,9 @@ function useRebuildUncachedCuts(bodies: Body[]) {
                 else if (p === 'XZ') dot = fn[1]
                 else if (p === 'YZ') dot = fn[0]
                 if (dot > 0) { const tmp = toolH; toolH = toolHB; toolHB = tmp }
+              } else if (sk.sketch.plane !== 'CUSTOM') {
+                // No fcs (desktop scene or toolbar sketch) → always swap for standard planes
+                const tmp = toolH; toolH = toolHB; toolHB = tmp
               }
 
               const cutTool = generateExtrudeMesh(

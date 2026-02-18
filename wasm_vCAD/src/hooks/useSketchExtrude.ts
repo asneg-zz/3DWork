@@ -239,6 +239,12 @@ export function useSketchExtrude() {
           toolHeightBackward = height
         }
         // dot < 0: face normal opposite → +normal goes into body, keep as-is
+      } else if (plane !== 'CUSTOM') {
+        // No face coord system = sketch plane selected from toolbar.
+        // Standard convention: cuts go in -normal direction (into body from outer face).
+        // XY → -Z (downward), XZ → -Y (into front face), YZ → -X (into side face).
+        toolHeight = heightBackward
+        toolHeightBackward = height
       }
 
       // Build cut tool mesh
