@@ -255,7 +255,7 @@ export function generateExtrudeMesh(
   const normal = getPlaneNormal(plane, fcs)
   const totalHeight = height + heightBackward
 
-  // Extrusion vector
+  // Extrusion vector (always in +normal direction for totalHeight)
   const extrudeVec: [number, number, number] = [
     normal[0] * totalHeight,
     normal[1] * totalHeight,
@@ -273,8 +273,16 @@ export function generateExtrudeMesh(
     const n = profile.length
     if (n < 3) continue
 
-    // Convert 2D profile to 3D bottom points (with plane offset or FCS)
-    const bottom3D = profile.map(p => sketchTo3D(p.x, p.y, plane, offset, fcs))
+    // Convert 2D profile to 3D face points, then shift backward by heightBackward
+    // so the tool spans from (faceOffset - heightBackward) to (faceOffset + height)
+    const bottom3D = profile.map(p => {
+      const fp = sketchTo3D(p.x, p.y, plane, offset, fcs)
+      return [
+        fp[0] - normal[0] * heightBackward,
+        fp[1] - normal[1] * heightBackward,
+        fp[2] - normal[2] * heightBackward,
+      ] as [number, number, number]
+    })
 
     // Calculate top points
     const top3D = bottom3D.map(p => [
