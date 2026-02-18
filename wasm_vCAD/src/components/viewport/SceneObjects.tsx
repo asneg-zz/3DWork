@@ -4,14 +4,14 @@ import { useFaceSelectionStore } from '@/stores/faceSelectionStore'
 import { useBooleanStore } from '@/stores/booleanStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useViewportContextMenuStore } from '@/stores/viewportContextMenuStore'
-import { useMemo, useEffect, useCallback } from 'react'
+import { useMemo, useEffect, useCallback, useRef } from 'react'
 import * as THREE from 'three'
 import type { ThreeEvent } from '@react-three/fiber'
 import { engine } from '@/wasm/engine'
 import type { MeshData } from '@/types/mesh'
 import type { Feature, Body } from '@/types/scene'
 import { generateExtrudeMesh } from '@/utils/extrudeMesh'
-import { deserializeGeometry } from '@/utils/manifoldCSG'
+import { performCSG, serializeGeometry, deserializeGeometry } from '@/utils/manifoldCSG'
 import { geometryCache } from '@/utils/geometryCache'
 import { normalToPlane, calculateOffset, computeFaceCoordSystem, computeGeometricFaceData } from '@/utils/faceUtils'
 import { FaceHighlight } from './FaceHighlight'
@@ -39,6 +39,134 @@ function createGeometryFromMeshData(meshData: MeshData): THREE.BufferGeometry {
   geometry.setIndex(new THREE.BufferAttribute(indices, 1))
 
   return geometry
+}
+
+// ─── Helper: build primitive geometry via WASM ────────────────────────────────
+
+function buildPrimitiveGeo(primitive: NonNullable<Feature['primitive']>): THREE.BufferGeometry {
+  try {
+    let meshData: MeshData
+    switch (primitive.type) {
+      case 'cube':
+        meshData = engine.generateCubeMesh(primitive.width || 1, primitive.height || 1, primitive.depth || 1)
+        break
+      case 'cylinder':
+        meshData = engine.generateCylinderMesh(primitive.radius || 0.5, primitive.height || 1)
+        break
+      case 'sphere':
+        meshData = engine.generateSphereMesh(primitive.radius || 0.5)
+        break
+      case 'cone':
+        meshData = engine.generateConeMesh(primitive.radius || 0.5, primitive.height || 1)
+        break
+      default:
+        return new THREE.BoxGeometry(1, 1, 1)
+    }
+    return createGeometryFromMeshData(meshData)
+  } catch {
+    return new THREE.BoxGeometry(1, 1, 1)
+  }
+}
+
+// ─── Hook: rebuild CSG for cut features loaded from file (no cached mesh) ─────
+
+function useRebuildUncachedCuts(bodies: Body[]) {
+  const updateFeature = useSceneStore((s) => s.updateFeature)
+  // Track which feature IDs we've already rebuilt so we don't loop infinitely
+  const rebuiltRef = useRef(new Set<string>())
+
+  useEffect(() => {
+    const bodiesNeedingWork = bodies.filter(body =>
+      body.features.some(
+        f => f.type === 'cut' && !f.cached_mesh_vertices && !rebuiltRef.current.has(f.id)
+      )
+    )
+    if (bodiesNeedingWork.length === 0) return
+
+    let cancelled = false
+
+    const run = async () => {
+      for (const body of bodiesNeedingWork) {
+        if (cancelled) break
+
+        let bodyGeo: THREE.BufferGeometry | null = null
+
+        for (const feature of body.features) {
+          if (cancelled) break
+
+          try {
+            if (feature.type === 'primitive' && feature.primitive) {
+              bodyGeo = buildPrimitiveGeo(feature.primitive)
+
+            } else if (feature.type === 'extrude') {
+              const sk = body.features.find(f => f.id === feature.sketch_id)
+              if (sk?.type === 'sketch' && sk.sketch) {
+                bodyGeo = generateExtrudeMesh(
+                  sk.sketch.elements,
+                  sk.sketch.plane,
+                  feature.extrude_params?.height ?? 1,
+                  feature.extrude_params?.height_backward ?? 0,
+                  sk.sketch.offset ?? 0,
+                  sk.sketch.face_coord_system ?? null
+                )
+              }
+
+            } else if (feature.type === 'cut') {
+              // Already cached from a previous session — use it as running geometry
+              if (feature.cached_mesh_vertices && feature.cached_mesh_indices) {
+                bodyGeo = deserializeGeometry({
+                  vertices: feature.cached_mesh_vertices,
+                  indices: feature.cached_mesh_indices,
+                })
+                continue
+              }
+
+              // Already scheduled for rebuild in a previous effect run
+              if (rebuiltRef.current.has(feature.id)) continue
+
+              if (!bodyGeo) continue
+
+              const sk = body.features.find(f => f.id === feature.sketch_id)
+              if (sk?.type !== 'sketch' || !sk.sketch) continue
+
+              const cutTool = generateExtrudeMesh(
+                sk.sketch.elements,
+                sk.sketch.plane,
+                feature.extrude_params?.height ?? 1000,
+                feature.extrude_params?.height_backward ?? 0,
+                sk.sketch.offset ?? 0,
+                sk.sketch.face_coord_system ?? null
+              )
+
+              const baseGeo = bodyGeo
+              const result = await performCSG(baseGeo, cutTool, 'difference')
+
+              if (cancelled) break
+
+              const { vertices, indices } = serializeGeometry(result)
+              const { vertices: baseV, indices: baseI } = serializeGeometry(baseGeo)
+
+              updateFeature(body.id, feature.id, {
+                ...feature,
+                cached_mesh_vertices: vertices,
+                cached_mesh_indices: indices,
+                base_mesh_vertices: baseV,
+                base_mesh_indices: baseI,
+              })
+
+              rebuiltRef.current.add(feature.id)
+              bodyGeo = result
+            }
+          } catch (err) {
+            console.error('Cut rebuild failed for feature', feature.id, err)
+          }
+        }
+      }
+    }
+
+    run()
+    return () => { cancelled = true }
+  }, [bodies, updateFeature])
 }
 
 // ─── Boolean feature component ────────────────────────────────────────────────
@@ -412,6 +540,9 @@ function ExtrudeFeatureWithCache(props: { feature: Feature; body: Body; isSelect
 export function SceneObjects() {
   const bodies = useSceneStore((s) => s.scene.bodies)
   const selectedBodyIds = useSceneStore((s) => s.selectedBodyIds)
+
+  // Rebuild CSG for cut features that were loaded from file without cached geometry
+  useRebuildUncachedCuts(bodies)
 
   return (
     <>
