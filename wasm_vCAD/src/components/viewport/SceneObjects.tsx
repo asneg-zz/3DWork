@@ -54,7 +54,7 @@ function BooleanFeature({ feature, body, isSelected }: { feature: Feature; body:
     })
   }, [feature.cached_mesh_vertices, feature.cached_mesh_indices])
 
-  const edgesGeometry = useMemo(() => new THREE.EdgesGeometry(geometry), [geometry])
+  const edgesGeometry = useMemo(() => new THREE.EdgesGeometry(geometry, 15), [geometry])
 
   // Register geometry in cache so subsequent boolean ops can use this body
   useEffect(() => {
@@ -100,7 +100,7 @@ function CutFeature({ feature, body, isSelected }: { feature: Feature; body: Bod
     })
   }, [feature.cached_mesh_vertices, feature.cached_mesh_indices])
 
-  const edgesGeometry = useMemo(() => new THREE.EdgesGeometry(geometry), [geometry])
+  const edgesGeometry = useMemo(() => new THREE.EdgesGeometry(geometry, 15), [geometry])
 
   // Register geometry in cache so subsequent cuts/booleans can use this body
   useEffect(() => {
@@ -256,7 +256,7 @@ function PrimitiveFeatureWithCache(props: { feature: Feature; body: Body; isSele
     }
   }, [feature.primitive])
 
-  const edgesGeometry = useMemo(() => new THREE.EdgesGeometry(geometry), [geometry])
+  const edgesGeometry = useMemo(() => new THREE.EdgesGeometry(geometry, 15), [geometry])
 
   useEffect(() => {
     geometryCache.set(body.id, geometry)
@@ -318,7 +318,7 @@ function ExtrudeFeatureWithCache(props: { feature: Feature; body: Body; isSelect
     }
   }, [feature.sketch_id, height, heightBackward, body.features])
 
-  const edgesGeometry = useMemo(() => new THREE.EdgesGeometry(geometry), [geometry])
+  const edgesGeometry = useMemo(() => new THREE.EdgesGeometry(geometry, 15), [geometry])
 
   useEffect(() => {
     geometryCache.set(body.id, geometry)
