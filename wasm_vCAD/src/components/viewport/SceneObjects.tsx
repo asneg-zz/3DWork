@@ -196,13 +196,13 @@ function BodyObject({ body, isSelected }: { body: Body; isSelected: boolean }) {
         const { worldNormal, worldCenter } = data
         const axisPlane = normalToPlane(worldNormal)
         const plane = axisPlane ?? 'CUSTOM'
-        const planeOffset = axisPlane ? calculateOffset(worldCenter, axisPlane) : 0
+        const offset = axisPlane ? calculateOffset(worldCenter, axisPlane) : 0
         const faceCoordSystem = computeFaceCoordSystem(worldCenter, worldNormal)
         faceInfo = {
           bodyId: body.id,
           featureId: geomFeature.id,
           plane,
-          planeOffset,
+          offset,
           faceCoordSystem,
         }
       }

@@ -5,7 +5,7 @@ export interface ViewportFaceInfo {
   bodyId: string
   featureId: string
   plane: SketchPlane
-  planeOffset: number
+  offset: number
   faceCoordSystem: FaceCoordSystem
 }
 
