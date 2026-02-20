@@ -290,6 +290,58 @@
           "cut": true
         }
       ]
+    },
+    {
+      "id": "e9cb94a8-0303-40c6-aa13-c25511343c1b",
+      "name": "Тело",
+      "visible": true,
+      "features": [
+        {
+          "type": "sketch",
+          "id": "8743db44-85ab-4610-a8cf-799d06fcb8e3",
+          "sketch": {
+            "plane": "XZ",
+            "offset": 0,
+            "elements": [
+              {
+                "type": "circle",
+                "id": "969ccc50-731a-48a5-a1de-4b88a2384229",
+                "center": {
+                  "x": 5,
+                  "y": -3.5
+                },
+                "radius": 1.4142135623730951
+              }
+            ]
+          },
+          "transform": {
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        {
+          "type": "extrude",
+          "id": "a2cdbe4f-4e16-4d12-bddf-61018c08074a",
+          "sketch_id": "8743db44-85ab-4610-a8cf-799d06fcb8e3",
+          "height": 1,
+          "height_backward": 0,
+          "draft_angle": 0,
+          "cut": false
+        }
+      ]
     }
   ],
   "body_operations": []

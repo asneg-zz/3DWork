@@ -125,24 +125,31 @@ export function useSketchExtrude() {
               const extrudeGeo = generateExtrudeMesh(elements, plane, height, heightBackward, planeOffset, faceCoordSystem ?? null)
               const resultGeo = await performCSG(baseGeo, extrudeGeo, 'union')
               const { vertices, indices } = serializeGeometry(resultGeo)
+              // Re-read fresh feature state after async CSG to avoid stale spread
+              const freshExtrude = useSceneStore.getState().scene.bodies
+                .find(b => b.id === sketchBodyId)?.features.find(f => f.id === existingExtrude.id)
               updateFeature(sketchBodyId, existingExtrude.id, {
-                ...existingExtrude,
+                ...(freshExtrude ?? existingExtrude),
                 name: `Extrude ${height.toFixed(2)}`,
                 extrude_params: { height, height_backward: heightBackward, draft_angle: draftAngle },
                 cached_mesh_vertices: vertices,
                 cached_mesh_indices: indices,
               })
             } else {
+              const freshExtrude = useSceneStore.getState().scene.bodies
+                .find(b => b.id === sketchBodyId)?.features.find(f => f.id === existingExtrude.id)
               updateFeature(sketchBodyId, existingExtrude.id, {
-                ...existingExtrude,
+                ...(freshExtrude ?? existingExtrude),
                 name: `Extrude ${height.toFixed(2)}`,
                 extrude_params: { height, height_backward: heightBackward, draft_angle: draftAngle },
               })
             }
           } else {
             // Simple extrude update (no cached mesh)
+            const freshExtrude = useSceneStore.getState().scene.bodies
+              .find(b => b.id === sketchBodyId)?.features.find(f => f.id === existingExtrude.id)
             updateFeature(sketchBodyId, existingExtrude.id, {
-              ...existingExtrude,
+              ...(freshExtrude ?? existingExtrude),
               name: `Extrude ${height.toFixed(2)}`,
               extrude_params: { height, height_backward: heightBackward, draft_angle: draftAngle },
             })
@@ -310,9 +317,12 @@ export function useSketchExtrude() {
       const { vertices, indices } = serializeGeometry(resultGeo)
 
       if (existingCut) {
+        // Re-read fresh feature state after async CSG to avoid stale spread
+        const freshCut = useSceneStore.getState().scene.bodies
+          .find(b => b.id === sketchBodyId)?.features.find(f => f.id === existingCut.id)
         // Update existing cut feature (keep stored base_mesh intact)
         updateFeature(sketchBodyId, existingCut.id, {
-          ...existingCut,
+          ...(freshCut ?? existingCut),
           extrude_params: {
             height,
             height_backward: heightBackward,

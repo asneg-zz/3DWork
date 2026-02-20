@@ -4,7 +4,7 @@ import { useFaceSelectionStore } from '@/stores/faceSelectionStore'
 import { useBooleanStore } from '@/stores/booleanStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useViewportContextMenuStore } from '@/stores/viewportContextMenuStore'
-import { useMemo, useEffect, useCallback, useRef } from 'react'
+import { useMemo, useEffect, useCallback } from 'react'
 import * as THREE from 'three'
 import type { ThreeEvent } from '@react-three/fiber'
 import { engine } from '@/wasm/engine'
@@ -70,15 +70,18 @@ function buildPrimitiveGeo(primitive: NonNullable<Feature['primitive']>): THREE.
 
 // ─── Hook: rebuild CSG for cut features loaded from file (no cached mesh) ─────
 
+// Module-level Set: persists across hook remounts so we never re-rebuild the
+// same feature ID.  UUIDs are unique per session so cross-scene collisions are
+// essentially impossible.
+const rebuiltCutIds = new Set<string>()
+
 function useRebuildUncachedCuts(bodies: Body[]) {
   const updateFeature = useSceneStore((s) => s.updateFeature)
-  // Track which feature IDs we've already rebuilt so we don't loop infinitely
-  const rebuiltRef = useRef(new Set<string>())
 
   useEffect(() => {
     const bodiesNeedingWork = bodies.filter(body =>
       body.features.some(
-        f => f.type === 'cut' && !f.cached_mesh_vertices && !rebuiltRef.current.has(f.id)
+        f => f.type === 'cut' && !f.cached_mesh_vertices && !rebuiltCutIds.has(f.id)
       )
     )
     if (bodiesNeedingWork.length === 0) return
@@ -130,7 +133,7 @@ function useRebuildUncachedCuts(bodies: Body[]) {
               }
 
               // Already scheduled for rebuild in a previous effect run
-              if (rebuiltRef.current.has(feature.id)) continue
+              if (rebuiltCutIds.has(feature.id)) continue
 
               if (!bodyGeo) continue
 
@@ -165,7 +168,7 @@ function useRebuildUncachedCuts(bodies: Body[]) {
                 base_mesh_indices: baseI,
               })
 
-              rebuiltRef.current.add(feature.id)
+              rebuiltCutIds.add(feature.id)
               bodyGeo = result
             }
           } catch (err) {
@@ -203,7 +206,9 @@ function BooleanFeature({ feature, body, isSelected }: { feature: Feature; body:
   // Register geometry in cache so subsequent boolean ops can use this body
   useEffect(() => {
     geometryCache.set(body.id, geometry)
-    return () => geometryCache.delete(body.id)
+    // Only delete if our geometry is still the current one — prevents a
+    // remounting component from wiping a newer entry set by its replacement.
+    return () => { if (geometryCache.get(body.id) === geometry) geometryCache.delete(body.id) }
   }, [body.id, geometry])
 
   return (
@@ -254,7 +259,7 @@ function CutFeature({ feature, body, isSelected }: { feature: Feature; body: Bod
   // Register geometry in cache so subsequent cuts/booleans can use this body
   useEffect(() => {
     geometryCache.set(body.id, geometry)
-    return () => geometryCache.delete(body.id)
+    return () => { if (geometryCache.get(body.id) === geometry) geometryCache.delete(body.id) }
   }, [body.id, geometry])
 
   return (
@@ -323,8 +328,9 @@ function BodyObject({ body, isSelected }: { body: Body; isSelected: boolean }) {
     const mesh = e.object as THREE.Mesh
     const faceIndex = e.faceIndex
 
-    // Find a geometry-producing feature for featureId
-    const geomFeature = body.features.find(
+    // Find the last geometry-producing feature for featureId
+    // (last = the one whose mesh is currently visible on screen)
+    const geomFeature = [...body.features].reverse().find(
       f => f.type === 'extrude' || f.type === 'cut' || f.type === 'boolean' || f.type === 'primitive'
     )
 
@@ -453,7 +459,7 @@ function PrimitiveFeatureWithCache(props: { feature: Feature; body: Body; isSele
 
   useEffect(() => {
     geometryCache.set(body.id, geometry)
-    return () => geometryCache.delete(body.id)
+    return () => { if (geometryCache.get(body.id) === geometry) geometryCache.delete(body.id) }
   }, [body.id, geometry])
 
   const transform = feature.transform || { position: [0,0,0], rotation: [0,0,0], scale: [1,1,1] }
@@ -520,7 +526,7 @@ function ExtrudeFeatureWithCache(props: { feature: Feature; body: Body; isSelect
 
   useEffect(() => {
     geometryCache.set(body.id, geometry)
-    return () => geometryCache.delete(body.id)
+    return () => { if (geometryCache.get(body.id) === geometry) geometryCache.delete(body.id) }
   }, [body.id, geometry])
 
   return (

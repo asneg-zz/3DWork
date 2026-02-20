@@ -17,6 +17,7 @@ export function SceneTree() {
   const updateBody = useSceneStore((s) => s.updateBody)
   const removeBody = useSceneStore((s) => s.removeBody)
   const removeFeature = useSceneStore((s) => s.removeFeature)
+  const removeSketchWithDependents = useSceneStore((s) => s.removeSketchWithDependents)
 
   const booleanActive = useBooleanStore((s) => s.active)
   const booleanSelectedBodies = useBooleanStore((s) => s.selectedBodies)
@@ -34,7 +35,6 @@ export function SceneTree() {
     feature: Feature
   } | null>(null)
 
-  // Edit dialog state
   const [editDialog, setEditDialog] = useState<{
     bodyId: string
     feature: Feature
@@ -90,17 +90,11 @@ export function SceneTree() {
   ) => {
     e.preventDefault()
     e.stopPropagation()
-    setContextMenu({
-      x: e.clientX,
-      y: e.clientY,
-      bodyId,
-      feature,
-    })
+    setContextMenu({ x: e.clientX, y: e.clientY, bodyId, feature })
   }
 
   const handleEditSketch = () => {
     if (!contextMenu) return
-
     const { bodyId, feature } = contextMenu
     if (feature.type === 'sketch' && feature.sketch) {
       loadSketch(
@@ -126,9 +120,14 @@ export function SceneTree() {
 
   const handleDeleteFeature = () => {
     if (!contextMenu) return
-
     const { bodyId, feature } = contextMenu
-    removeFeature(bodyId, feature.id)
+
+    if (feature.type === 'sketch') {
+      // Cascade: remove sketch + all dependent operations (extrude, cut, etc.)
+      removeSketchWithDependents(bodyId, feature.id)
+    } else {
+      removeFeature(bodyId, feature.id)
+    }
     setContextMenu(null)
   }
 
@@ -137,6 +136,22 @@ export function SceneTree() {
 
   const editDialogIsCut = editDialog?.feature.type === 'cut'
   const editDialogInitialParams = editDialog?.feature.extrude_params
+
+  // ─── Feature row renderer ──────────────────────────────────────────────────
+
+  const featureRow = (bodyId: string, feature: Feature, isChild = false) => (
+    <div
+      key={feature.id}
+      className={`
+        px-2 py-1 text-xs text-cad-muted hover:bg-cad-hover rounded cursor-pointer
+        ${isChild ? 'ml-4 border-l border-cad-border/40 pl-3' : ''}
+      `}
+      onContextMenu={(e) => handleFeatureContextMenu(e, bodyId, feature)}
+    >
+      {feature.name}
+      <span className="ml-1 opacity-50">({feature.type})</span>
+    </div>
+  )
 
   return (
     <div className="p-3">
@@ -155,8 +170,21 @@ export function SceneTree() {
             ? booleanSelectedBodies.includes(body.id)
             : selectedBodyIds.includes(body.id)
 
+          // IDs of features that are children of a sketch (shown nested, not at root)
+          const sketchIds = new Set(body.features.filter(f => f.type === 'sketch').map(f => f.id))
+          const childFeatureIds = new Set(
+            body.features
+              .filter(f => f.sketch_id && sketchIds.has(f.sketch_id))
+              .map(f => f.id)
+          )
+
+          // Root-level features: sketches, primitives, booleans, fillets, chamfers,
+          // plus any orphaned operations whose parent sketch was already deleted.
+          const rootFeatures = body.features.filter(f => !childFeatureIds.has(f.id))
+
           return (
             <div key={body.id}>
+              {/* Body header row */}
               <div
                 className={`
                   flex items-center gap-1 px-2 py-1.5 rounded cursor-pointer
@@ -190,17 +218,22 @@ export function SceneTree() {
                 </button>
               </div>
 
+              {/* Feature list */}
               {isExpanded && (
-                <div className="ml-6 mt-1 space-y-1">
-                  {body.features.map(feature => (
-                    <div
-                      key={feature.id}
-                      className="px-2 py-1 text-xs text-cad-muted hover:bg-cad-hover rounded cursor-pointer"
-                      onContextMenu={(e) => handleFeatureContextMenu(e, body.id, feature)}
-                    >
-                      {feature.name} ({feature.type})
-                    </div>
-                  ))}
+                <div className="ml-6 mt-1 space-y-0.5">
+                  {rootFeatures.map(feature => {
+                    if (feature.type === 'sketch') {
+                      // Sketch with its child operations nested below
+                      const children = body.features.filter(f => f.sketch_id === feature.id)
+                      return (
+                        <div key={feature.id}>
+                          {featureRow(body.id, feature)}
+                          {children.map(child => featureRow(body.id, child, true))}
+                        </div>
+                      )
+                    }
+                    return featureRow(body.id, feature)
+                  })}
                 </div>
               )}
             </div>

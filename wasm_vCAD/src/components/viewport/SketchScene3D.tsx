@@ -94,6 +94,9 @@ export function SketchScene3D() {
   const snapPointsRef = useRef<SnapPoint[]>([])
   useEffect(() => { snapPointsRef.current = snapPoints }, [snapPoints])
 
+  // Debounce timer for constraint solving — ensures only the latest solve runs
+  const solveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   // For WASM calls that only accept axis-aligned planes, fall back to 'XY' for CUSTOM
   const wasmPlane = (sketchPlane === 'CUSTOM' ? 'XY' : sketchPlane) as 'XY' | 'XZ' | 'YZ'
 
@@ -211,7 +214,10 @@ export function SketchScene3D() {
   const handlePointerDown = useCallback((e: ThreeEvent<PointerEvent>) => {
     e.stopPropagation()
 
-    if (e.button === 2) return
+    // Only left click (0) triggers sketch interactions.
+    // Middle button (1) is handled by OrbitControls for rotation.
+    // Right click (2) is handled in handlePointerUp for context menu.
+    if (e.button !== 0) return
 
     const sketchPoint = worldToSketch(e.point, sketchPlane, faceCoordSystem)
     const currentSnaps = snapPointsRef.current
@@ -239,7 +245,9 @@ export function SketchScene3D() {
               point1: { element_index: element1Index, point_index: coincidentPoint1.pointIndex },
               point2: { element_index: element2Index, point_index: pointHit.pointIndex },
             })
-            setTimeout(() => {
+            if (solveTimerRef.current !== null) clearTimeout(solveTimerRef.current)
+            solveTimerRef.current = setTimeout(() => {
+              solveTimerRef.current = null
               const curConstraints = useSketchStore.getState().constraints
               const curElements = useSketchStore.getState().elements
               if (curConstraints.length > 0) {
@@ -513,7 +521,7 @@ export function SketchScene3D() {
       return
     }
 
-    if (isDrawing && tool !== 'polyline' && tool !== 'spline') {
+    if (e.button === 0 && isDrawing && tool !== 'polyline' && tool !== 'spline') {
       finishDrawing()
     }
   }, [
@@ -600,7 +608,9 @@ export function SketchScene3D() {
       }
     }
 
-    setTimeout(() => {
+    if (solveTimerRef.current !== null) clearTimeout(solveTimerRef.current)
+    solveTimerRef.current = setTimeout(() => {
+      solveTimerRef.current = null
       const curConstraints = useSketchStore.getState().constraints
       const curElements = useSketchStore.getState().elements
       if (curConstraints.length > 0) {
@@ -724,6 +734,14 @@ export function SketchScene3D() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   ), [sketchPlane, renderOffset, renderFcs])
 
+  // Dispose Three.js objects when they change to prevent GPU memory leaks
+  useEffect(() => {
+    return () => {
+      xAxisLine.geometry.dispose()
+      ;(xAxisLine.material as THREE.Material).dispose()
+    }
+  }, [xAxisLine])
+
   const yAxisLine = useMemo(() => new THREE.Line(
     new THREE.BufferGeometry().setFromPoints([
       sketchToWorld(0, -20, sketchPlane, renderOffset, renderFcs),
@@ -732,6 +750,13 @@ export function SketchScene3D() {
     new THREE.LineBasicMaterial({ color: '#4ade80' })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   ), [sketchPlane, renderOffset, renderFcs])
+
+  useEffect(() => {
+    return () => {
+      yAxisLine.geometry.dispose()
+      ;(yAxisLine.material as THREE.Material).dispose()
+    }
+  }, [yAxisLine])
 
   return (
     <group>

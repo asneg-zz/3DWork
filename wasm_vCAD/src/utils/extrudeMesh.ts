@@ -12,25 +12,6 @@ interface Point2D {
 }
 
 /**
- * Convert 2D sketch point to 3D coordinates based on plane, offset, and optional FCS.
- * Delegates to getPlaneCoordSystem to avoid duplicating plane logic.
- */
-function sketchTo3D(
-  x: number,
-  y: number,
-  plane: SketchPlane,
-  offset: number,
-  fcs?: FaceCoordSystem | null
-): [number, number, number] {
-  const cs = getPlaneCoordSystem(plane, offset, fcs)
-  return [
-    cs.origin[0] + x * cs.uAxis[0] + y * cs.vAxis[0],
-    cs.origin[1] + x * cs.uAxis[1] + y * cs.vAxis[1],
-    cs.origin[2] + x * cs.uAxis[2] + y * cs.vAxis[2],
-  ]
-}
-
-/**
  * Extract 2D profile points from sketch element
  */
 function elementToPoints(element: SketchElement, segments: number = 32): Point2D[] {
@@ -270,7 +251,9 @@ export function generateExtrudeMesh(
   fcs?: FaceCoordSystem | null
 ): THREE.BufferGeometry {
   const profiles = extractProfiles(elements)
-  const normal = getPlaneCoordSystem(plane, 0, fcs).normal
+  // Compute coordinate system once — reused for every point conversion below
+  const cs = getPlaneCoordSystem(plane, offset, fcs)
+  const normal = cs.normal
   const totalHeight = height + heightBackward
 
   // Extrusion vector (always in +normal direction for totalHeight)
@@ -296,14 +279,14 @@ export function generateExtrudeMesh(
       : profile.length
     if (n < 3) continue
 
-    // Convert 2D profile to 3D face points, then shift backward by heightBackward
-    // so the tool spans from (faceOffset - heightBackward) to (faceOffset + height)
+    // Convert 2D profile to 3D face points using the pre-computed cs,
+    // then shift backward by heightBackward so the tool spans
+    // from (faceOffset - heightBackward) to (faceOffset + height).
     const bottom3D = profile.slice(0, n).map(p => {
-      const fp = sketchTo3D(p.x, p.y, plane, offset, fcs)
       return [
-        fp[0] - normal[0] * heightBackward,
-        fp[1] - normal[1] * heightBackward,
-        fp[2] - normal[2] * heightBackward,
+        cs.origin[0] + p.x * cs.uAxis[0] + p.y * cs.vAxis[0] - normal[0] * heightBackward,
+        cs.origin[1] + p.x * cs.uAxis[1] + p.y * cs.vAxis[1] - normal[1] * heightBackward,
+        cs.origin[2] + p.x * cs.uAxis[2] + p.y * cs.vAxis[2] - normal[2] * heightBackward,
       ] as [number, number, number]
     })
 

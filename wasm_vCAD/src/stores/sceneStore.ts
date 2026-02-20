@@ -69,6 +69,8 @@ interface SceneState {
 
   addFeature: (bodyId: string, feature: Feature) => void
   removeFeature: (bodyId: string, featureId: string) => void
+  /** Remove a sketch AND all features that reference it (extrude, cut, etc.) */
+  removeSketchWithDependents: (bodyId: string, sketchId: string) => void
   updateFeature: (bodyId: string, featureId: string, updates: Partial<Feature>) => void
 
   selectBody: (bodyId: string) => void
@@ -132,6 +134,17 @@ export const useSceneStore = create<SceneState>()(
           const body = state.scene.bodies.find(b => b.id === bodyId)
           if (body) {
             body.features = body.features.filter(f => f.id !== featureId)
+          }
+        }),
+
+      removeSketchWithDependents: (bodyId, sketchId) =>
+        set((state) => {
+          const body = state.scene.bodies.find(b => b.id === bodyId)
+          if (body) {
+            // Remove the sketch itself AND every feature that references it
+            body.features = body.features.filter(
+              f => f.id !== sketchId && f.sketch_id !== sketchId
+            )
           }
         }),
 
