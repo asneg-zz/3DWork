@@ -26,21 +26,27 @@ export function ExtrudeDialog({
   initialIsCut = false,
 }: ExtrudeDialogProps) {
   const [isCut, setIsCut] = useState(false)
-  const [height, setHeight] = useState(initialHeight ?? 1.0)
-  const [heightBackward, setHeightBackward] = useState(initialHeightBackward ?? 0.0)
-  const [draftAngle, setDraftAngle] = useState(initialDraftAngle ?? 0.0)
+  // Use string state for inputs to allow clearing the field
+  const [heightStr, setHeightStr] = useState(String(initialHeight ?? 1.0))
+  const [heightBackwardStr, setHeightBackwardStr] = useState(String(initialHeightBackward ?? 0.0))
+  const [draftAngleStr, setDraftAngleStr] = useState(String(initialDraftAngle ?? 0.0))
+
+  // Parse values (empty string = 0)
+  const height = parseFloat(heightStr) || 0
+  const heightBackward = parseFloat(heightBackwardStr) || 0
+  const draftAngle = parseFloat(draftAngleStr) || 0
 
   const handleModeChange = (cut: boolean) => {
     setIsCut(cut)
     if (cut) {
       // Default "through all" for cut mode
-      setHeight(1000)
-      setHeightBackward(1000)
-      setDraftAngle(0)
+      setHeightStr('1000')
+      setHeightBackwardStr('1000')
+      setDraftAngleStr('0')
     } else {
-      setHeight(initialHeight ?? 1.0)
-      setHeightBackward(initialHeightBackward ?? 0.0)
-      setDraftAngle(initialDraftAngle ?? 0.0)
+      setHeightStr(String(initialHeight ?? 1.0))
+      setHeightBackwardStr(String(initialHeightBackward ?? 0.0))
+      setDraftAngleStr(String(initialDraftAngle ?? 0.0))
     }
   }
 
@@ -50,9 +56,9 @@ export function ExtrudeDialog({
   }
 
   const handleReset = () => {
-    setHeight(1.0)
-    setHeightBackward(0.0)
-    setDraftAngle(0.0)
+    setHeightStr('1.0')
+    setHeightBackwardStr('0.0')
+    setDraftAngleStr('0.0')
   }
 
   // Sync state when dialog opens
@@ -60,13 +66,13 @@ export function ExtrudeDialog({
     if (isOpen) {
       setIsCut(initialIsCut)
       if (initialIsCut) {
-        setHeight(1000)
-        setHeightBackward(1000)
-        setDraftAngle(0)
+        setHeightStr('1000')
+        setHeightBackwardStr('1000')
+        setDraftAngleStr('0')
       } else {
-        setHeight(initialHeight ?? 1.0)
-        setHeightBackward(initialHeightBackward ?? 0.0)
-        setDraftAngle(initialDraftAngle ?? 0.0)
+        setHeightStr(String(initialHeight ?? 1.0))
+        setHeightBackwardStr(String(initialHeightBackward ?? 0.0))
+        setDraftAngleStr(String(initialDraftAngle ?? 0.0))
       }
     }
   }, [isOpen, initialHeight, initialHeightBackward, initialDraftAngle, initialIsCut])
@@ -106,8 +112,8 @@ export function ExtrudeDialog({
           <div className="flex items-center gap-2">
             <input
               type="number"
-              value={height}
-              onChange={(e) => setHeight(parseFloat(e.target.value) || 0)}
+              value={heightStr}
+              onChange={(e) => setHeightStr(e.target.value)}
               step="0.1"
               className="flex-1 px-3 py-2 bg-cad-surface border border-cad-accent rounded text-cad-text focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="1.0"
@@ -124,8 +130,8 @@ export function ExtrudeDialog({
           <div className="flex items-center gap-2">
             <input
               type="number"
-              value={heightBackward}
-              onChange={(e) => setHeightBackward(parseFloat(e.target.value) || 0)}
+              value={heightBackwardStr}
+              onChange={(e) => setHeightBackwardStr(e.target.value)}
               step="0.1"
               className="flex-1 px-3 py-2 bg-cad-surface border border-cad-accent rounded text-cad-text focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="0.0"
@@ -145,8 +151,8 @@ export function ExtrudeDialog({
           <div className="flex items-center gap-2">
             <input
               type="number"
-              value={draftAngle}
-              onChange={(e) => setDraftAngle(parseFloat(e.target.value) || 0)}
+              value={draftAngleStr}
+              onChange={(e) => setDraftAngleStr(e.target.value)}
               step="1"
               min="-45"
               max="45"

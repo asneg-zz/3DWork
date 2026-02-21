@@ -3,7 +3,7 @@
  * Context menu items and actions for sketch elements
  */
 
-import { Trash2, Copy, Move, CornerUpRight, Repeat, RotateCw, Ruler, FlipHorizontal2, Lock } from 'lucide-react'
+import { Trash2, Copy, Move, CornerUpRight, Repeat, RotateCw, Ruler, FlipHorizontal2, Lock, Link } from 'lucide-react'
 import type { ContextMenuItem } from '@/components/ui/ContextMenu'
 import type { SketchElement } from '@/types/scene'
 
@@ -21,6 +21,8 @@ export interface ContextMenuCallbacks {
   onAddConstraint: (constraintType: string, elementId: string) => void
   hasConstraint: (constraintType: string, elementId: string) => boolean
   onOpenConstraintDialog?: (elementId: string) => void
+  onJoinContour?: () => void
+  canJoinContour?: () => boolean
 }
 
 export function getContextMenuItems(
@@ -57,6 +59,16 @@ export function getContextMenuItems(
       icon: <CornerUpRight size={16} />,
       onClick: () => callbacks.onMirror(elementId),
     },
+
+    // Join contour (only if callback provided and can join)
+    ...(callbacks.onJoinContour && callbacks.canJoinContour?.() ? [
+      { label: '', onClick: () => {}, separator: true },
+      {
+        label: 'Объединить контур',
+        icon: <Link size={16} />,
+        onClick: () => callbacks.onJoinContour!(),
+      },
+    ] : []),
 
     { label: '', onClick: () => {}, separator: true },
 

@@ -122,7 +122,7 @@ export function useSketchExtrude() {
               baseGeo = geometryCache.get(sketchBodyId) ?? null
             }
             if (baseGeo) {
-              const extrudeGeo = generateExtrudeMesh(elements, plane, height, heightBackward, planeOffset, faceCoordSystem ?? null)
+              const extrudeGeo = generateExtrudeMesh(elements, plane, height, heightBackward, planeOffset, faceCoordSystem ?? null, draftAngle)
               const resultGeo = await performCSG(baseGeo, extrudeGeo, 'union')
               const { vertices, indices } = serializeGeometry(resultGeo)
               // Re-read fresh feature state after async CSG to avoid stale spread
@@ -163,7 +163,7 @@ export function useSketchExtrude() {
           })
           const { vertices: baseV, indices: baseI } = serializeGeometry(bodyGeo)
 
-          const extrudeGeo = generateExtrudeMesh(elements, plane, height, heightBackward, planeOffset, faceCoordSystem ?? null)
+          const extrudeGeo = generateExtrudeMesh(elements, plane, height, heightBackward, planeOffset, faceCoordSystem ?? null, draftAngle)
           const resultGeo = await performCSG(bodyGeo, extrudeGeo, 'union')
           const { vertices, indices } = serializeGeometry(resultGeo)
 
@@ -270,6 +270,7 @@ export function useSketchExtrude() {
                   f.extrude_params?.height_backward ?? 0,
                   sk.sketch.offset ?? 0,
                   sk.sketch.face_coord_system ?? null,
+                  f.extrude_params?.draft_angle ?? 0
                 )
               }
             } else if (f.type === 'cut' && f.cached_mesh_vertices && f.cached_mesh_indices) {
@@ -313,6 +314,7 @@ export function useSketchExtrude() {
         faceCoordSystem ?? null,
         height,
         heightBackward,
+        draftAngle,
       )
       const { vertices, indices } = serializeGeometry(resultGeo)
 

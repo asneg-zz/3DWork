@@ -22,4 +22,6 @@ export {
   processWasmResult,
   applyWasmOperation,
   applyWasmOperationSafe,
+  mergeNearbyEndpoints,
+  joinConnectedElements,
 } from './sketch3D/utils'

@@ -5,6 +5,7 @@
 
 import type { SketchElement, SketchPlane, FaceCoordSystem } from '@/types/scene'
 import * as THREE from 'three'
+import { ShapeUtils } from 'three'
 import { getPlaneCoordSystem, type CoordSystem } from './geometry/coordSystem'
 import { interpolateCatmullRom, interpolateCatmullRomClosed, isSplineClosed } from './splineInterpolation'
 
@@ -93,7 +94,7 @@ function elementToPoints(element: SketchElement, segments: number = 32): Point2D
   return points
 }
 
-const COINCIDENCE_TOL = 0.001
+const COINCIDENCE_TOL = 0.01 // Tolerance for connecting segments into closed loops
 
 function ptEq(a: Point2D, b: Point2D): boolean {
   return Math.abs(a.x - b.x) < COINCIDENCE_TOL && Math.abs(a.y - b.y) < COINCIDENCE_TOL
@@ -223,6 +224,7 @@ function extractProfiles(elements: SketchElement[]): Point2D[][] {
 
 /**
  * Generate extruded mesh from sketch elements
+ * @param draftAngle - Draft angle in degrees (positive = expands, negative = contracts)
  */
 export function generateExtrudeMesh(
   elements: SketchElement[],
@@ -230,7 +232,8 @@ export function generateExtrudeMesh(
   height: number,
   heightBackward: number = 0,
   offset: number = 0,
-  fcs?: FaceCoordSystem | null
+  fcs?: FaceCoordSystem | null,
+  draftAngle: number = 0
 ): THREE.BufferGeometry {
   const profiles = extractProfiles(elements)
   // Compute coordinate system once — reused for every point conversion below
@@ -249,6 +252,10 @@ export function generateExtrudeMesh(
   const bottomNormal = height >= 0 ? [-normal[0], -normal[1], -normal[2]] : normal
   const topNormal = height >= 0 ? normal : [-normal[0], -normal[1], -normal[2]]
 
+  // Draft angle: radial expansion per unit height
+  const draftRad = (draftAngle * Math.PI) / 180
+  const draftExpansion = Math.tan(draftRad) * totalHeight
+
   const vertices: number[] = []
   const indices: number[] = []
 
@@ -261,6 +268,15 @@ export function generateExtrudeMesh(
       : profile.length
     if (n < 3) continue
 
+    // Calculate 2D profile centroid for draft angle scaling
+    let cx = 0, cy = 0
+    for (let i = 0; i < n; i++) {
+      cx += profile[i].x
+      cy += profile[i].y
+    }
+    cx /= n
+    cy /= n
+
     // Convert 2D profile to 3D face points using the pre-computed cs,
     // then shift backward by heightBackward so the tool spans
     // from (faceOffset - heightBackward) to (faceOffset + height).
@@ -272,21 +288,41 @@ export function generateExtrudeMesh(
       ] as [number, number, number]
     })
 
-    // Calculate top points
-    const top3D = bottom3D.map(p => [
-      p[0] + extrudeVec[0],
-      p[1] + extrudeVec[1],
-      p[2] + extrudeVec[2]
-    ] as [number, number, number])
+    // Calculate top points with draft angle applied
+    const top3D = profile.slice(0, n).map((p, i) => {
+      // Calculate draft offset in 2D profile space
+      const dx = p.x - cx
+      const dy = p.y - cy
+      const dist = Math.sqrt(dx * dx + dy * dy)
 
-    // Bottom cap (fan triangulation with separate vertices per triangle)
-    for (let i = 1; i < n - 1; i++) {
+      let draftOffsetU = 0, draftOffsetV = 0
+      if (dist > COINCIDENCE_TOL && draftExpansion !== 0) {
+        // Normalize direction and scale by draft expansion
+        const scale = draftExpansion / dist
+        draftOffsetU = dx * scale
+        draftOffsetV = dy * scale
+      }
+
+      // Apply draft offset in 3D using uAxis and vAxis
+      return [
+        bottom3D[i][0] + extrudeVec[0] + draftOffsetU * cs.uAxis[0] + draftOffsetV * cs.vAxis[0],
+        bottom3D[i][1] + extrudeVec[1] + draftOffsetU * cs.uAxis[1] + draftOffsetV * cs.vAxis[1],
+        bottom3D[i][2] + extrudeVec[2] + draftOffsetU * cs.uAxis[2] + draftOffsetV * cs.vAxis[2],
+      ] as [number, number, number]
+    })
+
+    // Triangulate the 2D profile using ear-clipping algorithm (handles concave polygons)
+    const profile2D = profile.slice(0, n).map(p => new THREE.Vector2(p.x, p.y))
+    const triangleIndices = ShapeUtils.triangulateShape(profile2D, [])
+
+    // Bottom cap (proper triangulation for concave polygons)
+    for (const [a, b, c] of triangleIndices) {
       const triIdx = vertices.length / 9
 
-      // Add 3 vertices for this triangle (no shared vertices)
+      // Add 3 vertices for this triangle
       const triPoints = height >= 0
-        ? [bottom3D[0], bottom3D[i + 1], bottom3D[i]]
-        : [bottom3D[0], bottom3D[i], bottom3D[i + 1]]
+        ? [bottom3D[a], bottom3D[c], bottom3D[b]]
+        : [bottom3D[a], bottom3D[b], bottom3D[c]]
 
       for (const p of triPoints) {
         vertices.push(p[0], p[1], p[2]) // position
@@ -297,14 +333,14 @@ export function generateExtrudeMesh(
       indices.push(triIdx, triIdx + 1, triIdx + 2)
     }
 
-    // Top cap (fan triangulation with separate vertices per triangle)
-    for (let i = 1; i < n - 1; i++) {
+    // Top cap (proper triangulation for concave polygons)
+    for (const [a, b, c] of triangleIndices) {
       const triIdx = vertices.length / 9
 
-      // Add 3 vertices for this triangle (no shared vertices)
+      // Add 3 vertices for this triangle
       const triPoints = height >= 0
-        ? [top3D[0], top3D[i], top3D[i + 1]]
-        : [top3D[0], top3D[i + 1], top3D[i]]
+        ? [top3D[a], top3D[b], top3D[c]]
+        : [top3D[a], top3D[c], top3D[b]]
 
       for (const p of triPoints) {
         vertices.push(p[0], p[1], p[2]) // position

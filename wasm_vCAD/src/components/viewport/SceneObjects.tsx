@@ -127,7 +127,8 @@ function useRebuildUncachedCuts(bodies: Body[]) {
                     feature.extrude_params?.height ?? 1,
                     feature.extrude_params?.height_backward ?? 0,
                     sk.sketch.offset ?? 0,
-                    sk.sketch.face_coord_system ?? null
+                    sk.sketch.face_coord_system ?? null,
+                    feature.extrude_params?.draft_angle ?? 0
                   )
                   // If we already have geometry, union with it; otherwise use as base
                   if (bodyGeo) {
@@ -177,6 +178,7 @@ function useRebuildUncachedCuts(bodies: Body[]) {
 
               const toolH  = feature.extrude_params?.height          ?? 1000
               const toolHB = feature.extrude_params?.height_backward ?? 0
+              const toolDraft = feature.extrude_params?.draft_angle ?? 0
               const fcs = sk.sketch.face_coord_system ?? null
 
               const baseGeo = bodyGeo
@@ -188,6 +190,7 @@ function useRebuildUncachedCuts(bodies: Body[]) {
                 fcs,
                 toolH,
                 toolHB,
+                toolDraft,
               )
 
               if (cancelled) break
@@ -531,6 +534,7 @@ function ExtrudeFeatureWithCache(props: { feature: Feature; body: Body; isSelect
 
   const height = feature.extrude_params?.height || 1
   const heightBackward = feature.extrude_params?.height_backward || 0
+  const draftAngle = feature.extrude_params?.draft_angle || 0
 
   const geometry = useMemo(() => {
     const sketchFeature = body.features.find(f => f.id === feature.sketch_id)
@@ -544,12 +548,13 @@ function ExtrudeFeatureWithCache(props: { feature: Feature; body: Body; isSelect
         height,
         heightBackward,
         sketchFeature.sketch.offset ?? 0,
-        sketchFeature.sketch.face_coord_system ?? null
+        sketchFeature.sketch.face_coord_system ?? null,
+        draftAngle
       )
     } catch {
       return new THREE.BoxGeometry(2, height + heightBackward, 2)
     }
-  }, [feature.sketch_id, height, heightBackward, body.features])
+  }, [feature.sketch_id, height, heightBackward, draftAngle, body.features])
 
   const edgesGeometry = useEdgesGeometry(geometry, 15)
 

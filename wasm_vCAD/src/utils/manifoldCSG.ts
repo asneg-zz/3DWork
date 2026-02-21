@@ -205,14 +205,49 @@ function buildManifoldFromProfiles(
   vAxis:  [number, number, number],
   height: number,
   heightBackward: number,
+  draftAngle: number = 0,
 ): InstanceType<ManifoldToplevel['Manifold']> {
   const totalHeight = height + heightBackward
 
   // Build each closed polygon as a CrossSection and union them all
   let crossSection = new mod.CrossSection(profiles2D as [number, number][][])
 
-  // Extrude along local Z from 0 to totalHeight
-  let solid = crossSection.extrude(totalHeight)
+  // Calculate scale factor for draft angle
+  let scaleTop: [number, number] = [1, 1]
+  if (draftAngle !== 0) {
+    // Calculate average radius of all profiles from centroid
+    let cx = 0, cy = 0, count = 0
+    for (const profile of profiles2D) {
+      for (const [x, y] of profile) {
+        cx += x
+        cy += y
+        count++
+      }
+    }
+    if (count > 0) {
+      cx /= count
+      cy /= count
+
+      // Calculate average distance from centroid
+      let avgRadius = 0
+      for (const profile of profiles2D) {
+        for (const [x, y] of profile) {
+          avgRadius += Math.sqrt((x - cx) ** 2 + (y - cy) ** 2)
+        }
+      }
+      avgRadius /= count
+
+      if (avgRadius > 0.001) {
+        const draftRad = (draftAngle * Math.PI) / 180
+        const draftExpansion = Math.tan(draftRad) * totalHeight
+        const scaleFactor = (avgRadius + draftExpansion) / avgRadius
+        scaleTop = [scaleFactor, scaleFactor]
+      }
+    }
+  }
+
+  // Extrude along local Z from 0 to totalHeight with optional draft scaling
+  let solid = crossSection.extrude(totalHeight, 0, 0, scaleTop)
 
   // Translate backward inside local space so the profile plane is at
   // the correct position in world space. The profile was at z=0 locally;
@@ -253,6 +288,7 @@ function buildManifoldFromProfiles(
  * @param fcs      Face coordinate system (for CUSTOM plane; null otherwise).
  * @param height   Extrusion distance in the +normal direction.
  * @param heightBackward Extrusion distance in the −normal direction.
+ * @param draftAngle Draft angle in degrees (positive = expands, negative = contracts).
  */
 export async function performCSGCut(
   bodyGeo: THREE.BufferGeometry,
@@ -262,6 +298,7 @@ export async function performCSGCut(
   fcs: FaceCoordSystem | null,
   height: number,
   heightBackward: number,
+  draftAngle: number = 0,
 ): Promise<THREE.BufferGeometry> {
   const mod = await getWasm()
 
@@ -290,6 +327,7 @@ export async function performCSGCut(
     cs.vAxis,
     height,
     heightBackward,
+    draftAngle,
   )
 
   if (mB.status() !== 'NoError') {

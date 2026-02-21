@@ -13,6 +13,7 @@ import {
   hitTestControlPoints,
   createSketchForWasm,
   processWasmResult,
+  mergeNearbyEndpoints,
 } from '../../sketchUtils'
 import { worldToSketch } from '../coords'
 import { engine } from '@/wasm/engine'
@@ -153,7 +154,9 @@ export function usePointerHandler({
           sketchPoint.y
         )
         const newElements = processWasmResult(resultJson)
-        setElements(newElements)
+        // Merge nearby endpoints to form connected contours
+        const mergedElements = mergeNearbyEndpoints(newElements)
+        setElements(mergedElements)
       } catch (error) {
         // Trim can fail if no intersections found - this is expected
         if (error instanceof Error && !error.message.includes('No intersection')) {

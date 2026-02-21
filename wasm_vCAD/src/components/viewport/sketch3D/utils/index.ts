@@ -27,4 +27,6 @@ export {
   processWasmResult,
   applyWasmOperation,
   applyWasmOperationSafe,
+  mergeNearbyEndpoints,
+  joinConnectedElements,
 } from './wasmHelpers'

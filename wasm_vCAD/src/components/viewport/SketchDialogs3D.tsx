@@ -14,6 +14,7 @@ import { CircularPatternDialog } from '@/components/dialogs/CircularPatternDialo
 import { ConstraintDialog } from '@/components/dialogs/ConstraintDialog'
 import { getContextMenuItems, type ContextMenuCallbacks } from './sketchContextMenu'
 import { getToolsContextMenuItems, type ToolsContextMenuCallbacks } from './sketchToolsContextMenu'
+import { joinConnectedElements } from './sketchUtils'
 
 export function SketchDialogs3D() {
   const elements = useSketchStore(s => s.elements)
@@ -67,6 +68,32 @@ export function SketchDialogs3D() {
           needsSecondElement: false,
         })
       }
+    },
+    onJoinContour: () => {
+      // Get selected elements
+      const selectedElements = elements.filter(el => selectedElementIds.includes(el.id!))
+      if (selectedElements.length < 2) return
+
+      // Join connected elements
+      const joinedElements = joinConnectedElements(selectedElements)
+
+      // If joining resulted in fewer elements, update the store
+      if (joinedElements.length < selectedElements.length) {
+        // Get IDs of elements that were not selected
+        const unselectedElements = elements.filter(el => !selectedElementIds.includes(el.id!))
+        // Combine with joined elements
+        const newElements = [...unselectedElements, ...joinedElements]
+        useSketchStore.getState().setElements(newElements)
+        useSketchStore.getState().clearSelection()
+      }
+      setContextMenu(null)
+    },
+    canJoinContour: () => {
+      // Can join if 2+ joinable elements are selected
+      const selectedElements = elements.filter(el => selectedElementIds.includes(el.id!))
+      const joinableTypes = ['line', 'arc', 'polyline', 'spline']
+      const joinableCount = selectedElements.filter(el => joinableTypes.includes(el.type)).length
+      return joinableCount >= 2
     },
   }
 

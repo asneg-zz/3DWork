@@ -27,7 +27,8 @@ function getBaseGeometry(body: Body, cutFeatureId: string): THREE.BufferGeometry
           ep.height,
           ep.height_backward,
           sketchF.sketch.offset ?? 0,
-          sketchF.sketch.face_coord_system ?? null
+          sketchF.sketch.face_coord_system ?? null,
+          ep.draft_angle ?? 0
         )
       }
     }
@@ -108,7 +109,8 @@ export function useFeatureEdit() {
         height,
         heightBackward,
         sketchFeature.sketch.offset ?? 0,
-        sketchFeature.sketch.face_coord_system ?? null
+        sketchFeature.sketch.face_coord_system ?? null,
+        draftAngle
       )
 
       const resultGeo = await performCSG(baseGeo, cutToolGeo, 'difference')
