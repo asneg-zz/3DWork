@@ -9,8 +9,8 @@ interface MirrorDialogProps {
 }
 
 export function MirrorDialog({ isOpen, onClose, onConfirm }: MirrorDialogProps) {
-  const symmetryAxis = useSketchStore((s) => s.symmetryAxis)
-  const hasSymmetryAxis = symmetryAxis !== null && symmetryAxis !== undefined
+  const symmetryAxisId = useSketchStore((s) => s.symmetryAxisId)
+  const hasSymmetryAxis = symmetryAxisId !== null
 
   const [axis, setAxis] = useState<'horizontal' | 'vertical' | 'custom'>('horizontal')
 

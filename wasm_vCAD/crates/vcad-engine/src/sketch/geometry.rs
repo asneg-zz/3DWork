@@ -252,6 +252,9 @@ pub fn get_element_endpoints_for_trim(elem: &SketchElement) -> Vec<Point> {
         SketchElement::Polyline { points, .. } => {
             points.iter().map(|p| Point::new(p.x, p.y)).collect()
         }
+        SketchElement::Spline { points, .. } => {
+            points.iter().map(|p| Point::new(p.x, p.y)).collect()
+        }
         SketchElement::Rectangle { corner, width, height, .. } => {
             vec![
                 Point::new(corner.x, corner.y),
@@ -379,6 +382,20 @@ pub fn find_line_intersections(idx: usize, line: KLine, sketch: &Sketch) -> Vec<
                     }
                 }
             }
+            SketchElement::Spline { points, .. } => {
+                // Intersect with each segment of the spline (control polygon)
+                for j in 0..(points.len().saturating_sub(1)) {
+                    let seg = KLine::new(
+                        Point::new(points[j].x, points[j].y),
+                        Point::new(points[j + 1].x, points[j + 1].y),
+                    );
+                    if let Some((t, u, pt)) = line_line_intersection(line, seg) {
+                        if t > 1e-6 && t < 1.0 - 1e-6 && u > 1e-6 && u < 1.0 - 1e-6 {
+                            results.push(Intersection { param: t, point: pt });
+                        }
+                    }
+                }
+            }
             _ => {}
         }
 
@@ -454,6 +471,21 @@ pub fn find_arc_intersections(
                 pts
             }
             SketchElement::Polyline { points, .. } => {
+                let mut pts = Vec::new();
+                for j in 0..(points.len().saturating_sub(1)) {
+                    let seg = KLine::new(
+                        Point::new(points[j].x, points[j].y),
+                        Point::new(points[j + 1].x, points[j + 1].y),
+                    );
+                    pts.extend(
+                        line_arc_intersection(seg, center, radius, start_angle, end_angle)
+                            .into_iter()
+                            .map(|(_, pt)| pt),
+                    );
+                }
+                pts
+            }
+            SketchElement::Spline { points, .. } => {
                 let mut pts = Vec::new();
                 for j in 0..(points.len().saturating_sub(1)) {
                     let seg = KLine::new(
@@ -570,6 +602,22 @@ pub fn find_circle_intersections(
                 pts
             }
             SketchElement::Polyline { points, .. } => {
+                let mut pts = Vec::new();
+                for j in 0..(points.len().saturating_sub(1)) {
+                    let seg = KLine::new(
+                        Point::new(points[j].x, points[j].y),
+                        Point::new(points[j + 1].x, points[j + 1].y),
+                    );
+                    pts.extend(
+                        line_circle_intersection(seg, circle)
+                            .into_iter()
+                            .filter(|(t, _)| *t >= -1e-6 && *t <= 1.0 + 1e-6)
+                            .map(|(_, pt)| pt),
+                    );
+                }
+                pts
+            }
+            SketchElement::Spline { points, .. } => {
                 let mut pts = Vec::new();
                 for j in 0..(points.len().saturating_sub(1)) {
                     let seg = KLine::new(
@@ -707,6 +755,24 @@ pub fn find_polyline_intersections(
                         }
                     }
                 }
+                SketchElement::Spline { points: spline_points, .. } => {
+                    // Intersect with each segment of the spline (control polygon)
+                    for j in 0..(spline_points.len().saturating_sub(1)) {
+                        let spline_seg = KLine::new(
+                            Point::new(spline_points[j].x, spline_points[j].y),
+                            Point::new(spline_points[j + 1].x, spline_points[j + 1].y),
+                        );
+                        if let Some((t, u, pt)) = line_line_intersection(seg_line, spline_seg) {
+                            if t > 1e-6 && t < 1.0 - 1e-6 && u > 1e-6 && u < 1.0 - 1e-6 {
+                                results.push(PolylineIntersection {
+                                    segment_idx: seg_idx,
+                                    segment_t: t,
+                                    point: pt,
+                                });
+                            }
+                        }
+                    }
+                }
                 _ => {}
             }
 
@@ -747,17 +813,18 @@ pub fn find_polyline_intersections(
 /// Find intersection points between two sketch elements
 pub fn find_element_intersections(elem1: &SketchElement, elem2: &SketchElement) -> Vec<Point> {
     match (elem1, elem2) {
+        // Line - Line
         (SketchElement::Line { start: s1, end: e1, .. }, SketchElement::Line { start: s2, end: e2, .. }) => {
             let l1 = KLine::new(Point::new(s1.x, s1.y), Point::new(e1.x, e1.y));
             let l2 = KLine::new(Point::new(s2.x, s2.y), Point::new(e2.x, e2.y));
             if let Some((t, u, pt)) = line_line_intersection(l1, l2) {
-                // Check if intersection is strictly inside both segments (not at endpoints)
                 if t > 1e-6 && t < 1.0 - 1e-6 && u > 1e-6 && u < 1.0 - 1e-6 {
                     return vec![pt];
                 }
             }
             Vec::new()
         }
+        // Line - Circle
         (SketchElement::Line { start, end, .. }, SketchElement::Circle { center, radius, .. }) |
         (SketchElement::Circle { center, radius, .. }, SketchElement::Line { start, end, .. }) => {
             let line = KLine::new(Point::new(start.x, start.y), Point::new(end.x, end.y));
@@ -768,6 +835,7 @@ pub fn find_element_intersections(elem1: &SketchElement, elem2: &SketchElement) 
                 .map(|(_, pt)| pt)
                 .collect()
         }
+        // Line - Arc
         (SketchElement::Line { start, end, .. }, SketchElement::Arc { center, radius, start_angle, end_angle, .. }) |
         (SketchElement::Arc { center, radius, start_angle, end_angle, .. }, SketchElement::Line { start, end, .. }) => {
             let line = KLine::new(Point::new(start.x, start.y), Point::new(end.x, end.y));
@@ -778,12 +846,139 @@ pub fn find_element_intersections(elem1: &SketchElement, elem2: &SketchElement) 
                 .map(|(_, pt)| pt)
                 .collect()
         }
+        // Line - Rectangle
+        (SketchElement::Line { start, end, .. }, SketchElement::Rectangle { corner, width, height, .. }) |
+        (SketchElement::Rectangle { corner, width, height, .. }, SketchElement::Line { start, end, .. }) => {
+            let line = KLine::new(Point::new(start.x, start.y), Point::new(end.x, end.y));
+            let corners = [
+                Point::new(corner.x, corner.y),
+                Point::new(corner.x + width, corner.y),
+                Point::new(corner.x + width, corner.y + height),
+                Point::new(corner.x, corner.y + height),
+            ];
+            let mut pts = Vec::new();
+            for j in 0..4 {
+                let side = KLine::new(corners[j], corners[(j + 1) % 4]);
+                if let Some((t, u, pt)) = line_line_intersection(line, side) {
+                    if t > 1e-6 && t < 1.0 - 1e-6 && u > 1e-6 && u < 1.0 - 1e-6 {
+                        pts.push(pt);
+                    }
+                }
+            }
+            pts
+        }
+        // Line - Polyline
+        (SketchElement::Line { start, end, .. }, SketchElement::Polyline { points, .. }) |
+        (SketchElement::Polyline { points, .. }, SketchElement::Line { start, end, .. }) => {
+            let line = KLine::new(Point::new(start.x, start.y), Point::new(end.x, end.y));
+            let mut pts = Vec::new();
+            for j in 0..(points.len().saturating_sub(1)) {
+                let seg = KLine::new(
+                    Point::new(points[j].x, points[j].y),
+                    Point::new(points[j + 1].x, points[j + 1].y),
+                );
+                if let Some((t, u, pt)) = line_line_intersection(line, seg) {
+                    if t > 1e-6 && t < 1.0 - 1e-6 && u > 1e-6 && u < 1.0 - 1e-6 {
+                        pts.push(pt);
+                    }
+                }
+            }
+            pts
+        }
+        // Line - Spline
+        (SketchElement::Line { start, end, .. }, SketchElement::Spline { points, .. }) |
+        (SketchElement::Spline { points, .. }, SketchElement::Line { start, end, .. }) => {
+            let line = KLine::new(Point::new(start.x, start.y), Point::new(end.x, end.y));
+            let mut pts = Vec::new();
+            for j in 0..(points.len().saturating_sub(1)) {
+                let seg = KLine::new(
+                    Point::new(points[j].x, points[j].y),
+                    Point::new(points[j + 1].x, points[j + 1].y),
+                );
+                if let Some((t, u, pt)) = line_line_intersection(line, seg) {
+                    if t > 1e-6 && t < 1.0 - 1e-6 && u > 1e-6 && u < 1.0 - 1e-6 {
+                        pts.push(pt);
+                    }
+                }
+            }
+            pts
+        }
+        // Circle - Circle
         (SketchElement::Circle { center: c1, radius: r1, .. }, SketchElement::Circle { center: c2, radius: r2, .. }) => {
             circle_circle_intersection(
                 KCircle::new(Point::new(c1.x, c1.y), *r1),
                 KCircle::new(Point::new(c2.x, c2.y), *r2),
             )
         }
+        // Circle - Arc
+        (SketchElement::Circle { center, radius, .. }, SketchElement::Arc { center: ac, radius: ar, start_angle, end_angle, .. }) |
+        (SketchElement::Arc { center: ac, radius: ar, start_angle, end_angle, .. }, SketchElement::Circle { center, radius, .. }) => {
+            arc_circle_intersection(
+                Point::new(ac.x, ac.y), *ar, *start_angle, *end_angle,
+                KCircle::new(Point::new(center.x, center.y), *radius),
+            )
+        }
+        // Circle - Rectangle
+        (SketchElement::Circle { center, radius, .. }, SketchElement::Rectangle { corner, width, height, .. }) |
+        (SketchElement::Rectangle { corner, width, height, .. }, SketchElement::Circle { center, radius, .. }) => {
+            let circle = KCircle::new(Point::new(center.x, center.y), *radius);
+            let corners = [
+                Point::new(corner.x, corner.y),
+                Point::new(corner.x + width, corner.y),
+                Point::new(corner.x + width, corner.y + height),
+                Point::new(corner.x, corner.y + height),
+            ];
+            let mut pts = Vec::new();
+            for j in 0..4 {
+                let side = KLine::new(corners[j], corners[(j + 1) % 4]);
+                pts.extend(
+                    line_circle_intersection(side, circle)
+                        .into_iter()
+                        .filter(|(t, _)| *t > 1e-6 && *t < 1.0 - 1e-6)
+                        .map(|(_, pt)| pt),
+                );
+            }
+            pts
+        }
+        // Circle - Polyline
+        (SketchElement::Circle { center, radius, .. }, SketchElement::Polyline { points, .. }) |
+        (SketchElement::Polyline { points, .. }, SketchElement::Circle { center, radius, .. }) => {
+            let circle = KCircle::new(Point::new(center.x, center.y), *radius);
+            let mut pts = Vec::new();
+            for j in 0..(points.len().saturating_sub(1)) {
+                let seg = KLine::new(
+                    Point::new(points[j].x, points[j].y),
+                    Point::new(points[j + 1].x, points[j + 1].y),
+                );
+                pts.extend(
+                    line_circle_intersection(seg, circle)
+                        .into_iter()
+                        .filter(|(t, _)| *t > 1e-6 && *t < 1.0 - 1e-6)
+                        .map(|(_, pt)| pt),
+                );
+            }
+            pts
+        }
+        // Circle - Spline
+        (SketchElement::Circle { center, radius, .. }, SketchElement::Spline { points, .. }) |
+        (SketchElement::Spline { points, .. }, SketchElement::Circle { center, radius, .. }) => {
+            let circle = KCircle::new(Point::new(center.x, center.y), *radius);
+            let mut pts = Vec::new();
+            for j in 0..(points.len().saturating_sub(1)) {
+                let seg = KLine::new(
+                    Point::new(points[j].x, points[j].y),
+                    Point::new(points[j + 1].x, points[j + 1].y),
+                );
+                pts.extend(
+                    line_circle_intersection(seg, circle)
+                        .into_iter()
+                        .filter(|(t, _)| *t > 1e-6 && *t < 1.0 - 1e-6)
+                        .map(|(_, pt)| pt),
+                );
+            }
+            pts
+        }
+        // Arc - Arc
         (SketchElement::Arc { center: c1, radius: r1, start_angle: s1, end_angle: e1, .. },
          SketchElement::Arc { center: c2, radius: r2, start_angle: s2, end_angle: e2, .. }) => {
             arc_arc_intersection(
@@ -791,12 +986,210 @@ pub fn find_element_intersections(elem1: &SketchElement, elem2: &SketchElement) 
                 Point::new(c2.x, c2.y), *r2, *s2, *e2,
             )
         }
-        (SketchElement::Circle { center, radius, .. }, SketchElement::Arc { center: ac, radius: ar, start_angle, end_angle, .. }) |
-        (SketchElement::Arc { center: ac, radius: ar, start_angle, end_angle, .. }, SketchElement::Circle { center, radius, .. }) => {
-            arc_circle_intersection(
-                Point::new(ac.x, ac.y), *ar, *start_angle, *end_angle,
-                KCircle::new(Point::new(center.x, center.y), *radius),
-            )
+        // Arc - Rectangle
+        (SketchElement::Arc { center, radius, start_angle, end_angle, .. }, SketchElement::Rectangle { corner, width, height, .. }) |
+        (SketchElement::Rectangle { corner, width, height, .. }, SketchElement::Arc { center, radius, start_angle, end_angle, .. }) => {
+            let c = Point::new(center.x, center.y);
+            let corners = [
+                Point::new(corner.x, corner.y),
+                Point::new(corner.x + width, corner.y),
+                Point::new(corner.x + width, corner.y + height),
+                Point::new(corner.x, corner.y + height),
+            ];
+            let mut pts = Vec::new();
+            for j in 0..4 {
+                let side = KLine::new(corners[j], corners[(j + 1) % 4]);
+                pts.extend(
+                    line_arc_intersection(side, c, *radius, *start_angle, *end_angle)
+                        .into_iter()
+                        .map(|(_, pt)| pt),
+                );
+            }
+            pts
+        }
+        // Arc - Polyline
+        (SketchElement::Arc { center, radius, start_angle, end_angle, .. }, SketchElement::Polyline { points, .. }) |
+        (SketchElement::Polyline { points, .. }, SketchElement::Arc { center, radius, start_angle, end_angle, .. }) => {
+            let c = Point::new(center.x, center.y);
+            let mut pts = Vec::new();
+            for j in 0..(points.len().saturating_sub(1)) {
+                let seg = KLine::new(
+                    Point::new(points[j].x, points[j].y),
+                    Point::new(points[j + 1].x, points[j + 1].y),
+                );
+                pts.extend(
+                    line_arc_intersection(seg, c, *radius, *start_angle, *end_angle)
+                        .into_iter()
+                        .map(|(_, pt)| pt),
+                );
+            }
+            pts
+        }
+        // Arc - Spline
+        (SketchElement::Arc { center, radius, start_angle, end_angle, .. }, SketchElement::Spline { points, .. }) |
+        (SketchElement::Spline { points, .. }, SketchElement::Arc { center, radius, start_angle, end_angle, .. }) => {
+            let c = Point::new(center.x, center.y);
+            let mut pts = Vec::new();
+            for j in 0..(points.len().saturating_sub(1)) {
+                let seg = KLine::new(
+                    Point::new(points[j].x, points[j].y),
+                    Point::new(points[j + 1].x, points[j + 1].y),
+                );
+                pts.extend(
+                    line_arc_intersection(seg, c, *radius, *start_angle, *end_angle)
+                        .into_iter()
+                        .map(|(_, pt)| pt),
+                );
+            }
+            pts
+        }
+        // Rectangle - Rectangle
+        (SketchElement::Rectangle { corner: c1, width: w1, height: h1, .. },
+         SketchElement::Rectangle { corner: c2, width: w2, height: h2, .. }) => {
+            let corners1 = [
+                Point::new(c1.x, c1.y),
+                Point::new(c1.x + w1, c1.y),
+                Point::new(c1.x + w1, c1.y + h1),
+                Point::new(c1.x, c1.y + h1),
+            ];
+            let corners2 = [
+                Point::new(c2.x, c2.y),
+                Point::new(c2.x + w2, c2.y),
+                Point::new(c2.x + w2, c2.y + h2),
+                Point::new(c2.x, c2.y + h2),
+            ];
+            let mut pts = Vec::new();
+            for i in 0..4 {
+                let side1 = KLine::new(corners1[i], corners1[(i + 1) % 4]);
+                for j in 0..4 {
+                    let side2 = KLine::new(corners2[j], corners2[(j + 1) % 4]);
+                    if let Some((t, u, pt)) = line_line_intersection(side1, side2) {
+                        if t > 1e-6 && t < 1.0 - 1e-6 && u > 1e-6 && u < 1.0 - 1e-6 {
+                            pts.push(pt);
+                        }
+                    }
+                }
+            }
+            pts
+        }
+        // Rectangle - Polyline
+        (SketchElement::Rectangle { corner, width, height, .. }, SketchElement::Polyline { points, .. }) |
+        (SketchElement::Polyline { points, .. }, SketchElement::Rectangle { corner, width, height, .. }) => {
+            let corners = [
+                Point::new(corner.x, corner.y),
+                Point::new(corner.x + width, corner.y),
+                Point::new(corner.x + width, corner.y + height),
+                Point::new(corner.x, corner.y + height),
+            ];
+            let mut pts = Vec::new();
+            for i in 0..4 {
+                let side = KLine::new(corners[i], corners[(i + 1) % 4]);
+                for j in 0..(points.len().saturating_sub(1)) {
+                    let seg = KLine::new(
+                        Point::new(points[j].x, points[j].y),
+                        Point::new(points[j + 1].x, points[j + 1].y),
+                    );
+                    if let Some((t, u, pt)) = line_line_intersection(side, seg) {
+                        if t > 1e-6 && t < 1.0 - 1e-6 && u > 1e-6 && u < 1.0 - 1e-6 {
+                            pts.push(pt);
+                        }
+                    }
+                }
+            }
+            pts
+        }
+        // Rectangle - Spline
+        (SketchElement::Rectangle { corner, width, height, .. }, SketchElement::Spline { points, .. }) |
+        (SketchElement::Spline { points, .. }, SketchElement::Rectangle { corner, width, height, .. }) => {
+            let corners = [
+                Point::new(corner.x, corner.y),
+                Point::new(corner.x + width, corner.y),
+                Point::new(corner.x + width, corner.y + height),
+                Point::new(corner.x, corner.y + height),
+            ];
+            let mut pts = Vec::new();
+            for i in 0..4 {
+                let side = KLine::new(corners[i], corners[(i + 1) % 4]);
+                for j in 0..(points.len().saturating_sub(1)) {
+                    let seg = KLine::new(
+                        Point::new(points[j].x, points[j].y),
+                        Point::new(points[j + 1].x, points[j + 1].y),
+                    );
+                    if let Some((t, u, pt)) = line_line_intersection(side, seg) {
+                        if t > 1e-6 && t < 1.0 - 1e-6 && u > 1e-6 && u < 1.0 - 1e-6 {
+                            pts.push(pt);
+                        }
+                    }
+                }
+            }
+            pts
+        }
+        // Polyline - Polyline
+        (SketchElement::Polyline { points: pts1, .. }, SketchElement::Polyline { points: pts2, .. }) => {
+            let mut pts = Vec::new();
+            for i in 0..(pts1.len().saturating_sub(1)) {
+                let seg1 = KLine::new(
+                    Point::new(pts1[i].x, pts1[i].y),
+                    Point::new(pts1[i + 1].x, pts1[i + 1].y),
+                );
+                for j in 0..(pts2.len().saturating_sub(1)) {
+                    let seg2 = KLine::new(
+                        Point::new(pts2[j].x, pts2[j].y),
+                        Point::new(pts2[j + 1].x, pts2[j + 1].y),
+                    );
+                    if let Some((t, u, pt)) = line_line_intersection(seg1, seg2) {
+                        if t > 1e-6 && t < 1.0 - 1e-6 && u > 1e-6 && u < 1.0 - 1e-6 {
+                            pts.push(pt);
+                        }
+                    }
+                }
+            }
+            pts
+        }
+        // Polyline - Spline
+        (SketchElement::Polyline { points: pts1, .. }, SketchElement::Spline { points: pts2, .. }) |
+        (SketchElement::Spline { points: pts2, .. }, SketchElement::Polyline { points: pts1, .. }) => {
+            let mut pts = Vec::new();
+            for i in 0..(pts1.len().saturating_sub(1)) {
+                let seg1 = KLine::new(
+                    Point::new(pts1[i].x, pts1[i].y),
+                    Point::new(pts1[i + 1].x, pts1[i + 1].y),
+                );
+                for j in 0..(pts2.len().saturating_sub(1)) {
+                    let seg2 = KLine::new(
+                        Point::new(pts2[j].x, pts2[j].y),
+                        Point::new(pts2[j + 1].x, pts2[j + 1].y),
+                    );
+                    if let Some((t, u, pt)) = line_line_intersection(seg1, seg2) {
+                        if t > 1e-6 && t < 1.0 - 1e-6 && u > 1e-6 && u < 1.0 - 1e-6 {
+                            pts.push(pt);
+                        }
+                    }
+                }
+            }
+            pts
+        }
+        // Spline - Spline
+        (SketchElement::Spline { points: pts1, .. }, SketchElement::Spline { points: pts2, .. }) => {
+            let mut pts = Vec::new();
+            for i in 0..(pts1.len().saturating_sub(1)) {
+                let seg1 = KLine::new(
+                    Point::new(pts1[i].x, pts1[i].y),
+                    Point::new(pts1[i + 1].x, pts1[i + 1].y),
+                );
+                for j in 0..(pts2.len().saturating_sub(1)) {
+                    let seg2 = KLine::new(
+                        Point::new(pts2[j].x, pts2[j].y),
+                        Point::new(pts2[j + 1].x, pts2[j + 1].y),
+                    );
+                    if let Some((t, u, pt)) = line_line_intersection(seg1, seg2) {
+                        if t > 1e-6 && t < 1.0 - 1e-6 && u > 1e-6 && u < 1.0 - 1e-6 {
+                            pts.push(pt);
+                        }
+                    }
+                }
+            }
+            pts
         }
         _ => Vec::new(),
     }

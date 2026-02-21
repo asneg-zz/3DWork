@@ -1,7 +1,52 @@
 /// WASM bindings for sketch operations
 use wasm_bindgen::prelude::*;
-use shared::{Sketch, SketchElement};
+use shared::{Sketch, SketchElement, Point2D};
 use serde::{Serialize, Deserialize};
+
+/// Catmull-Rom spline interpolation for hit detection
+fn interpolate_catmull_rom(points: &[Point2D], segments_per_span: usize) -> Vec<Point2D> {
+    if points.len() < 2 {
+        return points.to_vec();
+    }
+    if points.len() == 2 {
+        return points.to_vec();
+    }
+
+    let tension = 0.5;
+    let mut result = Vec::new();
+
+    for i in 0..points.len() - 1 {
+        let p0 = if i == 0 { &points[0] } else { &points[i - 1] };
+        let p1 = &points[i];
+        let p2 = &points[i + 1];
+        let p3 = if i + 2 >= points.len() { &points[points.len() - 1] } else { &points[i + 2] };
+
+        for j in 0..segments_per_span {
+            let t = j as f64 / segments_per_span as f64;
+            let t2 = t * t;
+            let t3 = t2 * t;
+
+            let x = tension * (
+                (2.0 * p1.x) +
+                (-p0.x + p2.x) * t +
+                (2.0 * p0.x - 5.0 * p1.x + 4.0 * p2.x - p3.x) * t2 +
+                (-p0.x + 3.0 * p1.x - 3.0 * p2.x + p3.x) * t3
+            );
+            let y = tension * (
+                (2.0 * p1.y) +
+                (-p0.y + p2.y) * t +
+                (2.0 * p0.y - 5.0 * p1.y + 4.0 * p2.y - p3.y) * t2 +
+                (-p0.y + 3.0 * p1.y - 3.0 * p2.y + p3.y) * t3
+            );
+
+            result.push(Point2D { x, y });
+        }
+    }
+
+    // Add last point
+    result.push(points[points.len() - 1].clone());
+    result
+}
 
 /// Trim element at click point (finds intersections automatically)
 #[wasm_bindgen]
@@ -65,6 +110,16 @@ pub fn sketch_trim_element(
         shared::SketchElement::Polyline { points, .. } => {
             let pts: Vec<shared::Point2D> = points.iter().map(|p| shared::Point2D { x: p.x, y: p.y }).collect();
             crate::sketch::trim::trim_polyline(
+                element_index,
+                &pts,
+                click,
+                &sketch,
+            )
+        }
+        shared::SketchElement::Spline { points, .. } => {
+            // Treat spline as polyline for trimming (uses control points)
+            let pts: Vec<shared::Point2D> = points.iter().map(|p| shared::Point2D { x: p.x, y: p.y }).collect();
+            crate::sketch::trim::trim_spline(
                 element_index,
                 &pts,
                 click,
@@ -342,10 +397,11 @@ pub fn sketch_find_element_at_point(
                 false
             }
             SketchElement::Spline { points, .. } => {
-                // Check each segment (same logic as polyline)
-                for j in 0..points.len() - 1 {
-                    let start = &points[j];
-                    let end = &points[j + 1];
+                // Interpolate spline using Catmull-Rom and check interpolated segments
+                let interpolated = interpolate_catmull_rom(points, 8);
+                for j in 0..interpolated.len() - 1 {
+                    let start = &interpolated[j];
+                    let end = &interpolated[j + 1];
 
                     let dx = end.x - start.x;
                     let dy = end.y - start.y;

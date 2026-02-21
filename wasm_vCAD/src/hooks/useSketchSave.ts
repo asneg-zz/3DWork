@@ -10,7 +10,7 @@ export function useSketchSave() {
   const plane = useSketchStore((s) => s.plane)
   const planeOffset = useSketchStore((s) => s.planeOffset)
   const elements = useSketchStore((s) => s.elements)
-  const construction = useSketchStore((s) => s.construction)
+  const constructionIds = useSketchStore((s) => s.constructionIds)
   const constraints = useSketchStore((s) => s.constraints)
   const faceCoordSystem = useSketchStore((s) => s.faceCoordSystem)
   const exitSketch = useSketchStore((s) => s.exitSketch)
@@ -26,7 +26,7 @@ export function useSketchSave() {
       plane,
       offset: planeOffset,
       elements: [...elements],
-      construction: construction.length > 0 ? [...construction] : undefined,
+      construction_ids: constructionIds.length > 0 ? [...constructionIds] : undefined,
       constraints: constraints.length > 0 ? [...constraints] : undefined,
       face_coord_system: faceCoordSystem ?? undefined,
     }

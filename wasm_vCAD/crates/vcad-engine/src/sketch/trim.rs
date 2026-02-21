@@ -299,6 +299,142 @@ pub fn trim_polyline(
     TrimResult::Replaced(result)
 }
 
+/// Trim a spline at intersection points (similar to polyline but returns Spline elements)
+pub fn trim_spline(
+    idx: usize,
+    points: &[Point2D],
+    click: [f64; 2],
+    sketch: &Sketch,
+) -> TrimResult {
+    if points.len() < 2 {
+        return TrimResult::NoChange;
+    }
+
+    let ints = find_polyline_intersections(idx, points, sketch);
+
+    tracing::info!("trim_spline: found {} intersections", ints.len());
+
+    if ints.is_empty() {
+        return TrimResult::NoChange;
+    }
+
+    // Find which segment the click is closest to
+    let click_pt = to_point(click);
+    let mut best_seg_idx = 0;
+    let mut best_t = 0.0;
+    let mut best_dist = f64::MAX;
+
+    for seg_idx in 0..(points.len() - 1) {
+        let seg_start = Point::new(points[seg_idx].x, points[seg_idx].y);
+        let seg_end = Point::new(points[seg_idx + 1].x, points[seg_idx + 1].y);
+        let seg_vec = seg_end - seg_start;
+        let seg_len_sq = seg_vec.dot(seg_vec);
+
+        if seg_len_sq < 1e-12 {
+            continue;
+        }
+
+        let t = ((click_pt - seg_start).dot(seg_vec) / seg_len_sq).clamp(0.0, 1.0);
+        let closest = seg_start + seg_vec * t;
+        let dist = (click_pt - closest).hypot();
+
+        if dist < best_dist {
+            best_dist = dist;
+            best_seg_idx = seg_idx;
+            best_t = t;
+        }
+    }
+
+    // Convert click position to a global parameter for comparison
+    let click_global_param = best_seg_idx as f64 + best_t;
+
+    // Find the surrounding intersections
+    let mut prev_int: Option<&super::types::PolylineIntersection> = None;
+    let mut next_int: Option<&super::types::PolylineIntersection> = None;
+
+    for int in &ints {
+        let int_global_param = int.segment_idx as f64 + int.segment_t;
+
+        if int_global_param < click_global_param {
+            prev_int = Some(int);
+        } else if next_int.is_none() {
+            next_int = Some(int);
+            break;
+        }
+    }
+
+    // Build the result splines
+    let mut result = Vec::new();
+
+    // Part before the clicked segment (from start to prev_int)
+    if let Some(prev) = prev_int {
+        let mut new_points = Vec::new();
+
+        for i in 0..=prev.segment_idx {
+            new_points.push(points[i].clone());
+        }
+
+        new_points.push(Point2D {
+            x: prev.point.x,
+            y: prev.point.y,
+        });
+
+        if new_points.len() >= 2 {
+            result.push(SketchElement::Spline { id: None, points: new_points });
+        }
+    }
+
+    // Part after the clicked segment (from next_int to end)
+    if let Some(next) = next_int {
+        let mut new_points = Vec::new();
+
+        new_points.push(Point2D {
+            x: next.point.x,
+            y: next.point.y,
+        });
+
+        for i in (next.segment_idx + 1)..points.len() {
+            new_points.push(points[i].clone());
+        }
+
+        if new_points.len() >= 2 {
+            result.push(SketchElement::Spline { id: None, points: new_points });
+        }
+    }
+
+    // Handle edge cases
+    if result.is_empty() {
+        if let Some(prev) = prev_int {
+            let mut new_points = Vec::new();
+            for i in 0..=prev.segment_idx {
+                new_points.push(points[i].clone());
+            }
+            new_points.push(Point2D {
+                x: prev.point.x,
+                y: prev.point.y,
+            });
+            if new_points.len() >= 2 {
+                return TrimResult::Replaced(vec![SketchElement::Spline { id: None, points: new_points }]);
+            }
+        } else if let Some(next) = next_int {
+            let mut new_points = Vec::new();
+            new_points.push(Point2D {
+                x: next.point.x,
+                y: next.point.y,
+            });
+            for i in (next.segment_idx + 1)..points.len() {
+                new_points.push(points[i].clone());
+            }
+            if new_points.len() >= 2 {
+                return TrimResult::Replaced(vec![SketchElement::Spline { id: None, points: new_points }]);
+            }
+        }
+        return TrimResult::NoChange;
+    }
+
+    TrimResult::Replaced(result)
+}
+
 /// Trim a rectangle at intersection points (converts to lines)
 /// Rectangle is decomposed into 4 sides and we trim the clicked side
 pub fn trim_rectangle(
@@ -399,6 +535,37 @@ pub fn trim_rectangle(
                         Point::new(points[j + 1].x, points[j + 1].y),
                     );
                     if let Some((t, u, pt)) = line_line_intersection(side_line, seg) {
+                        if t > 1e-6 && t < 1.0 - 1e-6 && u > 1e-6 && u < 1.0 - 1e-6 {
+                            side_ints.push(Intersection { param: t, point: pt });
+                        }
+                    }
+                }
+            }
+            SketchElement::Spline { points, .. } => {
+                // Intersect with each segment of the spline (control polygon)
+                for j in 0..(points.len().saturating_sub(1)) {
+                    let seg = KLine::new(
+                        Point::new(points[j].x, points[j].y),
+                        Point::new(points[j + 1].x, points[j + 1].y),
+                    );
+                    if let Some((t, u, pt)) = line_line_intersection(side_line, seg) {
+                        if t > 1e-6 && t < 1.0 - 1e-6 && u > 1e-6 && u < 1.0 - 1e-6 {
+                            side_ints.push(Intersection { param: t, point: pt });
+                        }
+                    }
+                }
+            }
+            SketchElement::Rectangle { corner: other_corner, width: other_width, height: other_height, .. } => {
+                // Intersect with each side of the other rectangle
+                let other_corners = [
+                    Point::new(other_corner.x, other_corner.y),
+                    Point::new(other_corner.x + other_width, other_corner.y),
+                    Point::new(other_corner.x + other_width, other_corner.y + other_height),
+                    Point::new(other_corner.x, other_corner.y + other_height),
+                ];
+                for j in 0..4 {
+                    let other_side = KLine::new(other_corners[j], other_corners[(j + 1) % 4]);
+                    if let Some((t, u, pt)) = line_line_intersection(side_line, other_side) {
                         if t > 1e-6 && t < 1.0 - 1e-6 && u > 1e-6 && u < 1.0 - 1e-6 {
                             side_ints.push(Intersection { param: t, point: pt });
                         }

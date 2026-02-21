@@ -157,17 +157,17 @@ function DimensionElement3D({ element, isSelected, plane, offset, fcs }: Dimensi
 interface SketchElements3DProps {
   elements: SketchElement[]
   selectedIds: string[]
-  construction: boolean[]
-  symmetryAxis: number | null
+  constructionIds: string[]
+  symmetryAxisId: string | null
   plane: SketchPlane
   offset: number
   fcs?: FaceCoordSystem | null
 }
 
-export function SketchElements3D({ elements, selectedIds, construction, symmetryAxis, plane, offset, fcs }: SketchElements3DProps) {
+export function SketchElements3D({ elements, selectedIds, constructionIds, symmetryAxisId, plane, offset, fcs }: SketchElements3DProps) {
   return (
     <>
-      {elements.map((element, index) => {
+      {elements.map((element) => {
         if (element.type === 'dimension') {
           return (
             <DimensionElement3D
@@ -185,8 +185,8 @@ export function SketchElements3D({ elements, selectedIds, construction, symmetry
             key={element.id}
             element={element}
             isSelected={selectedIds.includes(element.id)}
-            isConstruction={construction[index] ?? false}
-            isSymmetryAxis={symmetryAxis === index}
+            isConstruction={constructionIds.includes(element.id)}
+            isSymmetryAxis={symmetryAxisId === element.id}
             plane={plane}
             offset={offset}
             fcs={fcs}

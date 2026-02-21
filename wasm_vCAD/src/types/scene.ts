@@ -125,7 +125,9 @@ export interface Sketch {
   elements: SketchElement[]
   face_normal?: [number, number, number]
   face_coord_system?: FaceCoordSystem  // Full coordinate system for inclined/arbitrary faces
-  construction?: boolean[]  // Flags for construction geometry (parallel to elements)
+  construction_ids?: string[]  // IDs of construction geometry elements
+  /** @deprecated Use construction_ids instead */
+  construction?: boolean[]  // Legacy: parallel array of flags
   revolve_axis?: number     // Index of element marked as revolve axis
   symmetry_axis?: number    // Index of element marked as symmetry/mirror axis
   constraints?: SketchConstraint[]  // Geometric constraints

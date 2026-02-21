@@ -19,10 +19,10 @@ interface SketchState {
   // Elements in current sketch
   elements: SketchElement[]
 
-  // Construction geometry flags (parallel to elements)
-  construction: boolean[]
-  revolveAxis: number | null    // Index of element marked as revolve axis
-  symmetryAxis: number | null   // Index of element marked as mirror/symmetry axis
+  // Construction geometry (by element ID)
+  constructionIds: string[]
+  revolveAxisId: string | null    // ID of element marked as revolve axis
+  symmetryAxisId: string | null   // ID of element marked as mirror/symmetry axis
 
   // Constraints
   constraints: SketchConstraint[]
@@ -55,7 +55,7 @@ interface SketchState {
 
   // Actions
   startSketch: (bodyId: string, sketchId: string, plane: SketchPlane, planeOffset?: number, faceCoordSystem?: FaceCoordSystem | null) => void
-  loadSketch: (bodyId: string, sketchId: string, plane: SketchPlane, elements: SketchElement[], planeOffset?: number, faceCoordSystem?: FaceCoordSystem | null, construction?: boolean[], constraints?: SketchConstraint[]) => void
+  loadSketch: (bodyId: string, sketchId: string, plane: SketchPlane, elements: SketchElement[], planeOffset?: number, faceCoordSystem?: FaceCoordSystem | null, constructionIds?: string[], constraints?: SketchConstraint[]) => void
   exitSketch: () => void
   setTool: (tool: SketchState['tool']) => void
 
@@ -105,14 +105,18 @@ interface SketchState {
   removeConstraint: (index: number) => void
   clearConstraints: () => void
   getElementConstraints: (elementId: string) => SketchConstraint[]
+
+  // Snap settings
+  setSnapSetting: <K extends keyof SnapSettings>(key: K, value: SnapSettings[K]) => void
+  toggleSnapEnabled: () => void
 }
 
 interface HistoryState {
   elements: SketchElement[]
-  construction: boolean[]
+  constructionIds: string[]
   constraints: SketchConstraint[]
-  revolveAxis: number | null
-  symmetryAxis: number | null
+  revolveAxisId: string | null
+  symmetryAxisId: string | null
 }
 
 export const useSketchStore = create<SketchState>()(
@@ -124,10 +128,10 @@ export const useSketchStore = create<SketchState>()(
       const state = get()
       const snapshot = {
         elements: [...state.elements],
-        construction: [...state.construction],
+        constructionIds: [...state.constructionIds],
         constraints: [...state.constraints],
-        revolveAxis: state.revolveAxis,
-        symmetryAxis: state.symmetryAxis,
+        revolveAxisId: state.revolveAxisId,
+        symmetryAxisId: state.symmetryAxisId,
       }
 
       // Remove any future history
@@ -152,9 +156,9 @@ export const useSketchStore = create<SketchState>()(
       planeOffset: 0,
       faceCoordSystem: null,
       elements: [],
-      construction: [],
-      revolveAxis: null,
-      symmetryAxis: null,
+      constructionIds: [],
+      revolveAxisId: null,
+      symmetryAxisId: null,
       constraints: [],
       tool: null,
       isDrawing: false,
@@ -200,9 +204,9 @@ export const useSketchStore = create<SketchState>()(
         state.planeOffset = effectivePlaneOffset
         state.faceCoordSystem = faceCoordSystem
         state.elements = []
-        state.construction = []
-        state.revolveAxis = null
-        state.symmetryAxis = null
+        state.constructionIds = []
+        state.revolveAxisId = null
+        state.symmetryAxisId = null
         state.tool = 'select'
         state.zoom = 50
         state.panX = 0
@@ -212,7 +216,7 @@ export const useSketchStore = create<SketchState>()(
         historyIndex = -1
       }),
 
-    loadSketch: (bodyId, sketchId, plane, elements, planeOffset = 0, faceCoordSystem = null, construction = [], constraints = []) =>
+    loadSketch: (bodyId, sketchId, plane, elements, planeOffset = 0, faceCoordSystem = null, constructionIds = [], constraints = []) =>
       set((state) => {
         state.active = true
         state.bodyId = bodyId
@@ -221,10 +225,10 @@ export const useSketchStore = create<SketchState>()(
         state.planeOffset = planeOffset
         state.faceCoordSystem = faceCoordSystem
         state.elements = [...elements]
-        state.construction = [...construction]
+        state.constructionIds = [...constructionIds]
         state.constraints = [...constraints]
-        state.revolveAxis = null
-        state.symmetryAxis = null
+        state.revolveAxisId = null
+        state.symmetryAxisId = null
         state.tool = 'select'
         state.zoom = 50
         state.panX = 0
@@ -243,9 +247,9 @@ export const useSketchStore = create<SketchState>()(
         state.sketchId = null
         state.faceCoordSystem = null
         state.elements = []
-        state.construction = []
-        state.revolveAxis = null
-        state.symmetryAxis = null
+        state.constructionIds = []
+        state.revolveAxisId = null
+        state.symmetryAxisId = null
         state.tool = null
         state.isDrawing = false
         state.startPoint = null
@@ -482,7 +486,46 @@ export const useSketchStore = create<SketchState>()(
 
     setElements: (elements, preserveSelection = false) =>
       set((state) => {
+        const newElementIds = new Set(elements.map(el => el.id))
+        const newLength = elements.length
+
+        // Remove construction IDs for elements that no longer exist
+        state.constructionIds = state.constructionIds.filter(id => newElementIds.has(id))
+
+        // Reset symmetry axis if element no longer exists
+        if (state.symmetryAxisId !== null && !newElementIds.has(state.symmetryAxisId)) {
+          state.symmetryAxisId = null
+        }
+
+        // Reset revolve axis if element no longer exists
+        if (state.revolveAxisId !== null && !newElementIds.has(state.revolveAxisId)) {
+          state.revolveAxisId = null
+        }
+
+        // Filter constraints that reference non-existent elements (still index-based for WASM)
+        state.constraints = state.constraints.filter(c => {
+          switch (c.type) {
+            case 'horizontal':
+            case 'vertical':
+            case 'fixed':
+              return c.element < newLength
+            case 'parallel':
+            case 'perpendicular':
+            case 'equal':
+            case 'tangent':
+            case 'concentric':
+              return c.element1 < newLength && c.element2 < newLength
+            case 'symmetric':
+              return c.element1 < newLength && c.element2 < newLength && c.axis < newLength
+            case 'coincident':
+              return c.point1.element_index < newLength && c.point2.element_index < newLength
+            default:
+              return true
+          }
+        })
+
         state.elements = elements
+
         if (!preserveSelection) {
           state.selectedElementIds = []
           saveHistory()
@@ -561,10 +604,10 @@ export const useSketchStore = create<SketchState>()(
           historyIndex--
           const snapshot = history[historyIndex]
           state.elements = [...snapshot.elements]
-          state.construction = [...snapshot.construction]
+          state.constructionIds = [...snapshot.constructionIds]
           state.constraints = [...snapshot.constraints]
-          state.revolveAxis = snapshot.revolveAxis
-          state.symmetryAxis = snapshot.symmetryAxis
+          state.revolveAxisId = snapshot.revolveAxisId
+          state.symmetryAxisId = snapshot.symmetryAxisId
           state.selectedElementIds = []
         }
       }),
@@ -575,10 +618,10 @@ export const useSketchStore = create<SketchState>()(
           historyIndex++
           const snapshot = history[historyIndex]
           state.elements = [...snapshot.elements]
-          state.construction = [...snapshot.construction]
+          state.constructionIds = [...snapshot.constructionIds]
           state.constraints = [...snapshot.constraints]
-          state.revolveAxis = snapshot.revolveAxis
-          state.symmetryAxis = snapshot.symmetryAxis
+          state.revolveAxisId = snapshot.revolveAxisId
+          state.symmetryAxisId = snapshot.symmetryAxisId
           state.selectedElementIds = []
         }
       }),
@@ -590,54 +633,50 @@ export const useSketchStore = create<SketchState>()(
     // Construction geometry
     toggleConstruction: (elementId) =>
       set((state) => {
-        const index = state.elements.findIndex(el => el.id === elementId)
-        if (index === -1) return
-
-        // Extend construction array if needed
-        while (state.construction.length <= index) {
-          state.construction.push(false)
-        }
+        // Verify element exists
+        const exists = state.elements.some(el => el.id === elementId)
+        if (!exists) return
 
         // Toggle the flag
-        state.construction[index] = !state.construction[index]
+        const idx = state.constructionIds.indexOf(elementId)
+        if (idx >= 0) {
+          state.constructionIds.splice(idx, 1)
+        } else {
+          state.constructionIds.push(elementId)
+        }
         saveHistory()
       }),
 
     isConstruction: (elementId) => {
       const state = get()
-      const index = state.elements.findIndex(el => el.id === elementId)
-      if (index === -1) return false
-      return state.construction[index] || false
+      return state.constructionIds.includes(elementId)
     },
 
     setSymmetryAxis: (elementId) =>
       set((state) => {
-        const index = state.elements.findIndex(el => el.id === elementId)
-        if (index === -1) return
+        const element = state.elements.find(el => el.id === elementId)
+        if (!element) return
 
-        const element = state.elements[index]
         // Only lines can be symmetry axis
         if (element.type !== 'line') return
 
         // Toggle: if already set, clear it
-        if (state.symmetryAxis === index) {
-          state.symmetryAxis = null
+        if (state.symmetryAxisId === elementId) {
+          state.symmetryAxisId = null
         } else {
-          state.symmetryAxis = index
+          state.symmetryAxisId = elementId
         }
         saveHistory()
       }),
 
     clearSymmetryAxis: () =>
       set((state) => {
-        state.symmetryAxis = null
+        state.symmetryAxisId = null
       }),
 
     isSymmetryAxis: (elementId) => {
       const state = get()
-      const index = state.elements.findIndex(el => el.id === elementId)
-      if (index === -1) return false
-      return state.symmetryAxis === index
+      return state.symmetryAxisId === elementId
     },
 
     // Constraints
@@ -686,6 +725,17 @@ export const useSketchStore = create<SketchState>()(
         }
       })
     },
+
+    // Snap settings
+    setSnapSetting: (key, value) =>
+      set((state) => {
+        state.snapSettings[key] = value
+      }),
+
+    toggleSnapEnabled: () =>
+      set((state) => {
+        state.snapSettings.enabled = !state.snapSettings.enabled
+      }),
     }
   })
 )

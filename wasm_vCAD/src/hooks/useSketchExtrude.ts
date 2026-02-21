@@ -19,7 +19,7 @@ export function useSketchExtrude() {
   const faceCoordSystem = useSketchStore((s) => s.faceCoordSystem)
   const elements = useSketchStore((s) => s.elements)
   const constraints = useSketchStore((s) => s.constraints)
-  const construction = useSketchStore((s) => s.construction)
+  const constructionIds = useSketchStore((s) => s.constructionIds)
   const exitSketch = useSketchStore((s) => s.exitSketch)
 
   // Check if this sketch already has an extrude feature
@@ -86,7 +86,7 @@ export function useSketchExtrude() {
             plane,
             offset: planeOffset,
             elements: [...elements],
-            construction,
+            construction_ids: constructionIds.length > 0 ? [...constructionIds] : undefined,
             constraints: constraints.length > 0 ? [...constraints] : undefined,
             face_coord_system: faceCoordSystem ?? undefined,
           }
@@ -231,7 +231,7 @@ export function useSketchExtrude() {
           plane,
           offset: planeOffset,
           elements: [...elements],
-          construction,
+          construction_ids: constructionIds.length > 0 ? [...constructionIds] : undefined,
           constraints: constraints.length > 0 ? [...constraints] : undefined,
           face_coord_system: faceCoordSystem ?? undefined,
         }

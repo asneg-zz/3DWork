@@ -34,7 +34,7 @@ export function mirrorElement(
   elements: SketchElement[],
   elementId: string,
   axis: 'horizontal' | 'vertical' | 'custom',
-  symmetryAxis: number | null,
+  symmetryAxisId: string | null,
   sketchPlane: SketchPlane
 ): SketchElement[] | null {
   const elementIndex = elements.findIndex(el => el.id === elementId)
@@ -45,8 +45,8 @@ export function mirrorElement(
   let axisEndX: number
   let axisEndY: number
 
-  if (axis === 'custom' && symmetryAxis !== null && symmetryAxis !== undefined) {
-    const axisElement = elements[symmetryAxis]
+  if (axis === 'custom' && symmetryAxisId !== null) {
+    const axisElement = elements.find(el => el.id === symmetryAxisId)
     if (axisElement && axisElement.type === 'line' && axisElement.start && axisElement.end) {
       axisStartX = axisElement.start.x
       axisStartY = axisElement.start.y

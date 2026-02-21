@@ -5,13 +5,14 @@ import { useBooleanStore } from '@/stores/booleanStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useViewportContextMenuStore } from '@/stores/viewportContextMenuStore'
 import { useMemo, useEffect, useCallback } from 'react'
+import { useEdgesGeometry } from '@/hooks'
 import * as THREE from 'three'
 import type { ThreeEvent } from '@react-three/fiber'
 import { engine } from '@/wasm/engine'
 import type { MeshData } from '@/types/mesh'
 import type { Feature, Body } from '@/types/scene'
 import { generateExtrudeMesh } from '@/utils/extrudeMesh'
-import { performCSGCut, serializeGeometry, deserializeGeometry } from '@/utils/manifoldCSG'
+import { performCSG, performCSGCut, serializeGeometry, deserializeGeometry } from '@/utils/manifoldCSG'
 import { geometryCache } from '@/utils/geometryCache'
 import { normalToPlane, calculateOffset, computeFaceCoordSystem, computeGeometricFaceData } from '@/utils/faceUtils'
 import { FaceHighlight } from './FaceHighlight'
@@ -111,7 +112,7 @@ function useRebuildUncachedCuts(bodies: Body[]) {
               } else {
                 const sk = body.features.find(f => f.id === feature.sketch_id)
                 if (sk?.type === 'sketch' && sk.sketch) {
-                  bodyGeo = generateExtrudeMesh(
+                  const extrudeGeo = generateExtrudeMesh(
                     sk.sketch.elements,
                     sk.sketch.plane,
                     feature.extrude_params?.height ?? 1,
@@ -119,6 +120,12 @@ function useRebuildUncachedCuts(bodies: Body[]) {
                     sk.sketch.offset ?? 0,
                     sk.sketch.face_coord_system ?? null
                   )
+                  // If we already have geometry, union with it; otherwise use as base
+                  if (bodyGeo) {
+                    bodyGeo = await performCSG(bodyGeo, extrudeGeo, 'union')
+                  } else {
+                    bodyGeo = extrudeGeo
+                  }
                 }
               }
 
@@ -201,7 +208,7 @@ function BooleanFeature({ feature, body, isSelected }: { feature: Feature; body:
     })
   }, [feature.cached_mesh_vertices, feature.cached_mesh_indices])
 
-  const edgesGeometry = useMemo(() => new THREE.EdgesGeometry(geometry, 15), [geometry])
+  const edgesGeometry = useEdgesGeometry(geometry, 15)
 
   // Register geometry in cache so subsequent boolean ops can use this body
   useEffect(() => {
@@ -254,7 +261,7 @@ function CutFeature({ feature, body, isSelected }: { feature: Feature; body: Bod
     })
   }, [feature.cached_mesh_vertices, feature.cached_mesh_indices])
 
-  const edgesGeometry = useMemo(() => new THREE.EdgesGeometry(geometry, 15), [geometry])
+  const edgesGeometry = useEdgesGeometry(geometry, 15)
 
   // Register geometry in cache so subsequent cuts/booleans can use this body
   useEffect(() => {
@@ -455,7 +462,7 @@ function PrimitiveFeatureWithCache(props: { feature: Feature; body: Body; isSele
     }
   }, [feature.primitive])
 
-  const edgesGeometry = useMemo(() => new THREE.EdgesGeometry(geometry, 15), [geometry])
+  const edgesGeometry = useEdgesGeometry(geometry, 15)
 
   useEffect(() => {
     geometryCache.set(body.id, geometry)
@@ -522,7 +529,7 @@ function ExtrudeFeatureWithCache(props: { feature: Feature; body: Body; isSelect
     }
   }, [feature.sketch_id, height, heightBackward, body.features])
 
-  const edgesGeometry = useMemo(() => new THREE.EdgesGeometry(geometry, 15), [geometry])
+  const edgesGeometry = useEdgesGeometry(geometry, 15)
 
   useEffect(() => {
     geometryCache.set(body.id, geometry)

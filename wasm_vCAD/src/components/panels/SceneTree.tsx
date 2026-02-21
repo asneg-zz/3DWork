@@ -97,6 +97,17 @@ export function SceneTree() {
     if (!contextMenu) return
     const { bodyId, feature } = contextMenu
     if (feature.type === 'sketch' && feature.sketch) {
+      // Migrate legacy construction array (boolean[]) to construction_ids (string[])
+      let constructionIds: string[] = []
+      if (feature.sketch.construction_ids) {
+        constructionIds = feature.sketch.construction_ids
+      } else if (feature.sketch.construction) {
+        // Convert old format: boolean[] at indices -> element IDs
+        constructionIds = feature.sketch.elements
+          .filter((_, i) => feature.sketch!.construction![i])
+          .map(el => el.id)
+      }
+
       loadSketch(
         bodyId,
         feature.id,
@@ -104,7 +115,7 @@ export function SceneTree() {
         feature.sketch.elements,
         feature.sketch.offset ?? 0,
         feature.sketch.face_coord_system ?? null,
-        feature.sketch.construction ?? [],
+        constructionIds,
         feature.sketch.constraints ?? [],
       )
     }
