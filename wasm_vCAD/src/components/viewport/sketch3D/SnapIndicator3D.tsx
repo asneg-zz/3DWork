@@ -3,7 +3,7 @@
  * Shows snap point markers (endpoint, midpoint, center, etc.) in the 3D viewport.
  */
 
-import { useMemo } from 'react'
+import { useMemo, useEffect, useRef } from 'react'
 import * as THREE from 'three'
 import { useThree } from '@react-three/fiber'
 import { Html } from '@react-three/drei'
@@ -75,6 +75,7 @@ interface SingleSnapMarkerProps {
 
 function SingleSnapMarker({ sp, isActive, size, plane, offset, fcs }: SingleSnapMarkerProps) {
   const cfg = SNAP_CFG[sp.snapType] ?? { color: '#ffff00', label: sp.snapType }
+  const linesRef = useRef<THREE.Line[]>([])
 
   const lines = useMemo(() => {
     const arrays = buildSnapLines(sp.snapType, sp.point.x, sp.point.y, size, plane, offset, fcs)
@@ -82,6 +83,17 @@ function SingleSnapMarker({ sp, isActive, size, plane, offset, fcs }: SingleSnap
     return arrays.map(pts => new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), mat))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sp.snapType, sp.point.x, sp.point.y, size, cfg.color, plane, offset, fcs])
+
+  // Store lines ref and cleanup on unmount
+  useEffect(() => {
+    linesRef.current = lines
+    return () => {
+      linesRef.current.forEach(line => {
+        line.geometry.dispose()
+        ;(line.material as THREE.Material).dispose()
+      })
+    }
+  }, [lines])
 
   const pos3D = useMemo(
     () => sketchToWorld(sp.point.x, sp.point.y, plane, offset, fcs),
@@ -93,7 +105,7 @@ function SingleSnapMarker({ sp, isActive, size, plane, offset, fcs }: SingleSnap
     <group renderOrder={999}>
       {lines.map((obj, i) => <primitive key={i} object={obj} />)}
       {isActive && (
-        <Html position={pos3D} style={{ pointerEvents: 'none', userSelect: 'none' }}>
+        <Html position={pos3D} center style={{ pointerEvents: 'none', userSelect: 'none' }}>
           <span style={{
             color: cfg.color,
             background: 'rgba(8,8,20,0.82)',
@@ -132,11 +144,13 @@ export function SnapIndicator3D({ snapPoints, plane, offset, fcs }: SnapIndicato
   // Scale indicator size with camera distance so it stays readable at any zoom
   const baseSize = Math.max(0.018, camera.position.length() * 0.007)
 
+  // Only show up to 3 snap points to reduce visual clutter
+  // Show label only for the closest (first) snap point
   return (
     <>
-      {snapPoints.slice(0, 6).map((sp, i) => (
+      {snapPoints.slice(0, 3).map((sp, i) => (
         <SingleSnapMarker
-          key={`${sp.snapType}-${sp.point.x.toFixed(4)}-${sp.point.y.toFixed(4)}`}
+          key={`snap-${i}-${sp.snapType}-${sp.point.x.toFixed(3)}-${sp.point.y.toFixed(3)}`}
           sp={sp}
           isActive={i === 0}
           size={baseSize * (i === 0 ? 1.0 : 0.6)}

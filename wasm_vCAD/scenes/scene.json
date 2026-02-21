@@ -2,26 +2,26 @@
   "version": 2,
   "bodies": [
     {
-      "id": "202fee18-0f5f-4fc5-9233-c5d72c0e852d",
+      "id": "d5334492-41c7-4065-bac7-9d339d7517d3",
       "name": "Тело",
       "visible": true,
       "features": [
         {
           "type": "sketch",
-          "id": "0d6194d0-6634-4339-a4f3-88079bef36ed",
+          "id": "ff93c533-61b5-4516-8b5c-cf48b356be01",
           "sketch": {
-            "plane": "XY",
+            "plane": "XZ",
             "offset": 0,
             "elements": [
               {
                 "type": "rectangle",
-                "id": "e26b4ac6-3777-4dc9-9882-784f370f06b8",
+                "id": "87c0d281-0405-4c57-85d9-be572875d768",
                 "corner": {
-                  "x": 1.5,
-                  "y": 1
+                  "x": -3,
+                  "y": -2
                 },
-                "width": 4,
-                "height": 2
+                "width": 6.5,
+                "height": 3
               }
             ]
           },
@@ -45,301 +45,147 @@
         },
         {
           "type": "extrude",
-          "id": "96a09e5f-43f9-4a14-8263-5a270820c2bd",
-          "sketch_id": "0d6194d0-6634-4339-a4f3-88079bef36ed",
-          "height": 2,
-          "height_backward": 0,
-          "draft_angle": 0,
-          "cut": false
-        },
-        {
-          "type": "sketch",
-          "id": "b75eedd3-58c7-49a8-a2a1-224aceb20941",
-          "sketch": {
-            "plane": "XY",
-            "offset": 2,
-            "elements": [
-              {
-                "type": "circle",
-                "id": "8a6cfc0a-f7b8-4ea1-b902-f6fad739b274",
-                "center": {
-                  "x": 3.5,
-                  "y": 2
-                },
-                "radius": 0.5
-              }
-            ],
-            "face_coord_system": {
-              "origin": [
-                3.5,
-                2,
-                2
-              ],
-              "normal": [
-                0,
-                0,
-                1
-              ],
-              "uAxis": [
-                1,
-                0,
-                0
-              ],
-              "vAxis": [
-                0,
-                1,
-                0
-              ]
-            }
-          },
-          "transform": {
-            "position": [
-              0,
-              0,
-              0
-            ],
-            "rotation": [
-              0,
-              0,
-              0
-            ],
-            "scale": [
-              1,
-              1,
-              1
-            ]
-          }
-        },
-        {
-          "type": "extrude",
-          "id": "492ad223-79e1-44e7-9836-cfca185c91ad",
-          "sketch_id": "b75eedd3-58c7-49a8-a2a1-224aceb20941",
-          "height": 1000,
-          "height_backward": 1000,
-          "draft_angle": 0,
-          "cut": true
-        },
-        {
-          "type": "sketch",
-          "id": "d6d2e79f-4d68-4737-8127-d787fb9b5440",
-          "sketch": {
-            "plane": "XZ",
-            "offset": 3,
-            "elements": [
-              {
-                "type": "circle",
-                "id": "db8af66a-7f3e-492e-8fa0-99b305d9ee13",
-                "center": {
-                  "x": 3.5,
-                  "y": 0.5
-                },
-                "radius": 0.7071067811865476
-              }
-            ],
-            "face_coord_system": {
-              "origin": [
-                3.5,
-                3,
-                1
-              ],
-              "normal": [
-                0,
-                1,
-                0
-              ],
-              "uAxis": [
-                0,
-                0,
-                1
-              ],
-              "vAxis": [
-                1,
-                0,
-                0
-              ]
-            }
-          },
-          "transform": {
-            "position": [
-              0,
-              0,
-              0
-            ],
-            "rotation": [
-              0,
-              0,
-              0
-            ],
-            "scale": [
-              1,
-              1,
-              1
-            ]
-          }
-        },
-        {
-          "type": "extrude",
-          "id": "9bf79bdd-37ca-48d6-8cd9-64dfb178285e",
-          "sketch_id": "d6d2e79f-4d68-4737-8127-d787fb9b5440",
-          "height": 1000,
-          "height_backward": 1000,
-          "draft_angle": 0,
-          "cut": true
-        },
-        {
-          "type": "sketch",
-          "id": "05be703c-7b40-4444-8ddc-a4c78362c8d2",
-          "sketch": {
-            "plane": "YZ",
-            "offset": 1.5,
-            "elements": [
-              {
-                "type": "circle",
-                "id": "d2b59c0f-7ee0-472a-90b3-44fbcbc6ff8e",
-                "center": {
-                  "x": 2.5,
-                  "y": 1.5
-                },
-                "radius": 1.5
-              },
-              {
-                "type": "circle",
-                "id": "491b8925-0a9b-4e25-ad8c-9603170ea175",
-                "center": {
-                  "x": 1,
-                  "y": 4
-                },
-                "radius": 0
-              },
-              {
-                "type": "circle",
-                "id": "d474078d-b297-4ca0-9b12-f6e646a0f36d",
-                "center": {
-                  "x": 0.5,
-                  "y": 4
-                },
-                "radius": 0
-              },
-              {
-                "type": "circle",
-                "id": "e9ba3746-4cc4-497a-b087-15008f22cc14",
-                "center": {
-                  "x": 1,
-                  "y": 4
-                },
-                "radius": 0
-              },
-              {
-                "type": "circle",
-                "id": "dd97c2a7-93c5-48fe-8985-33741af51419",
-                "center": {
-                  "x": -1.5,
-                  "y": 4
-                },
-                "radius": 0
-              }
-            ],
-            "face_coord_system": {
-              "origin": [
-                1.5,
-                2,
-                1
-              ],
-              "normal": [
-                -1,
-                0,
-                0
-              ],
-              "uAxis": [
-                0,
-                0,
-                1
-              ],
-              "vAxis": [
-                0,
-                1,
-                0
-              ]
-            }
-          },
-          "transform": {
-            "position": [
-              0,
-              0,
-              0
-            ],
-            "rotation": [
-              0,
-              0,
-              0
-            ],
-            "scale": [
-              1,
-              1,
-              1
-            ]
-          }
-        },
-        {
-          "type": "extrude",
-          "id": "a0949221-1e80-4e5a-b5d6-02be196bd39c",
-          "sketch_id": "05be703c-7b40-4444-8ddc-a4c78362c8d2",
-          "height": 1000,
-          "height_backward": 1000,
-          "draft_angle": 0,
-          "cut": true
-        }
-      ]
-    },
-    {
-      "id": "e9cb94a8-0303-40c6-aa13-c25511343c1b",
-      "name": "Тело",
-      "visible": true,
-      "features": [
-        {
-          "type": "sketch",
-          "id": "8743db44-85ab-4610-a8cf-799d06fcb8e3",
-          "sketch": {
-            "plane": "XZ",
-            "offset": 0,
-            "elements": [
-              {
-                "type": "circle",
-                "id": "969ccc50-731a-48a5-a1de-4b88a2384229",
-                "center": {
-                  "x": 5,
-                  "y": -3.5
-                },
-                "radius": 1.4142135623730951
-              }
-            ]
-          },
-          "transform": {
-            "position": [
-              0,
-              0,
-              0
-            ],
-            "rotation": [
-              0,
-              0,
-              0
-            ],
-            "scale": [
-              1,
-              1,
-              1
-            ]
-          }
-        },
-        {
-          "type": "extrude",
-          "id": "a2cdbe4f-4e16-4d12-bddf-61018c08074a",
-          "sketch_id": "8743db44-85ab-4610-a8cf-799d06fcb8e3",
+          "id": "d6d57b92-6892-4609-9aef-421cdccceadb",
+          "sketch_id": "ff93c533-61b5-4516-8b5c-cf48b356be01",
           "height": 1,
           "height_backward": 0,
           "draft_angle": 0,
           "cut": false
+        },
+        {
+          "type": "sketch",
+          "id": "2cc2c73f-5541-4e76-82ae-3b60d1d167a3",
+          "sketch": {
+            "plane": "XZ",
+            "offset": 1,
+            "elements": [
+              {
+                "type": "rectangle",
+                "id": "284aeeb6-2887-482b-9fcd-d432465287d4",
+                "corner": {
+                  "x": -2,
+                  "y": -1.5
+                },
+                "width": 5,
+                "height": 2
+              }
+            ],
+            "face_coord_system": {
+              "origin": [
+                0.25,
+                1,
+                -0.5
+              ],
+              "normal": [
+                0,
+                -1,
+                0
+              ],
+              "uAxis": [
+                0,
+                0,
+                -1
+              ],
+              "vAxis": [
+                1,
+                0,
+                0
+              ]
+            }
+          },
+          "transform": {
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        {
+          "type": "extrude",
+          "id": "5136cadd-7cad-454f-80a2-792dd7860bdd",
+          "sketch_id": "2cc2c73f-5541-4e76-82ae-3b60d1d167a3",
+          "height": 1,
+          "height_backward": 0,
+          "draft_angle": 0,
+          "cut": false
+        },
+        {
+          "type": "sketch",
+          "id": "06fc5d58-d315-44cd-a23b-f31412362607",
+          "sketch": {
+            "plane": "XZ",
+            "offset": 2,
+            "elements": [
+              {
+                "type": "circle",
+                "id": "9bd02e60-7f53-4801-998d-8a8805fab68f",
+                "center": {
+                  "x": 0.5,
+                  "y": -0.5
+                },
+                "radius": 1.118033988749895
+              }
+            ],
+            "face_coord_system": {
+              "origin": [
+                0.5,
+                2,
+                -0.5
+              ],
+              "normal": [
+                0,
+                -1,
+                0
+              ],
+              "uAxis": [
+                0,
+                0,
+                -1
+              ],
+              "vAxis": [
+                1,
+                0,
+                0
+              ]
+            }
+          },
+          "transform": {
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        {
+          "type": "extrude",
+          "id": "30ca36b9-4a9d-4222-8a71-d654244bf51c",
+          "sketch_id": "06fc5d58-d315-44cd-a23b-f31412362607",
+          "height": 1000,
+          "height_backward": 1000,
+          "draft_angle": 0,
+          "cut": true
         }
       ]
     }

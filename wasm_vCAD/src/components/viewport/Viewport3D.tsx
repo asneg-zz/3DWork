@@ -113,24 +113,6 @@ export function Viewport3D() {
         </div>
       )}
 
-      {/* Sketch mode info */}
-      {sketchActive && (
-        <div className="absolute top-4 left-4 bg-cad-surface/90 border border-cad-border rounded px-3 py-2 text-sm">
-          <div className="text-cad-accent">Sketch Mode</div>
-          <div className="text-xs text-cad-muted mt-1">
-            <kbd className="bg-cad-bg px-1 rounded">ЛКМ</kbd> Рисование
-          </div>
-          <div className="text-xs text-cad-muted">
-            <kbd className="bg-cad-bg px-1 rounded">СКМ</kbd> Вращение
-          </div>
-          <div className="text-xs text-cad-muted">
-            <kbd className="bg-cad-bg px-1 rounded">Scroll</kbd> Масштаб
-          </div>
-          <div className="text-xs text-cad-muted">
-            <kbd className="bg-cad-bg px-1 rounded">Escape</kbd> Выход
-          </div>
-        </div>
-      )}
     </div>
   )
 }

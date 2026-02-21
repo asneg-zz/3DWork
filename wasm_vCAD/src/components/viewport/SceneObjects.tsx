@@ -71,20 +71,29 @@ function buildPrimitiveGeo(primitive: NonNullable<Feature['primitive']>): THREE.
 
 // ─── Hook: rebuild CSG for cut features loaded from file (no cached mesh) ─────
 
-// Module-level Set: persists across hook remounts so we never re-rebuild the
+// Module-level Sets: persist across hook remounts so we never re-rebuild the
 // same feature ID.  UUIDs are unique per session so cross-scene collisions are
 // essentially impossible.
 const rebuiltCutIds = new Set<string>()
+const rebuiltExtrudeIds = new Set<string>()
 
 function useRebuildUncachedCuts(bodies: Body[]) {
   const updateFeature = useSceneStore((s) => s.updateFeature)
 
   useEffect(() => {
-    const bodiesNeedingWork = bodies.filter(body =>
-      body.features.some(
-        f => f.type === 'cut' && !f.cached_mesh_vertices && !rebuiltCutIds.has(f.id)
-      )
-    )
+    // Check if any body needs rebuilding: uncached cuts OR uncached extrudes that follow a cut
+    const bodiesNeedingWork = bodies.filter(body => {
+      let hasCutBefore = false
+      for (const f of body.features) {
+        if (f.type === 'cut') {
+          hasCutBefore = true
+          if (!f.cached_mesh_vertices && !rebuiltCutIds.has(f.id)) return true
+        } else if (f.type === 'extrude' && hasCutBefore) {
+          if (!f.cached_mesh_vertices && !rebuiltExtrudeIds.has(f.id)) return true
+        }
+      }
+      return false
+    })
     if (bodiesNeedingWork.length === 0) return
 
     let cancelled = false
@@ -122,7 +131,26 @@ function useRebuildUncachedCuts(bodies: Body[]) {
                   )
                   // If we already have geometry, union with it; otherwise use as base
                   if (bodyGeo) {
+                    const baseGeo = bodyGeo
                     bodyGeo = await performCSG(bodyGeo, extrudeGeo, 'union')
+
+                    if (cancelled) break
+
+                    // Save cached mesh for boss extrude that follows a cut (only once)
+                    if (!rebuiltExtrudeIds.has(feature.id)) {
+                      const { vertices, indices } = serializeGeometry(bodyGeo)
+                      const { vertices: baseV, indices: baseI } = serializeGeometry(baseGeo)
+
+                      updateFeature(body.id, feature.id, {
+                        ...feature,
+                        cached_mesh_vertices: vertices,
+                        cached_mesh_indices: indices,
+                        base_mesh_vertices: baseV,
+                        base_mesh_indices: baseI,
+                      })
+
+                      rebuiltExtrudeIds.add(feature.id)
+                    }
                   } else {
                     bodyGeo = extrudeGeo
                   }
@@ -195,8 +223,7 @@ function useRebuildUncachedCuts(bodies: Body[]) {
 function BooleanFeature({ feature, body, isSelected }: { feature: Feature; body: Body; isSelected: boolean }) {
   const { bodyOpacity, bodyColor, selectionColor } = useSettingsStore()
   const color = isSelected ? selectionColor : bodyColor
-  // When opaque: darken edges so they contrast with the fill; when transparent: same as fill
-  const edgeColor = bodyOpacity >= 1 ? new THREE.Color(color).multiplyScalar(0.45) : color
+  const edgeColor = new THREE.Color(color).multiplyScalar(0.3)
 
   const geometry = useMemo(() => {
     if (!feature.cached_mesh_vertices || !feature.cached_mesh_indices) {
@@ -220,22 +247,22 @@ function BooleanFeature({ feature, body, isSelected }: { feature: Feature; body:
 
   return (
     <group>
-      {/* fill — transparent or solid depending on opacity setting */}
-      <mesh geometry={geometry}>
+      {/* fill — rendered first to write depth buffer */}
+      <mesh geometry={geometry} renderOrder={0}>
         <meshBasicMaterial
           color={color}
           transparent={bodyOpacity < 1}
           opacity={bodyOpacity}
-          side={bodyOpacity < 1 ? THREE.DoubleSide : THREE.FrontSide}
-          depthWrite={bodyOpacity >= 1}
+          side={THREE.DoubleSide}
+          depthWrite={true}
           polygonOffset={true}
-          polygonOffsetFactor={1}
-          polygonOffsetUnits={1}
+          polygonOffsetFactor={2}
+          polygonOffsetUnits={2}
         />
       </mesh>
-      {/* visible edges */}
-      <lineSegments geometry={edgesGeometry}>
-        <lineBasicMaterial color={edgeColor} />
+      {/* edges — rendered after mesh with depth test */}
+      <lineSegments geometry={edgesGeometry} renderOrder={1}>
+        <lineBasicMaterial color={edgeColor} depthTest={true} />
       </lineSegments>
       <FaceHighlight feature={feature} body={body} geometry={geometry} />
       <EdgeHighlight feature={feature} body={body} geometry={geometry} />
@@ -248,8 +275,7 @@ function BooleanFeature({ feature, body, isSelected }: { feature: Feature; body:
 function CutFeature({ feature, body, isSelected }: { feature: Feature; body: Body; isSelected: boolean }) {
   const { bodyOpacity, bodyColor, selectionColor } = useSettingsStore()
   const color = isSelected ? selectionColor : bodyColor
-  // When opaque: darken edges so they contrast with the fill; when transparent: same as fill
-  const edgeColor = bodyOpacity >= 1 ? new THREE.Color(color).multiplyScalar(0.45) : color
+  const edgeColor = new THREE.Color(color).multiplyScalar(0.3)
 
   const geometry = useMemo(() => {
     if (!feature.cached_mesh_vertices || !feature.cached_mesh_indices) {
@@ -271,20 +297,20 @@ function CutFeature({ feature, body, isSelected }: { feature: Feature; body: Bod
 
   return (
     <group>
-      <mesh geometry={geometry}>
+      <mesh geometry={geometry} renderOrder={0}>
         <meshBasicMaterial
           color={color}
           transparent={bodyOpacity < 1}
           opacity={bodyOpacity}
-          side={bodyOpacity < 1 ? THREE.DoubleSide : THREE.FrontSide}
-          depthWrite={bodyOpacity >= 1}
+          side={THREE.DoubleSide}
+          depthWrite={true}
           polygonOffset={true}
-          polygonOffsetFactor={1}
-          polygonOffsetUnits={1}
+          polygonOffsetFactor={2}
+          polygonOffsetUnits={2}
         />
       </mesh>
-      <lineSegments geometry={edgesGeometry}>
-        <lineBasicMaterial color={edgeColor} />
+      <lineSegments geometry={edgesGeometry} renderOrder={1}>
+        <lineBasicMaterial color={edgeColor} depthTest={true} />
       </lineSegments>
       <FaceHighlight feature={feature} body={body} geometry={geometry} />
       <EdgeHighlight feature={feature} body={body} geometry={geometry} />
@@ -423,8 +449,7 @@ function PrimitiveFeatureWithCache(props: { feature: Feature; body: Body; isSele
   const { feature, body, isSelected } = props
   const { bodyOpacity, bodyColor, selectionColor } = useSettingsStore()
   const color = isSelected ? selectionColor : bodyColor
-  // When opaque: darken edges so they contrast with the fill; when transparent: same as fill
-  const edgeColor = bodyOpacity >= 1 ? new THREE.Color(color).multiplyScalar(0.45) : color
+  const edgeColor = new THREE.Color(color).multiplyScalar(0.3)
 
   const geometry = useMemo(() => {
     if (!feature.primitive) return new THREE.BoxGeometry(1, 1, 1)
@@ -477,22 +502,20 @@ function PrimitiveFeatureWithCache(props: { feature: Feature; body: Body; isSele
       rotation={transform.rotation as [number,number,number]}
       scale={transform.scale as [number,number,number]}
     >
-      {/* fill — transparent or solid depending on opacity setting */}
-      <mesh geometry={geometry}>
+      <mesh geometry={geometry} renderOrder={0}>
         <meshBasicMaterial
           color={color}
           transparent={bodyOpacity < 1}
           opacity={bodyOpacity}
-          side={bodyOpacity < 1 ? THREE.DoubleSide : THREE.FrontSide}
-          depthWrite={bodyOpacity >= 1}
+          side={THREE.DoubleSide}
+          depthWrite={true}
           polygonOffset={true}
-          polygonOffsetFactor={1}
-          polygonOffsetUnits={1}
+          polygonOffsetFactor={2}
+          polygonOffsetUnits={2}
         />
       </mesh>
-      {/* visible edges */}
-      <lineSegments geometry={edgesGeometry}>
-        <lineBasicMaterial color={edgeColor} />
+      <lineSegments geometry={edgesGeometry} renderOrder={1}>
+        <lineBasicMaterial color={edgeColor} depthTest={true} />
       </lineSegments>
       <FaceHighlight feature={feature} body={body} geometry={geometry} />
       <EdgeHighlight feature={feature} body={body} geometry={geometry} />
@@ -504,8 +527,7 @@ function ExtrudeFeatureWithCache(props: { feature: Feature; body: Body; isSelect
   const { feature, body, isSelected } = props
   const { bodyOpacity, bodyColor, selectionColor } = useSettingsStore()
   const color = isSelected ? selectionColor : bodyColor
-  // When opaque: darken edges so they contrast with the fill; when transparent: same as fill
-  const edgeColor = bodyOpacity >= 1 ? new THREE.Color(color).multiplyScalar(0.45) : color
+  const edgeColor = new THREE.Color(color).multiplyScalar(0.3)
 
   const height = feature.extrude_params?.height || 1
   const heightBackward = feature.extrude_params?.height_backward || 0
@@ -538,22 +560,20 @@ function ExtrudeFeatureWithCache(props: { feature: Feature; body: Body; isSelect
 
   return (
     <group>
-      {/* fill — transparent or solid depending on opacity setting */}
-      <mesh geometry={geometry}>
+      <mesh geometry={geometry} renderOrder={0}>
         <meshBasicMaterial
           color={color}
           transparent={bodyOpacity < 1}
           opacity={bodyOpacity}
-          side={bodyOpacity < 1 ? THREE.DoubleSide : THREE.FrontSide}
-          depthWrite={bodyOpacity >= 1}
+          side={THREE.DoubleSide}
+          depthWrite={true}
           polygonOffset={true}
-          polygonOffsetFactor={1}
-          polygonOffsetUnits={1}
+          polygonOffsetFactor={2}
+          polygonOffsetUnits={2}
         />
       </mesh>
-      {/* visible edges */}
-      <lineSegments geometry={edgesGeometry}>
-        <lineBasicMaterial color={edgeColor} />
+      <lineSegments geometry={edgesGeometry} renderOrder={1}>
+        <lineBasicMaterial color={edgeColor} depthTest={true} />
       </lineSegments>
       <FaceHighlight feature={feature} body={body} geometry={geometry} />
       <EdgeHighlight feature={feature} body={body} geometry={geometry} />

@@ -5,6 +5,7 @@
 
 import * as THREE from 'three'
 import type { Point2D, SketchElement, SketchPlane, FaceCoordSystem } from '@/types/scene'
+import { interpolateCatmullRom, interpolateCatmullRomClosed, isSplineClosed } from '@/utils/splineInterpolation'
 
 // ─── Sketch ↔ World conversions ───────────────────────────────────────────────
 
@@ -190,9 +191,19 @@ export function elementToPoints3D(
     }
 
     case 'polyline':
-    case 'spline':
       if (element.points && element.points.length >= 2) {
         return element.points.map(p => s(p.x, p.y))
+      }
+      break
+
+    case 'spline':
+      if (element.points && element.points.length >= 2) {
+        // Interpolate spline as smooth Catmull-Rom curve
+        const closed = isSplineClosed(element.points)
+        const interpolated = closed
+          ? interpolateCatmullRomClosed(element.points, 16)
+          : interpolateCatmullRom(element.points, 16)
+        return interpolated.map(p => s(p.x, p.y))
       }
       break
 

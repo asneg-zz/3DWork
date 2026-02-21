@@ -33,7 +33,7 @@ export function getContextMenuItems(
     {
       label: `${element.type.charAt(0).toUpperCase() + element.type.slice(1)}`,
       onClick: () => {},
-      disabled: true,
+      header: true,
     },
     { label: '', onClick: () => {}, separator: true },
 
@@ -90,13 +90,12 @@ export function getContextMenuItems(
 
     { label: '', onClick: () => {}, separator: true },
 
-    // Constraints submenu
-    {
-      label: 'Ограничения',
+    // Constraints - open dialog
+    ...(callbacks.onOpenConstraintDialog ? [{
+      label: 'Ограничения...',
       icon: <Lock size={16} />,
-      onClick: () => {},
-      disabled: true,  // Header
-    },
+      onClick: () => callbacks.onOpenConstraintDialog!(elementId),
+    }] : []),
 
     // Quick access to common single-element constraints
     ...(element.type === 'line' ? [
@@ -115,12 +114,6 @@ export function getContextMenuItems(
       label: callbacks.hasConstraint('fixed', elementId) ? '✓ Зафиксировать' : 'Зафиксировать',
       onClick: () => callbacks.onAddConstraint('fixed', elementId),
     },
-
-    // Open dialog for more constraints (parallel, perpendicular, equal, tangent, etc.)
-    ...(callbacks.onOpenConstraintDialog ? [{
-      label: 'Добавить ограничение...',
-      onClick: () => callbacks.onOpenConstraintDialog!(elementId),
-    }] : []),
 
     { label: '', onClick: () => {}, separator: true },
 

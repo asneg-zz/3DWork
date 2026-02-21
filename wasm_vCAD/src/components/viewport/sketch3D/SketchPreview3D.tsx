@@ -7,6 +7,7 @@ import { useMemo, useCallback } from 'react'
 import * as THREE from 'three'
 import type { Point2D, SketchPlane, FaceCoordSystem } from '@/types/scene'
 import { sketchToWorld } from './coords'
+import { interpolateCatmullRom } from '@/utils/splineInterpolation'
 
 interface SketchPreview3DProps {
   tool: string | null
@@ -71,10 +72,19 @@ export function SketchPreview3D({ tool, isDrawing, startPoint, currentPoint, arc
         break
 
       case 'polyline':
-      case 'spline':
         if (polylinePoints.length > 0) {
           points = polylinePoints.map(p => s(p.x, p.y))
           points.push(s(currentPoint.x, currentPoint.y))
+        }
+        break
+
+      case 'spline':
+        if (polylinePoints.length > 0) {
+          // Include current point for preview
+          const allPoints = [...polylinePoints, currentPoint]
+          // Interpolate as smooth curve
+          const interpolated = interpolateCatmullRom(allPoints, 16)
+          points = interpolated.map(p => s(p.x, p.y))
         }
         break
     }

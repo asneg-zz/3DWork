@@ -5,6 +5,7 @@ import { useSketchSave } from '@/hooks/useSketchSave'
 import { useSketchExtrude } from '@/hooks/useSketchExtrude'
 import { ToolDropdown } from './ToolDropdown'
 import { ExtrudeDialog } from '@/components/dialogs/ExtrudeDialog'
+import { SnapSettingsMenu } from '@/components/viewport/SnapSettingsMenu'
 
 export function SketchToolbar() {
   const { active, tool, elements } = useSketchStore()
@@ -117,6 +118,9 @@ export function SketchToolbar() {
         currentTool={tool}
         onSelectTool={(id) => setTool(id as any)}
       />
+
+      {/* Snap Settings */}
+      <SnapSettingsMenu />
 
       <div className="w-px h-6 bg-cad-border mx-2"></div>
 

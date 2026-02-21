@@ -1,58 +1,25 @@
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
-import { persist, createJSONStorage } from 'zustand/middleware'
-import type { StateStorage } from 'zustand/middleware'
 import type { SceneDescription, Body, Feature, BooleanOperation } from '@/types/scene'
 import { performCSG, serializeGeometry } from '@/utils/manifoldCSG'
 import { geometryCache } from '@/utils/geometryCache'
-import { serializeScene } from '@/utils/sceneSerializer'
-import { useNotificationStore } from './notificationStore'
 
-// ─── Fallback: download scene as JSON file ────────────────────────────────────
+// ─── Last file path storage ───────────────────────────────────────────────────
 
-function downloadSceneJson(persistedJson: string): void {
-  try {
-    const parsed = JSON.parse(persistedJson)
-    const scene: SceneDescription | undefined = parsed?.state?.scene
-    if (!scene) return
+const LAST_FILE_KEY = 'vcad-last-file'
+const OLD_SCENE_KEY = 'vcad-scene'
 
-    const data = serializeScene(scene)
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
-    const url  = URL.createObjectURL(blob)
-    const a    = document.createElement('a')
-    a.href     = url
-    const ts   = new Date().toISOString().slice(0, 19).replace(/:/g, '-')
-    a.download = `vcad-autosave-${ts}.json`
-    a.click()
-    URL.revokeObjectURL(url)
-  } catch {
-    // nothing we can do if download also fails
-  }
+// Clean up old localStorage scene data (no longer used)
+if (localStorage.getItem(OLD_SCENE_KEY)) {
+  localStorage.removeItem(OLD_SCENE_KEY)
 }
 
-// ─── Custom localStorage adapter with QuotaExceededError fallback ─────────────
+export function getLastFilePath(): string | null {
+  return localStorage.getItem(LAST_FILE_KEY)
+}
 
-const sceneStorage: StateStorage = {
-  getItem: (name) => localStorage.getItem(name),
-
-  setItem: (name, value) => {
-    try {
-      localStorage.setItem(name, value)
-    } catch (e) {
-      if (
-        e instanceof DOMException &&
-        (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED')
-      ) {
-        useNotificationStore.getState().show(
-          'Превышен лимит хранилища браузера. Сцена автоматически сохранена в файл.',
-          'warning'
-        )
-        downloadSceneJson(value)
-      }
-    }
-  },
-
-  removeItem: (name) => localStorage.removeItem(name),
+export function setLastFilePath(path: string): void {
+  localStorage.setItem(LAST_FILE_KEY, path)
 }
 
 // ─── Store types ──────────────────────────────────────────────────────────────
@@ -93,8 +60,7 @@ interface SceneState {
 // ─── Store ────────────────────────────────────────────────────────────────────
 
 export const useSceneStore = create<SceneState>()(
-  persist(
-    immer((set) => ({
+  immer((set) => ({
       scene: {
         bodies: [],
         operations: []
@@ -241,12 +207,5 @@ export const useSceneStore = create<SceneState>()(
           state.selectedFeatureId = null
         })
       },
-    })),
-    {
-      name: 'vcad-scene',
-      storage: createJSONStorage(() => sceneStorage),
-      // Only persist the scene graph; selection is transient UI state
-      partialize: (state) => ({ scene: state.scene }),
-    }
-  )
+    }))
 )

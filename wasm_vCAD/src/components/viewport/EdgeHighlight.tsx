@@ -33,6 +33,7 @@ function extractEdges(geometry: THREE.BufferGeometry): Edge[] {
   const position = edgesGeometry.attributes.position
 
   if (!position || !(position instanceof THREE.BufferAttribute)) {
+    edgesGeometry.dispose()
     return []
   }
 
@@ -59,6 +60,9 @@ function extractEdges(geometry: THREE.BufferGeometry): Edge[] {
 
     edges.push({ start, end, key })
   }
+
+  // Dispose temporary geometry to prevent GPU memory leak
+  edgesGeometry.dispose()
 
   return edges
 }

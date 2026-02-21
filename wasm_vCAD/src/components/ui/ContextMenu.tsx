@@ -7,6 +7,7 @@ export interface ContextMenuItem {
   disabled?: boolean
   separator?: boolean
   danger?: boolean  // Red color for dangerous actions
+  header?: boolean  // Section header (not clickable, but styled differently from disabled)
 }
 
 interface ContextMenuProps {
@@ -50,6 +51,19 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
       {items.map((item, index) => {
         if (item.separator) {
           return <div key={index} className="h-px bg-cad-border my-1" />
+        }
+
+        // Section header - styled as label, not clickable
+        if (item.header) {
+          return (
+            <div
+              key={index}
+              className="w-full px-3 py-1.5 text-xs text-cad-accent font-semibold flex items-center gap-2 uppercase tracking-wide"
+            >
+              {item.icon && <span className="w-4 h-4 opacity-70">{item.icon}</span>}
+              <span>{item.label}</span>
+            </div>
+          )
         }
 
         return (

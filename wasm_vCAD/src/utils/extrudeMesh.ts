@@ -5,6 +5,11 @@
 
 import type { SketchElement, SketchPlane, FaceCoordSystem } from '@/types/scene'
 import * as THREE from 'three'
+import { getPlaneCoordSystem, type CoordSystem } from './geometry/coordSystem'
+import { interpolateCatmullRom, interpolateCatmullRomClosed, isSplineClosed } from './splineInterpolation'
+
+// Re-export for backward compatibility
+export { getPlaneCoordSystem, type CoordSystem }
 
 interface Point2D {
   x: number
@@ -68,9 +73,19 @@ function elementToPoints(element: SketchElement, segments: number = 32): Point2D
     }
 
     case 'polyline':
-    case 'spline':
       if (element.points) {
         points.push(...element.points.map(p => ({ x: p.x, y: p.y })))
+      }
+      break
+
+    case 'spline':
+      if (element.points && element.points.length >= 2) {
+        // Interpolate spline as smooth Catmull-Rom curve
+        const closed = isSplineClosed(element.points)
+        const interpolated = closed
+          ? interpolateCatmullRomClosed(element.points, 16)
+          : interpolateCatmullRom(element.points, 16)
+        points.push(...interpolated)
       }
       break
   }
@@ -100,39 +115,6 @@ export function extractProfiles2D(elements: SketchElement[]): [number, number][]
       return profile.slice(0, n).map(p => [p.x, p.y] as [number, number])
     })
     .filter(p => p.length >= 3)
-}
-
-/**
- * Returns the coordinate system of a sketch plane.
- * origin: 3D world position at sketch origin (u=0, v=0)
- * normal: extrusion direction (unit vector)
- * uAxis: world direction corresponding to sketch u (x) axis
- * vAxis: world direction corresponding to sketch v (y) axis
- */
-export function getPlaneCoordSystem(
-  plane: SketchPlane,
-  offset: number,
-  fcs?: FaceCoordSystem | null
-): {
-  origin: [number, number, number]
-  normal: [number, number, number]
-  uAxis:  [number, number, number]
-  vAxis:  [number, number, number]
-} {
-  if (plane === 'CUSTOM' && fcs) {
-    return {
-      origin: [fcs.origin[0], fcs.origin[1], fcs.origin[2]],
-      normal: [fcs.normal[0], fcs.normal[1], fcs.normal[2]],
-      uAxis:  [fcs.uAxis[0],  fcs.uAxis[1],  fcs.uAxis[2]],
-      vAxis:  [fcs.vAxis[0],  fcs.vAxis[1],  fcs.vAxis[2]],
-    }
-  }
-  switch (plane) {
-    case 'XY': return { origin: [0, 0, offset], normal: [0, 0, 1], uAxis: [1, 0, 0], vAxis: [0, 1, 0] }
-    case 'XZ': return { origin: [0, offset, 0], normal: [0, 1, 0], uAxis: [1, 0, 0], vAxis: [0, 0, 1] }
-    case 'YZ': return { origin: [offset, 0, 0], normal: [1, 0, 0], uAxis: [0, 1, 0], vAxis: [0, 0, 1] }
-    default:   return { origin: [0, 0, offset], normal: [0, 0, 1], uAxis: [1, 0, 0], vAxis: [0, 1, 0] }
-  }
 }
 
 /**

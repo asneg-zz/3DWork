@@ -51,7 +51,7 @@ interface SettingsState {
 
 const DEFAULTS = {
   units: 'mm' as Units,
-  bodyOpacity: 0.08,
+  bodyOpacity: 1.0,
 
   gridVisible: true,
   gridSize: 1.0,
