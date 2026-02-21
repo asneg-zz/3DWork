@@ -86,8 +86,6 @@ pub fn trim_arc(
     let c = to_point(center);
     let ints = find_arc_intersections(idx, c, radius, start_angle, end_angle, sketch);
 
-    tracing::info!("trim_arc: found {} intersections", ints.len());
-
     if ints.is_empty() {
         return TrimResult::NoChange;
     }
@@ -156,7 +154,6 @@ pub fn trim_polyline(
 
     let ints = find_polyline_intersections(idx, points, sketch);
 
-    tracing::info!("trim_polyline: found {} intersections", ints.len());
 
     if ints.is_empty() {
         return TrimResult::NoChange;
@@ -189,12 +186,6 @@ pub fn trim_polyline(
         }
     }
 
-    tracing::info!(
-        "trim_polyline: click closest to segment {}, t={:.3}",
-        best_seg_idx,
-        best_t
-    );
-
     // Convert click position to a global parameter for comparison
     // Global parameter = segment_idx + t within segment
     let click_global_param = best_seg_idx as f64 + best_t;
@@ -213,12 +204,6 @@ pub fn trim_polyline(
             break;
         }
     }
-
-    tracing::info!(
-        "trim_polyline: prev_int={:?}, next_int={:?}",
-        prev_int.map(|i| (i.segment_idx, i.segment_t)),
-        next_int.map(|i| (i.segment_idx, i.segment_t))
-    );
 
     // Build the result polylines
     let mut result = Vec::new();
@@ -312,7 +297,6 @@ pub fn trim_spline(
 
     let ints = find_polyline_intersections(idx, points, sketch);
 
-    tracing::info!("trim_spline: found {} intersections", ints.len());
 
     if ints.is_empty() {
         return TrimResult::NoChange;
@@ -481,13 +465,6 @@ pub fn trim_rectangle(
         }
     }
 
-    tracing::info!(
-        "trim_rectangle: click closest to side {}, t={:.3}, dist={:.3}",
-        best_side,
-        best_t,
-        best_dist
-    );
-
     // Find intersections on the clicked side
     let side_start = corners[best_side];
     let side_end = corners[(best_side + 1) % 4];
@@ -587,7 +564,6 @@ pub fn trim_rectangle(
     side_ints.sort_by(|a, b| a.param.partial_cmp(&b.param).unwrap());
     dedup_intersections(&mut side_ints);
 
-    tracing::info!("trim_rectangle: found {} intersections on side {}", side_ints.len(), best_side);
 
     if side_ints.is_empty() {
         return TrimResult::NoChange;
@@ -660,17 +636,12 @@ pub fn trim_circle(
     let c = to_point(center);
     let ints = find_circle_intersections(idx, c, radius, sketch);
 
-    tracing::info!("trim_circle: found {} intersections, angles: {:?}",
-        ints.len(),
-        ints.iter().map(|i| i.param).collect::<Vec<_>>());
-
     if ints.len() < 2 {
         return TrimResult::NoChange;
     }
 
     // Find click angle
     let click_angle = normalize_angle((click[1] - center[1]).atan2(click[0] - center[0]));
-    tracing::info!("trim_circle: click_angle = {:.2} rad ({:.1}°)", click_angle, click_angle.to_degrees());
 
     // Find which segment the click is in
     let n = ints.len();
@@ -685,11 +656,9 @@ pub fn trim_circle(
         };
 
         if in_segment {
-            tracing::info!("trim_circle: click is in segment {} ({:.2} to {:.2})", i, start_angle, end_angle);
 
             if n == 2 {
                 // Simple case: 2 intersections, create single arc for the other segment
-                tracing::info!("trim_circle: 2 intersections, creating single arc {:.2} to {:.2}", end_angle, start_angle);
                 return TrimResult::Replaced(vec![SketchElement::Arc {
                 id: None,
                     center: Point2D { x: center[0], y: center[1] },
@@ -706,7 +675,6 @@ pub fn trim_circle(
                     }
                     let arc_start = ints[j].param;
                     let arc_end = ints[(j + 1) % n].param;
-                    tracing::info!("trim_circle: keeping segment {} as arc {:.2} to {:.2}", j, arc_start, arc_end);
                     arcs.push(SketchElement::Arc {
                 id: None,
                         center: Point2D { x: center[0], y: center[1] },

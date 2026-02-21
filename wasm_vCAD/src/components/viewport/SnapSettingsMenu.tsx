@@ -6,6 +6,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { Magnet, ChevronDown, ChevronUp, Grid, CircleDot, Crosshair } from 'lucide-react'
 import { useSketchStore } from '@/stores/sketchStore'
+import { useSettingsStore } from '@/stores/settingsStore'
 
 export function SnapSettingsMenu() {
   const [isOpen, setIsOpen] = useState(false)
@@ -28,12 +29,15 @@ export function SnapSettingsMenu() {
   const setSnapSetting = useSketchStore((s) => s.setSnapSetting)
   const toggleSnapEnabled = useSketchStore((s) => s.toggleSnapEnabled)
 
+  // Grid snap is stored in settingsStore (persisted)
+  const snapToGrid = useSettingsStore((s) => s.snapToGrid)
+  const setSettings = useSettingsStore((s) => s.set)
+
   const snapTypes = [
     { key: 'endpoint' as const, label: 'Конечные точки', icon: Crosshair },
     { key: 'midpoint' as const, label: 'Середины', icon: CircleDot },
     { key: 'center' as const, label: 'Центры', icon: CircleDot },
     { key: 'quadrant' as const, label: 'Квадранты', icon: CircleDot },
-    { key: 'grid' as const, label: 'Сетка', icon: Grid },
   ]
 
   return (
@@ -85,6 +89,17 @@ export function SnapSettingsMenu() {
                 <span className="text-xs">{label}</span>
               </label>
             ))}
+            {/* Grid snap - stored in settingsStore */}
+            <label className="flex items-center gap-2 px-3 py-1.5 hover:bg-cad-hover cursor-pointer">
+              <input
+                type="checkbox"
+                checked={snapToGrid}
+                onChange={(e) => setSettings({ snapToGrid: e.target.checked })}
+                className="w-3.5 h-3.5 accent-cad-accent"
+              />
+              <Grid size={14} className="text-cad-muted" />
+              <span className="text-xs">Сетка</span>
+            </label>
           </div>
 
           {/* Snap radius setting */}

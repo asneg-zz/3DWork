@@ -214,22 +214,15 @@ pub fn arc_circle_intersection(
         circle,
     );
 
-    tracing::info!("    arc_circle_intersection: arc center=({:.2},{:.2}) r={:.2} angles={:.2}..{:.2}, circle center=({:.2},{:.2}) r={:.2}",
-        arc_center.x, arc_center.y, arc_radius, start_angle, end_angle,
-        circle.center.x, circle.center.y, circle.radius);
-    tracing::info!("    raw circle-circle intersections: {}", raw_ints.len());
-
     let result: Vec<Point> = raw_ints
         .into_iter()
         .filter(|pt| {
             let angle = (pt.y - arc_center.y).atan2(pt.x - arc_center.x);
             let in_range = angle_in_arc_range(angle, start_angle, end_angle);
-            tracing::info!("      point ({:.2},{:.2}) angle={:.2} in_range={}", pt.x, pt.y, angle, in_range);
             in_range
         })
         .collect();
 
-    tracing::info!("    filtered to {} points", result.len());
     result
 }
 
@@ -506,8 +499,11 @@ pub fn find_arc_intersections(
         for pt in points {
             let angle = (pt.y - center.y).atan2(pt.x - center.x);
             let param = angle_to_param(angle, start_angle, end_angle);
-            if param > 1e-6 && param < 1.0 - 1e-6 {
-                results.push(Intersection { param, point: pt });
+            // Allow intersections at arc endpoints (param close to 0 or 1)
+            // Only exclude if param is completely outside [0, 1]
+            if param >= -1e-6 && param <= 1.0 + 1e-6 {
+                let clamped_param = param.clamp(0.0, 1.0);
+                results.push(Intersection { param: clamped_param, point: pt });
             }
         }
 
@@ -517,8 +513,10 @@ pub fn find_arc_intersections(
             if let Some(angle) = point_on_circle(endpoint, center, radius, endpoint_tolerance) {
                 if angle_in_arc_range(angle, start_angle, end_angle) {
                     let param = angle_to_param(angle, start_angle, end_angle);
-                    if param > 1e-6 && param < 1.0 - 1e-6 {
-                        results.push(Intersection { param, point: endpoint });
+                    // Allow endpoints at arc endpoints
+                    if param >= -1e-6 && param <= 1.0 + 1e-6 {
+                        let clamped_param = param.clamp(0.0, 1.0);
+                        results.push(Intersection { param: clamped_param, point: endpoint });
                     }
                 }
             }
@@ -540,35 +538,15 @@ pub fn find_circle_intersections(
     let circle = KCircle::new(center, radius);
     let mut results = Vec::new();
 
-    tracing::info!("find_circle_intersections: circle idx={}, center=({:.2},{:.2}), r={:.2}, {} elements in sketch",
-        idx, center.x, center.y, radius, sketch.elements.len());
-
     for (i, elem) in sketch.elements.iter().enumerate() {
         if i == idx {
             continue;
         }
 
-        // Log element type for debugging
-        let elem_type = match elem {
-            SketchElement::Line { .. } => "Line",
-            SketchElement::Circle { .. } => "Circle",
-            SketchElement::Arc { .. } => "Arc",
-            SketchElement::Rectangle { .. } => "Rectangle",
-            SketchElement::Spline { .. } => "Spline",
-            SketchElement::Polyline { .. } => "Polyline",
-            SketchElement::Dimension { .. } => "Dimension",
-        };
-        tracing::info!("  Element[{}] type: {}", i, elem_type);
-
         let points: Vec<Point> = match elem {
             SketchElement::Line { start, end, .. } => {
                 let line = KLine::new(Point::new(start.x, start.y), Point::new(end.x, end.y));
-                let all_ints = line_circle_intersection(line, circle);
-                tracing::info!("    Line ({:.2},{:.2})->({:.2},{:.2}): {} raw intersections, t values: {:?}",
-                    start.x, start.y, end.x, end.y,
-                    all_ints.len(),
-                    all_ints.iter().map(|(t, _)| *t).collect::<Vec<_>>());
-                all_ints
+                line_circle_intersection(line, circle)
                     .into_iter()
                     .filter(|(t, _)| *t >= -1e-6 && *t <= 1.0 + 1e-6)
                     .map(|(_, pt)| pt)

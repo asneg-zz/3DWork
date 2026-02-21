@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useThree } from '@react-three/fiber'
 import type { Point2D, SnapPoint, SketchElement } from '@/types/scene'
 import { useSketchStore } from '@/stores/sketchStore'
+import { useSettingsStore } from '@/stores/settingsStore'
 import { createSketchForWasm } from '../../sketchUtils'
 import { engine } from '@/wasm/engine'
 
@@ -29,18 +30,20 @@ export function useSnapPoints(elements: SketchElement[], wasmPlane: 'XY' | 'XZ' 
       return
     }
     try {
+      // Read settings directly from store to always get current values
+      const settings = useSettingsStore.getState()
+
       const sketch = createSketchForWasm(elements, wasmPlane)
       const sketchJson = JSON.stringify(sketch)
-      const snapRadius = snapSettings.snapRadius
       const settingsJson = JSON.stringify({
         enabled: snapSettings.enabled,
         endpoint: snapSettings.endpoint,
         midpoint: snapSettings.midpoint,
         center: snapSettings.center,
         quadrant: snapSettings.quadrant,
-        grid: snapSettings.grid,
-        grid_size: snapSettings.gridSize,
-        snap_radius: snapRadius,
+        grid: settings.snapToGrid,
+        grid_size: settings.gridSize,
+        snap_radius: snapSettings.snapRadius,
       })
       const points = engine.getSnapPoints(sketchJson, sketchPoint.x, sketchPoint.y, settingsJson)
       setSnapPoints(points.map(p => ({

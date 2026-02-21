@@ -291,8 +291,52 @@ export function useSketchExtrude() {
           bodyGeo = rebuiltBase
         }
       } else {
-        // CREATE new cut: body must have geometry in cache
-        bodyGeo = geometryCache.get(sketchBodyId)
+        // CREATE new cut: need to get or build combined body geometry
+        // Check if there are multiple extrudes without cached_mesh - if so, cache is incomplete
+        const extrudeFeatures = body.features.filter(f => f.type === 'extrude')
+        const uncachedExtrudes = extrudeFeatures.filter(f => !f.cached_mesh_vertices)
+        const needsRebuild = uncachedExtrudes.length > 1
+
+        if (needsRebuild) {
+          // Multiple extrudes without cached mesh - need to combine all
+          let combinedGeo: THREE.BufferGeometry | null = null
+
+          for (const extrudeF of extrudeFeatures) {
+            // If this extrude has cached mesh (from prior CSG union), use it
+            if (extrudeF.cached_mesh_vertices && extrudeF.cached_mesh_indices) {
+              combinedGeo = deserializeGeometry({
+                vertices: extrudeF.cached_mesh_vertices,
+                indices: extrudeF.cached_mesh_indices,
+              })
+            } else {
+              // No cached mesh - generate from sketch
+              const sk = body.features.find(bf => bf.id === extrudeF.sketch_id)
+              if (sk?.type === 'sketch' && sk.sketch) {
+                const extrudeGeo = generateExtrudeMesh(
+                  sk.sketch.elements,
+                  sk.sketch.plane,
+                  extrudeF.extrude_params?.height ?? 1,
+                  extrudeF.extrude_params?.height_backward ?? 0,
+                  sk.sketch.offset ?? 0,
+                  sk.sketch.face_coord_system ?? null,
+                  extrudeF.extrude_params?.draft_angle ?? 0
+                )
+
+                if (combinedGeo) {
+                  combinedGeo = await performCSG(combinedGeo, extrudeGeo, 'union')
+                } else {
+                  combinedGeo = extrudeGeo
+                }
+              }
+            }
+          }
+
+          bodyGeo = combinedGeo ?? undefined
+        } else {
+          // Single extrude or all have cached mesh - use geometry cache
+          bodyGeo = geometryCache.get(sketchBodyId)
+        }
+
         if (!bodyGeo) {
           useNotificationStore.getState().show(
             'Вырез невозможен: тело не имеет геометрии. Сначала создайте выдавливание.',

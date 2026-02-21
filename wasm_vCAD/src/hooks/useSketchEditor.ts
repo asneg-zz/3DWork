@@ -39,9 +39,6 @@ export function useSketchEditor() {
   const arcMidPoint = useSketchStore(s => s.arcMidPoint)
   const polylinePoints = useSketchStore(s => s.polylinePoints)
 
-  // Grid settings
-  const gridSize = useSketchStore(s => s.gridSize)
-  const snapToGrid = useSketchStore(s => s.snapToGrid)
 
   // ─── UI state ──────────────────────────────────────────────────────────────
 
@@ -182,8 +179,6 @@ export function useSketchEditor() {
     currentPoint,
     arcMidPoint,
     polylinePoints,
-    gridSize,
-    snapToGrid,
 
     // UI state
     contextMenu,

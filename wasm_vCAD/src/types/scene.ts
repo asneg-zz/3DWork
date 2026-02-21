@@ -20,8 +20,6 @@ export interface SnapSettings {
   midpoint: boolean
   center: boolean
   quadrant: boolean
-  grid: boolean
-  gridSize: number
   snapRadius: number  // In world units
 }
 

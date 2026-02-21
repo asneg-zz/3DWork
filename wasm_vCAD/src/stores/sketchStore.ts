@@ -37,10 +37,6 @@ interface SketchState {
   arcMidPoint: Point2D | null  // For 3-point arc
   polylinePoints: Point2D[]  // For polyline/spline
 
-  // Grid settings
-  gridSize: number
-  snapToGrid: boolean
-
   // Snap settings
   snapSettings: SnapSettings
   currentSnapPoint: SnapPoint | null
@@ -84,9 +80,6 @@ interface SketchState {
   setZoom: (zoom: number) => void
   setPan: (x: number, y: number) => void
   resetView: () => void
-
-  // Grid
-  snapPoint: (point: Point2D) => Point2D
 
   // Undo/Redo
   undo: () => void
@@ -166,16 +159,12 @@ export const useSketchStore = create<SketchState>()(
       currentPoint: null,
       arcMidPoint: null,
       polylinePoints: [],
-      gridSize: 0.5,
-      snapToGrid: true,
       snapSettings: {
         enabled: true,
         endpoint: true,
         midpoint: true,
         center: true,
         quadrant: true,
-        grid: true,
-        gridSize: 0.5,
         snapRadius: 0.5,
       },
       currentSnapPoint: null,
@@ -267,18 +256,18 @@ export const useSketchStore = create<SketchState>()(
 
     startDrawing: (point) =>
       set((state) => {
-        const snapped = state.snapToGrid ? get().snapPoint(point) : point
+        // Point already snapped by useSnapPoints hook in 3D mode
         state.isDrawing = true
-        state.startPoint = snapped
-        state.currentPoint = snapped
+        state.startPoint = point
+        state.currentPoint = point
         state.arcMidPoint = null  // Reset for new arc
       }),
 
     updateDrawing: (point) =>
       set((state) => {
         if (!state.isDrawing) return
-        const snapped = state.snapToGrid ? get().snapPoint(point) : point
-        state.currentPoint = snapped
+        // Point already snapped by useSnapPoints hook in 3D mode
+        state.currentPoint = point
       }),
 
     finishDrawing: () =>
@@ -426,18 +415,17 @@ export const useSketchStore = create<SketchState>()(
     // Polyline/Spline specific
     addPolylinePoint: (point) =>
       set((state) => {
-        const snapped = state.snapToGrid ? get().snapPoint(point) : point
-
+        // Point already snapped by useSnapPoints hook in 3D mode
         if (state.polylinePoints.length === 0) {
           // First point
           state.isDrawing = true
-          state.polylinePoints.push(snapped)
-          state.startPoint = snapped
-          state.currentPoint = snapped
+          state.polylinePoints.push(point)
+          state.startPoint = point
+          state.currentPoint = point
         } else {
           // Add additional point
-          state.polylinePoints.push(snapped)
-          state.currentPoint = snapped
+          state.polylinePoints.push(point)
+          state.currentPoint = point
         }
       }),
 
@@ -588,14 +576,6 @@ export const useSketchStore = create<SketchState>()(
         state.panX = 0
         state.panY = 0
       }),
-
-    snapPoint: (point) => {
-      const { gridSize } = get()
-      return {
-        x: Math.round(point.x / gridSize) * gridSize,
-        y: Math.round(point.y / gridSize) * gridSize,
-      }
-    },
 
     // Undo/Redo
     undo: () =>
